@@ -1,7 +1,9 @@
 //! Method registry for POST /api/method/{path}
 //! Routes dotted-path method calls to registered Rust handlers.
 
+mod auth;
 mod client;
+pub use auth::{get_logged_user_handler, login_handler, logout_handler};
 pub use client::register_client_methods;
 
 use crate::state::SiteState;
@@ -93,5 +95,14 @@ mod tests {
         ] {
             assert!(registry.get(path).is_some(), "missing: {path}");
         }
+    }
+
+    #[test]
+    fn auth_methods_are_not_in_registry() {
+        let registry = build_registry();
+        // Auth methods are dedicated Axum routes, NOT dispatched through the registry.
+        assert!(registry.get("login").is_none());
+        assert!(registry.get("logout").is_none());
+        assert!(registry.get("frappe.auth.get_logged_user").is_none());
     }
 }

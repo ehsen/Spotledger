@@ -11,6 +11,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::cli::{RunMode, ServeArgs};
 use crate::middleware::site_middleware;
+use crate::methods::{get_logged_user_handler, login_handler, logout_handler};
 use crate::routes::{call_method, ping, resource_get, resource_get_value, resource_list};
 use crate::state::{AppState, SiteState};
 use spotledger_db::connection::connect;
@@ -46,6 +47,12 @@ pub async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         .route(
             "/api/resource/:doctype/:name/:fieldname",
             get(resource_get_value),
+        )
+        .route("/api/method/login", post(login_handler))
+        .route("/api/method/logout", post(logout_handler))
+        .route(
+            "/api/method/frappe.auth.get_logged_user",
+            post(get_logged_user_handler),
         )
         .route("/api/method/{*path}", post(call_method));
 

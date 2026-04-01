@@ -53,6 +53,14 @@ reqwest = { version = "0.12", features = ["json"] }
 # HTTP body utilities
 http-body-util = "0.1"
 
+# Password hashing (Frappe uses passlib pbkdf2_sha256 + argon2)
+pbkdf2  = "0.12"
+sha2    = "0.10"
+argon2  = "0.5"
+base64  = "0.22"
+rand    = "0.8"
+hex     = "0.4"
+
 # Internal crates
 spotledger-types = { path = "crates/spotledger-types" }
 spotledger-db    = { path = "crates/spotledger-db" }
