@@ -33,6 +33,13 @@ pub struct MessageResponse {
     pub data: Option<Value>,
 }
 
+/// Method response: `{"message": <any JSON value>}`
+/// Used by POST /api/method/ where the result can be an array, object, number, etc.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MethodResponse {
+    pub message: Value,
+}
+
 /// Error response body matching Frappe v1 error shape.
 /// HTTP status is set separately (typically 417 for ValidationError, 404, etc.)
 #[derive(Debug, Serialize, Deserialize)]

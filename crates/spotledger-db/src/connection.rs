@@ -1,11 +1,10 @@
-//! SurrealDB connection abstraction.
+//! SurrealDB connection via WebSocket.
 //!
-//! Connects via WebSocket (`ws://` or `wss://`) using the official surrealdb SDK v3.
-//! Both "embedded" and "remote" modes use WebSocket — in dev the SurrealDB process
-//! is started separately (e.g. `surreal start --bind 127.0.0.1:8500`).
+//! Spotledger always connects to an external running SurrealDB process.
+//! In dev: `surreal start --bind 127.0.0.1:8500`
+//! In prod: point `config.url` at the production instance.
 //!
-//! The `Db` handle is cheaply cloneable (Arc internally) and is the
-//! single object threaded through every request via Axum extensions.
+//! The `Db` handle is cheaply cloneable (Arc internally).
 
 use spotledger_types::config::DatabaseConfig;
 use surrealdb::engine::remote::ws::{Client, Ws};
@@ -18,16 +17,9 @@ use crate::error::DbError;
 /// Clone is cheap — the inner connection is reference-counted.
 pub type Db = Surreal<Client>;
 
-/// Connect to SurrealDB using the provided `DatabaseConfig`.
-/// Always uses WebSocket transport — both dev and prod.
-/// In dev, SurrealDB runs locally (`ws://127.0.0.1:8500`).
-/// In prod, point `config.url` at the remote instance.
+/// Connect to SurrealDB at `config.url` via WebSocket.
 pub async fn connect(config: &DatabaseConfig) -> Result<Db, DbError> {
-    let url = if config.url.is_empty() {
-        "ws://127.0.0.1:8500".to_string()
-    } else {
-        config.url.clone()
-    };
+    let url = config.url.clone();
 
     tracing::debug!(url = %url, "Connecting to SurrealDB");
 
@@ -62,7 +54,6 @@ mod tests {
         use spotledger_types::config::DatabaseConfig;
 
         let cfg = DatabaseConfig {
-            mode: "remote".into(),
             url: "ws://127.0.0.1:8500".into(),
             ns: "test_spotledger".into(),
             db: "test_spotledger".into(),

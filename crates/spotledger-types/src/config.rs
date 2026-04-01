@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 /// Top-level global config loaded from `config/spotledger.toml`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -11,14 +10,9 @@ pub struct GlobalConfig {
 }
 
 /// Per-mode (dev/prod) settings.
+/// Spotledger always connects to an external running SurrealDB via WebSocket.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModeConfig {
-    /// "embedded" | "remote"
-    #[serde(default = "default_surreal_mode")]
-    pub surreal_mode: String,
-    /// Path for embedded RocksDB data (dev only)
-    #[serde(default = "default_surreal_path")]
-    pub surreal_path: PathBuf,
     #[serde(default = "default_true")]
     pub hot_reload: bool,
     /// "debug" | "info" | "warn" | "error"
@@ -38,8 +32,6 @@ pub struct ModeConfig {
 impl Default for ModeConfig {
     fn default() -> Self {
         Self {
-            surreal_mode: default_surreal_mode(),
-            surreal_path: default_surreal_path(),
             hot_reload: true,
             log_level: default_log_level(),
             log_format: default_log_format(),
@@ -72,8 +64,6 @@ fn num_cpus() -> usize {
         .unwrap_or(1)
 }
 
-fn default_surreal_mode() -> String { "embedded".into() }
-fn default_surreal_path() -> PathBuf { PathBuf::from("./.surreal") }
 fn default_true() -> bool { true }
 fn default_log_level() -> String { "debug".into() }
 fn default_log_format() -> String { "pretty".into() }
@@ -97,18 +87,14 @@ pub struct SiteInfo {
     pub namespace: String,
 }
 
+/// SurrealDB connection config. Always WebSocket to an external running instance.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DatabaseConfig {
-    /// "embedded" | "remote"
-    pub mode: String,
-    /// WebSocket URL for remote mode e.g. ws://localhost:8500
-    #[serde(default)]
+    /// WebSocket URL e.g. `ws://localhost:8500` or `wss://surreal.example.com`
     pub url: String,
     /// SurrealDB namespace
-    #[serde(default)]
     pub ns: String,
     /// SurrealDB database
-    #[serde(default)]
     pub db: String,
     pub user: String,
     pub pass: String,
@@ -162,7 +148,6 @@ name      = "fbr"
 namespace = "fbr"
 
 [database]
-mode = "remote"
 url  = "ws://localhost:8500"
 ns   = "fbr"
 db   = "fbr"
@@ -191,7 +176,9 @@ name      = "test"
 namespace = "test"
 
 [database]
-mode = "embedded"
+url  = "ws://127.0.0.1:8500"
+ns   = "test"
+db   = "test"
 user = "root"
 pass = "secret"
 "#;

@@ -56,7 +56,6 @@ pub async fn site_middleware(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::state::AppState;
 
     #[test]

@@ -32,5 +32,6 @@ moka         = { workspace = true }
 reqwest      = { workspace = true }
 
 [dev-dependencies]
-axum-test = "15"
-tokio     = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+http-body-util = { workspace = true }

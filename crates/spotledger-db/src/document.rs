@@ -14,13 +14,24 @@ use spotledger_types::document::{DocRow, Document};
 
 use crate::error::DbError;
 
+/// Convert a Frappe DocType name to a SurrealDB table name.
+///
+/// Convention: `"tab" + doctype.replace(' ', '_')`
+/// Examples:
+///   "Customer"    → "tabCustomer"
+///   "Sales Order" → "tabSales_Order"
+///   "DocType"     → "tabDocType"
+pub fn doctype_to_table(doctype: &str) -> String {
+    format!("tab{}", doctype.replace(' ', "_"))
+}
+
 /// Fetch a single document by doctype + name.
 pub async fn get_doc(
     db: &Surreal<Client>,
     doctype: &str,
     name: &str,
 ) -> Result<Document, DbError> {
-    let table = doctype.to_string();
+    let table = doctype_to_table(doctype);
     let record_name = name.to_string();
 
     let query = "SELECT * FROM type::thing($table, $name)";
@@ -62,8 +73,9 @@ pub async fn get_list(
 
     let (where_clause, bindings) = build_where(filters);
 
+    let table = doctype_to_table(doctype);
     let query = format!(
-        "SELECT {field_clause} FROM {doctype}{where_clause} LIMIT {limit} START {start}"
+        "SELECT {field_clause} FROM `{table}`{where_clause} LIMIT {limit} START {start}"
     );
 
     tracing::debug!(%query, "get_list");
@@ -102,7 +114,7 @@ pub async fn get_value(
     name: &str,
     fieldname: &str,
 ) -> Result<Option<Value>, DbError> {
-    let table = doctype.to_string();
+    let table = doctype_to_table(doctype);
     let record_name = name.to_string();
     let field = fieldname.to_string();
 
@@ -150,7 +162,7 @@ fn value_to_document(v: Value, doctype: &str, name: &str) -> Result<Document, Db
 
 /// Build a simple WHERE clause and owned bindings from a JSON filters object.
 /// Returns `(clause_string, Vec<(String, Value)>)`.
-fn build_where(filters: Option<&Value>) -> (String, Vec<(String, Value)>) {
+pub fn build_where(filters: Option<&Value>) -> (String, Vec<(String, Value)>) {
     let Some(Value::Object(map)) = filters else {
         return (String::new(), vec![]);
     };

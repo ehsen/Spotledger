@@ -2,16 +2,16 @@
 
 use axum::{
     middleware,
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use std::path::Path;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::EnvFilter;
 
 use crate::cli::{RunMode, ServeArgs};
 use crate::middleware::site_middleware;
-use crate::routes::{ping, resource_get, resource_get_value, resource_list};
+use crate::routes::{call_method, ping, resource_get, resource_get_value, resource_list};
 use crate::state::{AppState, SiteState};
 use spotledger_db::connection::connect;
 use spotledger_types::config::SiteConfig;
@@ -46,7 +46,8 @@ pub async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         .route(
             "/api/resource/:doctype/:name/:fieldname",
             get(resource_get_value),
-        );
+        )
+        .route("/api/method/{*path}", post(call_method));
 
     let app = api_routes
         .layer(middleware::from_fn_with_state(

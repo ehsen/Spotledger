@@ -7,5 +7,6 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Serve(args) => spotledger::server::serve(args).await,
+        Commands::NewSite(args) => spotledger::new_site::new_site(args).await,
     }
 }

@@ -8,6 +8,8 @@ use spotledger_types::config::SiteConfig;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::methods::{build_registry, MethodRegistry};
+
 /// Site-level state: one `SiteState` per live site.
 #[derive(Clone)]
 pub struct SiteState {
@@ -15,6 +17,8 @@ pub struct SiteState {
     pub db: Db,
     /// Document cache keyed by `(doctype, name)` → Document as Value.
     pub doc_cache: Cache<(String, String), Value>,
+    /// Registered `/api/method/` handlers (built-in Tier 1 + app-installed handlers).
+    pub method_registry: Arc<MethodRegistry>,
 }
 
 impl SiteState {
@@ -23,7 +27,12 @@ impl SiteState {
             .max_capacity(config.cache.max_documents)
             .time_to_live(Duration::from_secs(config.cache.ttl_seconds))
             .build();
-        Self { config, db, doc_cache }
+        Self {
+            config,
+            db,
+            doc_cache,
+            method_registry: build_registry(),
+        }
     }
 }
 

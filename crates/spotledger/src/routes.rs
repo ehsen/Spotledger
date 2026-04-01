@@ -3,19 +3,22 @@
 //!   GET  /api/resource/<doctype>                → get_list
 //!   GET  /api/resource/<doctype>/<name>         → get_doc
 //!   GET  /api/resource/<doctype>/<name>/<field> → get_value
+//!   POST /api/method/{*path}                    → method registry dispatcher
 
 use axum::{
-    extract::{Extension, Path, Query},
+    extract::{Extension, Form, Path, Query},
     http::StatusCode,
     response::{IntoResponse, Json},
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use spotledger_db::document::{get_doc, get_list, get_value};
-use spotledger_types::response::{DocResponse, ErrorResponse, ListResponse};
+use spotledger_types::response::{DocResponse, ErrorResponse, ListResponse, MethodResponse};
 
+use crate::methods::parse_form_params;
 use crate::state::SiteState;
 
 // ── health check ─────────────────────────────────────────────────────────────
@@ -150,6 +153,48 @@ pub async fn resource_get_value(
     }
 }
 
+// ── /api/method/ dispatcher ───────────────────────────────────────────────────
+
+/// POST /api/method/{*path}
+///
+/// The `path` segment is the dotted method name, e.g. `frappe.client.get_list`.
+/// Parameters are accepted as `application/x-www-form-urlencoded` (standard Frappe JS client).
+/// JSON-encoded parameter values (like `fields=["name","customer"]`) are automatically decoded.
+pub async fn call_method(
+    Extension(site): Extension<Arc<SiteState>>,
+    Path(path): Path<String>,
+    Form(raw_params): Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    // Strip leading slash that Axum may include for wildcard captures
+    let method_path = path.trim_start_matches('/');
+
+    let handler = match site.method_registry.get(method_path) {
+        Some(h) => h,
+        None => {
+            let body = ErrorResponse::new(
+                "MethodNotFoundError",
+                format!("Method not found: {method_path}"),
+            );
+            return (StatusCode::NOT_FOUND, Json(body)).into_response();
+        }
+    };
+
+    let params = parse_form_params(raw_params);
+
+    match handler(site.clone(), params).await {
+        Ok(result) => {
+            let body = MethodResponse { message: result };
+            (StatusCode::OK, Json(body)).into_response()
+        }
+        Err(e) => {
+            let status = StatusCode::from_u16(e.http_status())
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            let body = ErrorResponse::new(error_type(&e), e.to_string());
+            (status, Json(body)).into_response()
+        }
+    }
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 fn error_type(e: &spotledger_types::error::SpotError) -> &'static str {
@@ -164,8 +209,9 @@ fn error_type(e: &spotledger_types::error::SpotError) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::to_bytes, http::StatusCode};
-    use axum_test::TestServer;
+    use axum::{body::Body, http::Request};
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
 
     fn test_router() -> axum::Router {
         use axum::routing::get;
@@ -174,10 +220,14 @@ mod tests {
 
     #[tokio::test]
     async fn ping_returns_200_pong() {
-        let server = TestServer::new(test_router()).unwrap();
-        let resp = server.get("/api/ping").await;
-        resp.assert_status_ok();
-        let body: Value = resp.json();
+        let app = test_router();
+        let resp = app
+            .oneshot(Request::builder().uri("/api/ping").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["message"], json!("pong"));
     }
 }
