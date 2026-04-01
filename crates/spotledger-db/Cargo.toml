@@ -7,6 +7,10 @@ authors.workspace     = true
 license.workspace     = true
 repository.workspace  = true
 
+[features]
+# Enable network integration tests (requires live SurrealDB on ws://127.0.0.1:8500)
+integration = []
+
 [dependencies]
 spotledger-types = { workspace = true }
 surrealdb        = { workspace = true }
