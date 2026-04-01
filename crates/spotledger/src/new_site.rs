@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{bail, Context};
 use spotledger_db::connection::connect;
+use spotledger_db::auth::set_user_password;
 use spotledger_types::config::{AppsConfig, CacheConfig, DatabaseConfig, SiteConfig, SiteInfo};
 
 use crate::cli::NewSiteArgs;
@@ -89,7 +90,14 @@ pub async fn new_site(args: NewSiteArgs) -> anyhow::Result<()> {
         .await
         .context("Executing framework_surrealdb.surql")?;
 
-    println!("\nSite '{}' created successfully.", args.hostname);
+    // ── 6. Seed Administrator password ───────────────────────────────────────
+    println!("Seeding Administrator password …");
+
+    set_user_password(&db, "Administrator", &args.admin_password)
+        .await
+        .context("Seeding Administrator password in __Auth")?;
+
+    println!("Site '{}' created successfully.", args.hostname);
     println!(
         "\nBootstrapped tables (from framework_surrealdb.surql):\n\
          \t tabDefaultValue, tabSingles, tabSessions, __UserSettings,\n\

@@ -172,6 +172,63 @@ pub fn ab64_decode(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
     STANDARD.decode(&padded)
 }
 
+/// Encode raw bytes as passlib ab64 (standard base64, `+`→`.`, no `=` padding).
+pub fn ab64_encode(data: &[u8]) -> String {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    STANDARD.encode(data).replace('+', ".").replace('=', "")
+}
+
+/// Hash a plaintext password using passlib-compatible `$pbkdf2-sha256$` format.
+///
+/// The result can be stored directly in `__Auth` and verified by both
+/// this crate and Frappe's Python `passlib` library.
+pub fn hash_password(password: &str) -> String {
+    use pbkdf2::pbkdf2_hmac;
+    use rand::RngCore;
+    use sha2::Sha256;
+
+    const ROUNDS: u32 = 260_000;
+    const SALT_LEN: usize = 16;
+    const HASH_LEN: usize = 32;
+
+    let mut salt = [0u8; SALT_LEN];
+    rand::thread_rng().fill_bytes(&mut salt);
+
+    let mut hash = [0u8; HASH_LEN];
+    pbkdf2_hmac::<Sha256>(password.as_bytes(), &salt, ROUNDS, &mut hash);
+
+    format!(
+        "$pbkdf2-sha256${ROUNDS}${}${}",
+        ab64_encode(&salt),
+        ab64_encode(&hash),
+    )
+}
+
+/// Upsert the password hash for a user in `__Auth`.
+///
+/// Safe to call on both freshly created and existing records — uses
+/// `INSERT ... ON DUPLICATE KEY UPDATE` semantics via SurrealDB's UPSERT.
+pub async fn set_user_password(
+    db: &Surreal<Client>,
+    user: &str,
+    password: &str,
+) -> Result<(), DbError> {
+    let hash = hash_password(password);
+    db.query(
+        "UPSERT __Auth SET \
+           doctype = 'User', \
+           name = $user, \
+           fieldname = 'password', \
+           password = $hash, \
+           encrypted = false \
+         WHERE doctype = 'User' AND name = $user AND fieldname = 'password'",
+    )
+    .bind(("user", user.to_owned()))
+    .bind(("hash", hash))
+    .await?;
+    Ok(())
+}
+
 // ── Session management ────────────────────────────────────────────────────────
 
 /// Session information retrieved from `tabSessions`.
@@ -311,5 +368,27 @@ mod tests {
         let s1 = generate_sid();
         let s2 = generate_sid();
         assert_ne!(s1, s2);
+    }
+
+    #[test]
+    fn hash_password_round_trips() {
+        let hash = hash_password("secret123");
+        // Hash must start with the pbkdf2-sha256 scheme identifier
+        assert!(hash.starts_with("$pbkdf2-sha256$"), "hash: {hash}");
+        // verify_password must accept the correct password
+        assert!(verify_password(&hash, "secret123"));
+        // verify_password must reject a wrong password
+        assert!(!verify_password(&hash, "wrong"));
+    }
+
+    #[test]
+    fn ab64_encode_decode_roundtrip() {
+        let data: &[u8] = &[0xFB, 0x00, 0xAB, 0xCD, 0x12, 0xFF];
+        let encoded = ab64_encode(data);
+        // No `=` padding, no `+`
+        assert!(!encoded.contains('='));
+        assert!(!encoded.contains('+'));
+        let decoded = ab64_decode(&encoded).unwrap();
+        assert_eq!(decoded, data);
     }
 }

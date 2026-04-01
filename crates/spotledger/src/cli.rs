@@ -56,6 +56,10 @@ pub struct NewSiteArgs {
     /// Path to the bench root (default: current directory)
     #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
     pub bench: PathBuf,
+
+    /// Administrator password set during site creation (required to log in)
+    #[arg(long, env = "SPOTLEDGER_ADMIN_PASSWORD")]
+    pub admin_password: String,
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
