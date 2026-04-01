@@ -1,0 +1,8 @@
+/target
+Cargo.lock
+*.surqlbak
+.surreal/
+sites/*/private/
+sites/*/logs/
+*.log
+.env

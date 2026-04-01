@@ -1,0 +1,55 @@
+[workspace]
+members = [
+    "crates/spotledger-types",
+    "crates/spotledger-db",
+    "crates/spotledger",
+]
+resolver = "2"
+
+[workspace.package]
+version     = "0.1.0"
+edition     = "2021"
+authors     = ["Spotledger Team"]
+license     = "MIT"
+repository  = "https://github.com/spotledger/spotledger"
+
+[workspace.dependencies]
+# Async runtime
+tokio        = { version = "1", features = ["full"] }
+
+# Web framework
+axum         = { version = "0.8", features = ["macros"] }
+tower        = "0.5"
+tower-http   = { version = "0.6", features = ["cors", "compression-gzip", "trace"] }
+
+# SurrealDB official SDK v3 — remote WebSocket only (no embedded RocksDB)
+surrealdb    = { version = "3" }
+
+# Serialization
+serde        = { version = "1", features = ["derive"] }
+serde_json   = "1"
+
+# Config (TOML)
+toml         = "0.8"
+
+# CLI
+clap         = { version = "4", features = ["derive", "env"] }
+
+# Caching
+moka         = { version = "0.12", features = ["future"] }
+dashmap      = "6"
+
+# Error handling
+thiserror    = "2"
+anyhow       = "1"
+
+# Logging / tracing
+tracing           = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# HTTP client (for proxy recorder)
+reqwest = { version = "0.12", features = ["json"] }
+
+# Internal crates
+spotledger-types = { path = "crates/spotledger-types" }
+spotledger-db    = { path = "crates/spotledger-db" }
