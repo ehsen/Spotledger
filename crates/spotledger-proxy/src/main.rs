@@ -1,21 +1,29 @@
 //! Spotledger proxy recorder.
 //!
-//! Forwards every HTTP request to **both** Spotledger and the real Frappe
-//! instance simultaneously, returns the Spotledger response to the caller,
-//! and logs a JSON diff of any response body differences to a file.
+//! Route-split proxy for testing Spotledger's API compatibility against Frappe:
+//!
+//!   Page/asset routes  (/desk, /login, /app/*, /assets/*, /files/*, etc.)
+//!     → forwarded directly to Frappe (primary, response returned as-is)
+//!       The browser receives real Frappe HTML + JS bundles unchanged.
+//!
+//!   API routes  (/api/*)
+//!     → forwarded to Spotledger (primary, response returned to browser)
+//!     → forwarded to Frappe     (shadow,  response diffed + logged only)
+//!       Every mismatch is written to the JSONL diff log.
 //!
 //! Usage:
 //!   spotledger-proxy \
-//!     --spotledger-url http://127.0.0.1:8000 \
-//!     --frappe-url     http://127.0.0.1:8080 \
-//!     --port           9000 \
+//!     --spotledger-url http://127.0.0.1:9100 \
+//!     --frappe-url     http://127.0.0.1:8000 \
+//!     --port           9200 \
+//!     --site           spotledger_test \
 //!     --log-file       /tmp/proxy-diffs.jsonl
 
 use anyhow::Result;
 use axum::{
     body::Body,
     extract::State,
-    http::{Method, Request, StatusCode},
+    http::{HeaderMap, Method, Request, StatusCode},
     response::Response,
     routing::any,
     Router,
@@ -35,25 +43,35 @@ use std::{
 // ── CLI args ──────────────────────────────────────────────────────────────────
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "spotledger-proxy", about = "Side-by-side proxy recorder")]
+#[command(name = "spotledger-proxy", about = "Frappe ↔ Spotledger side-by-side diff proxy")]
 struct Args {
-    /// Spotledger server URL (primary — its response is returned to caller)
-    #[arg(long, default_value = "http://127.0.0.1:8000")]
+    /// Spotledger server URL (primary for API requests)
+    #[arg(long, default_value = "http://127.0.0.1:9100")]
     spotledger_url: String,
 
-    /// Real Frappe server URL (shadow — used only for diffing)
-    #[arg(long, default_value = "http://127.0.0.1:8080")]
+    /// Real Frappe server URL (primary for page/asset requests; shadow for API diff)
+    #[arg(long, default_value = "http://127.0.0.1:8000")]
     frappe_url: String,
 
-    /// Port to listen on
-    #[arg(long, short, default_value = "9000")]
+    /// Port for this proxy to listen on
+    #[arg(long, short, default_value = "9200")]
     port: u16,
+
+    /// Host header injected into every request forwarded to Frappe.
+    /// Set to the Frappe site name (e.g. spotledger_test).
+    #[arg(long, default_value = "spotledger_test")]
+    frappe_site: String,
+
+    /// Host header injected into every request forwarded to Spotledger.
+    /// Set to the SurrealDB-backed site name (e.g. exit-test.localhost).
+    #[arg(long, default_value = "exit-test.localhost")]
+    spotledger_site: String,
 
     /// Path to the JSONL diff log file
     #[arg(long, default_value = "/tmp/spotledger-proxy-diffs.jsonl")]
     log_file: PathBuf,
 
-    /// Only log when response bodies differ (skip identical responses)
+    /// When true (default) only log requests where Spotledger and Frappe differ.
     #[arg(long, default_value = "true")]
     diffs_only: bool,
 }
@@ -64,6 +82,19 @@ struct Args {
 struct ProxyState {
     args: Arc<Args>,
     client: Client,
+}
+
+// ── path classification ───────────────────────────────────────────────────────
+
+/// Returns true if the request path should go directly to Frappe without
+/// being shadowed through Spotledger.  These are page/asset routes that
+/// Spotledger does not serve in the proxy-test scenario — the browser gets
+/// the genuine Frappe HTML shell and JS bundles.
+fn is_frappe_only(path: &str) -> bool {
+    let api_path = path.starts_with("/api/");
+    // Everything that is NOT an /api/ route goes to Frappe only.
+    // This includes /desk, /login, /app/*, /assets/*, /files/*, /favicon.ico, etc.
+    !api_path
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
@@ -94,7 +125,14 @@ async fn main() -> Result<()> {
     let addr = format!("127.0.0.1:{}", args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(addr = %addr, "Proxy listening");
-    tracing::info!(spotledger = %args.spotledger_url, frappe = %args.frappe_url, "Targets");
+    tracing::info!(
+        spotledger = %args.spotledger_url,
+        frappe     = %args.frappe_url,
+        frappe_site = %args.frappe_site,
+        spotledger_site = %args.spotledger_site,
+        "Route split: /api/* → Spotledger(primary)+Frappe(shadow diff) | everything else → Frappe only"
+    );
+    tracing::info!(log = ?args.log_file, "Diff log");
 
     axum::serve(listener, app).await?;
     Ok(())
@@ -113,9 +151,8 @@ async fn proxy_handler(
         .map(|pq| pq.as_str())
         .unwrap_or("/")
         .to_owned();
-    let headers = req.headers().clone();
+    let req_headers = req.headers().clone();
 
-    // Consume body once; we'll reuse the bytes for both requests.
     let body_bytes = req
         .into_body()
         .collect()
@@ -123,30 +160,51 @@ async fn proxy_handler(
         .map_err(|_| StatusCode::BAD_REQUEST)?
         .to_bytes();
 
-    // ── send to both backends in parallel ────────────────────────────────────
-    let spot_url = format!("{}{}", state.args.spotledger_url, path_and_query);
+    if is_frappe_only(&path_and_query) {
+        // ── Page / asset route → Frappe only ─────────────────────────────────
+        // The browser gets the real Frappe HTML + JS bundles.  We pass the
+        // Host header for the Frappe site so Frappe's multi-tenancy resolves.
+        let url = format!("{}{}", state.args.frappe_url, path_and_query);
+        let resp = forward_full(
+            &state.client,
+            &method,
+            &url,
+            &req_headers,
+            &state.args.frappe_site,
+            body_bytes,
+        )
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+        return Ok(resp);
+    }
+
+    // ── API route → Spotledger (primary) + Frappe (shadow diff) ──────────────
+    let spot_url   = format!("{}{}", state.args.spotledger_url, path_and_query);
     let frappe_url = format!("{}{}", state.args.frappe_url, path_and_query);
 
     let (spot_result, frappe_result) = tokio::join!(
-        forward(
+        forward_bytes(
             &state.client,
             &method,
             &spot_url,
-            &headers,
+            &req_headers,
+            &state.args.spotledger_site,
             body_bytes.clone(),
         ),
-        forward(
+        forward_bytes(
             &state.client,
             &method,
             &frappe_url,
-            &headers,
+            &req_headers,
+            &state.args.frappe_site,
             body_bytes,
         ),
     );
 
-    // ── record diff ──────────────────────────────────────────────────────────
-    let (spot_status, spot_body) = spot_result.unwrap_or((500, b"{}".to_vec()));
-    let (frappe_status, frappe_body) = frappe_result.unwrap_or((500, b"{}".to_vec()));
+    let (spot_status, spot_headers, spot_body) =
+        spot_result.unwrap_or((500, HeaderMap::new(), b"{}".to_vec()));
+    let (frappe_status, _frappe_headers, frappe_body) =
+        frappe_result.unwrap_or((500, HeaderMap::new(), b"{}".to_vec()));
 
     record_diff(
         &state.args,
@@ -158,10 +216,20 @@ async fn proxy_handler(
         &frappe_body,
     );
 
-    // Return primary (Spotledger) response to caller
-    let response = Response::builder()
-        .status(spot_status)
-        .header("content-type", "application/json")
+    // Build response from Spotledger's status + headers + body.
+    // Crucially pass through Set-Cookie so login sessions work in the browser.
+    let mut builder = Response::builder().status(spot_status);
+    for (name, value) in &spot_headers {
+        let name_lower = name.as_str().to_lowercase();
+        if matches!(
+            name_lower.as_str(),
+            "connection" | "transfer-encoding" | "upgrade"
+        ) {
+            continue;
+        }
+        builder = builder.header(name, value);
+    }
+    let response = builder
         .body(Body::from(spot_body))
         .unwrap_or_else(|_| Response::new(Body::empty()));
 
@@ -170,37 +238,90 @@ async fn proxy_handler(
 
 // ── HTTP forwarding ───────────────────────────────────────────────────────────
 
-async fn forward(
+/// Forward a request and return the complete Axum `Response` (preserves all
+/// headers, content-type, status).  Used for page/asset routes.
+async fn forward_full(
     client: &Client,
     method: &Method,
     url: &str,
-    headers: &axum::http::HeaderMap,
+    headers: &HeaderMap,
+    host_override: &str,
     body: axum::body::Bytes,
-) -> Result<(u16, Vec<u8>), ()> {
+) -> Result<Response<Body>, ()> {
     let reqwest_method =
         reqwest::Method::from_bytes(method.as_str().as_bytes()).map_err(|_| ())?;
 
     let mut builder = client.request(reqwest_method, url);
     for (name, value) in headers {
-        // Skip hop-by-hop headers
-        let name_lower = name.as_str().to_lowercase();
-        if matches!(
-            name_lower.as_str(),
-            "host" | "connection" | "transfer-encoding" | "upgrade"
-        ) {
+        let n = name.as_str().to_lowercase();
+        if matches!(n.as_str(), "host" | "connection" | "transfer-encoding" | "upgrade") {
             continue;
         }
         if let Ok(v) = reqwest::header::HeaderValue::from_bytes(value.as_bytes()) {
             builder = builder.header(name.as_str(), v);
         }
     }
+    builder = builder.header("host", host_override);
     builder = builder.body(body.to_vec());
 
     let resp = builder.send().await.map_err(|_| ())?;
     let status = resp.status().as_u16();
-    let body_bytes = resp.bytes().await.map_err(|_| ())?.to_vec();
+    let resp_headers = resp.headers().clone();
+    let body_bytes = resp.bytes().await.map_err(|_| ())?;
 
-    Ok((status, body_bytes))
+    let mut axum_builder = Response::builder().status(status);
+    for (name, value) in &resp_headers {
+        let n = name.as_str().to_lowercase();
+        if matches!(n.as_str(), "connection" | "transfer-encoding" | "upgrade") {
+            continue;
+        }
+        axum_builder = axum_builder.header(name.as_str(), value.as_bytes());
+    }
+    axum_builder
+        .body(Body::from(body_bytes.to_vec()))
+        .map_err(|_| ())
+}
+
+/// Forward a request and return `(status, response_headers, body_bytes)`.
+/// Used for API routes where we need to inspect/diff the body.
+async fn forward_bytes(
+    client: &Client,
+    method: &Method,
+    url: &str,
+    headers: &HeaderMap,
+    host_override: &str,
+    body: axum::body::Bytes,
+) -> Result<(u16, HeaderMap, Vec<u8>), ()> {
+    let reqwest_method =
+        reqwest::Method::from_bytes(method.as_str().as_bytes()).map_err(|_| ())?;
+
+    let mut builder = client.request(reqwest_method, url);
+    for (name, value) in headers {
+        let n = name.as_str().to_lowercase();
+        if matches!(n.as_str(), "host" | "connection" | "transfer-encoding" | "upgrade") {
+            continue;
+        }
+        if let Ok(v) = reqwest::header::HeaderValue::from_bytes(value.as_bytes()) {
+            builder = builder.header(name.as_str(), v);
+        }
+    }
+    builder = builder.header("host", host_override);
+    builder = builder.body(body.to_vec());
+
+    let resp = builder.send().await.map_err(|_| ())?;
+    let status = resp.status().as_u16();
+    // Convert reqwest HeaderMap → axum/http HeaderMap
+    let mut axum_headers = HeaderMap::new();
+    for (name, value) in resp.headers() {
+        if let (Ok(n), Ok(v)) = (
+            axum::http::header::HeaderName::from_bytes(name.as_str().as_bytes()),
+            axum::http::header::HeaderValue::from_bytes(value.as_bytes()),
+        ) {
+            axum_headers.append(n, v);
+        }
+    }
+    let body_bytes = resp.bytes().await.map_err(|_| ())?.to_vec();
+    Ok((status, axum_headers, body_bytes))
 }
 
 // ── diff logging ──────────────────────────────────────────────────────────────
@@ -272,7 +393,9 @@ mod tests {
         let args = Args {
             spotledger_url: String::new(),
             frappe_url: String::new(),
-            port: 9000,
+            port: 9200,
+            frappe_site: "spotledger_test".into(),
+            spotledger_site: "exit-test.localhost".into(),
             log_file: PathBuf::from("/dev/null"),
             diffs_only: true,
         };
