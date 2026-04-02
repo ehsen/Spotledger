@@ -16,7 +16,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::cli::{RunMode, ServeArgs};
 use crate::middleware::site_middleware;
-use crate::methods::{get_logged_user_handler, login_handler, logout_handler};
+use crate::methods::{get_logged_user_handler, getdoc_handler, getdoctype_handler, login_handler, logout_handler};
 use crate::pages::{app_wildcard, desk_page, login_page, root_handler};
 use crate::routes::{call_method, ping, resource_get, resource_get_value, resource_list};
 use crate::state::{AppState, SiteState};
@@ -69,6 +69,15 @@ pub async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         .route(
             "/api/method/frappe.auth.get_logged_user",
             post(get_logged_user_handler),
+        )
+        // Methods that return top-level JSON (no {message:} wrapper) — Frappe shape
+        .route(
+            "/api/method/frappe.desk.form.load.getdoctype",
+            post(getdoctype_handler),
+        )
+        .route(
+            "/api/method/frappe.desk.form.load.getdoc",
+            post(getdoc_handler),
         )
         // Generic method dispatcher
         .route("/api/method/{*path}", post(call_method));
