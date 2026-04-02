@@ -55,32 +55,97 @@ pub async fn desk_page(
     // Extract user for boot data
     let (user, full_name) = boot_user(&site, &headers).await;
 
+    // Bundle hashes are stable between Frappe builds; update these when running
+    // `bench build` and the hash changes.
     let desk_js  = "/assets/frappe/dist/js/desk.bundle.CJXF32XD.js";
-    let desk_css = "/assets/frappe/dist/css/desk.bundle.U6TWVR73.css";
+    let desk_css = "/assets/frappe/dist/css/desk.bundle.JYCYQNVB.css";
 
+    let is_system_user = user != "Guest";
     let boot_json = serde_json::json!({
-        "user":          &user,
+        // ── user identity ────────────────────────────────────────────────────
+        "user": &user,
         "user_info": {
             &user: {
                 "name":      &user,
                 "full_name": &full_name,
                 "image":     "",
+                "email":     "",
+                "enabled":   1,
+                "user_type": if is_system_user { "System User" } else { "Website User" },
             }
         },
-        "lang":              "en",
-        "__messages":        {},
-        "home_page":         "Workspaces",
-        "is_system_user":    user != "Guest",
-        "user_permissions":  {},
+        // desk.js reads user.name, user.email, user.roles, user.defaults
+        // as a sub-object, not as top-level keys.
+        // Frappe embeds: bootinfo.user = {name, email, roles, defaults, ...}
+        // This differs from bootinfo.user_info (display map keyed by username).
+
+        // ── locale / meta ────────────────────────────────────────────────────
+        "lang":             "en",
+        "__messages":       {},
+        "metadata_version": "1",   // desk caches meta at this version; bump to force refresh
+
+        // ── navigation ───────────────────────────────────────────────────────
+        "home_page":        "Workspaces",
+        "is_system_user":   is_system_user,
+
+        // page_info: dict of allowed page/module names — Desk uses to build routes.
+        // Empty dict is safe; routing falls back to default Workspaces home.
+        "page_info": {},
+
+        // workspaces: {pages: [...]} — Desk sidebar.
+        // Empty pages list renders an empty sidebar without a JS error.
+        "workspaces": { "pages": [] },
+
+        // ── system defaults ──────────────────────────────────────────────────
+        "sysdefaults": {
+            "setup_complete":    "1",
+            "date_format":       "dd-mm-yyyy",
+            "time_format":       "HH:mm:ss",
+            "float_precision":   "3",
+            "currency_precision":"2",
+            "number_format":     "#,###.##",
+            "first_day_of_the_week": "Sunday",
+        },
+
+        // ── modules (drives sidebar grouping) ────────────────────────────────
+        "modules":          {},
+        "module_list":      [],
+        "single_types":     [],
+        "nested_set_doctypes": [],
+
+        // ── permissions (populated guest-safe defaults) ───────────────────────
+        "user_permissions": {},
         "can_read": [], "can_create": [], "can_write": [],
         "can_cancel": [], "can_delete": [],
-        "desktop_icons": [], "app_list": [],
+        "allow_print": [], "allow_email": [], "allow_import": [],
+        "allow_export": [], "allow_reports": [],
+
+        // ── desktop / navbar ─────────────────────────────────────────────────
+        "desktop_icons": [],
         "navbar_settings": {
             "app_logo_url": "/assets/frappe/images/frappe-favicon.svg",
+            "brand_html":   "",
+            "help_links":   [],
+            "notifications_viewall_by_type": [],
         },
         "notification_dot_count": 0,
-        "sysdefaults": {},
-        "docs": [],
+        "notification_settings": {
+            "enable_notifications": 0,
+        },
+
+        // ── misc ─────────────────────────────────────────────────────────────
+        "versions":          {},
+        "docs":              [],
+        "change_log":        [],
+        "notes":             [],
+        "onboarding_tours":  [],
+        "print_css":         "",
+        "timezone_info":     "",
+        "time_zone": {
+            "user":   "System",
+            "system": "UTC",
+        },
+        "server_date": current_date(),
     });
 
     let boot_str = serde_json::to_string(&boot_json).unwrap_or_else(|_| "{}".to_string());
@@ -169,6 +234,29 @@ fn extract_sid(headers: &axum::http::HeaderMap) -> Option<String> {
                 .map(|p| p[4..].to_owned())
         })
         .filter(|s| !s.is_empty())
+}
+
+/// Return today's date as `YYYY-MM-DD` using only std::time (no chrono dep).
+fn current_date() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // Compute civil calendar date from Unix timestamp (Greg. calendar, no leap seconds).
+    let days = (secs / 86400) as u32;
+    // Algorithm from http://howardhinnant.github.io/date_algorithms.html
+    let z = days + 719468;
+    let era = z / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{:04}-{:02}-{:02}", y, m, d)
 }
 
 // ── Login HTML (self-contained, no template engine needed) ────────────────────
