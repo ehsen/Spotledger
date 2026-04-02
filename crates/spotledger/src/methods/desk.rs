@@ -367,3 +367,57 @@ fn chrono_now() -> String {
     let y = 1970 + days / 365;
     format!("{y:04}-01-01") // rough; good enough for boot info
 }
+
+// ── Axum direct-response wrappers for methods that Frappe exposes WITHOUT
+//    the {"message": ...} envelope (getdoctype, getdoc return at top-level).
+// ─────────────────────────────────────────────────────────────────────────────
+
+use axum::{
+    extract::{Extension, Form},
+    http::StatusCode,
+    response::{IntoResponse, Json as AxumJson},
+};
+use spotledger_types::response::ErrorResponse;
+
+fn axum_error_type(e: &SpotError) -> &'static str {
+    match e {
+        SpotError::NotFound { .. } => "DoesNotExistError",
+        SpotError::PermissionDenied(_) => "PermissionError",
+        SpotError::Validation(_) => "ValidationError",
+        _ => "InternalError",
+    }
+}
+
+/// POST /api/method/frappe.desk.form.load.getdoctype
+/// Returns the result directly (no {message:} wrapper) — Frappe shape.
+pub async fn getdoctype_handler(
+    Extension(site): Extension<std::sync::Arc<SiteState>>,
+    Form(raw): Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let params = super::parse_form_params(raw);
+    match handle_getdoctype(site, params).await {
+        Ok(val) => (StatusCode::OK, AxumJson(val)).into_response(),
+        Err(e) => {
+            let status = StatusCode::from_u16(e.http_status())
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            (status, AxumJson(ErrorResponse::new(axum_error_type(&e), e.to_string()))).into_response()
+        }
+    }
+}
+
+/// POST /api/method/frappe.desk.form.load.getdoc
+/// Returns the result directly (no {message:} wrapper) — Frappe shape.
+pub async fn getdoc_handler(
+    Extension(site): Extension<std::sync::Arc<SiteState>>,
+    Form(raw): Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let params = super::parse_form_params(raw);
+    match handle_getdoc(site, params).await {
+        Ok(val) => (StatusCode::OK, AxumJson(val)).into_response(),
+        Err(e) => {
+            let status = StatusCode::from_u16(e.http_status())
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            (status, AxumJson(ErrorResponse::new(axum_error_type(&e), e.to_string()))).into_response()
+        }
+    }
+}
