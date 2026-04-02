@@ -6,12 +6,18 @@ use axum::{
     Router,
 };
 use std::path::Path;
-use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
+use tower_http::{
+    compression::CompressionLayer,
+    cors::CorsLayer,
+    services::ServeDir,
+    trace::TraceLayer,
+};
 use tracing_subscriber::EnvFilter;
 
 use crate::cli::{RunMode, ServeArgs};
 use crate::middleware::site_middleware;
 use crate::methods::{get_logged_user_handler, login_handler, logout_handler};
+use crate::pages::{app_wildcard, desk_page, login_page, root_handler};
 use crate::routes::{call_method, ping, resource_get, resource_get_value, resource_list};
 use crate::state::{AppState, SiteState};
 use spotledger_db::connection::connect;
@@ -39,21 +45,32 @@ pub async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         tracing::warn!("No sites loaded — check sites/ directory for site_config.toml files");
     }
 
+    // ── static assets: sites/assets/ → /assets/** ────────────────────────────
+    let assets_dir = sites_dir.join("assets");
+
     // ── router ───────────────────────────────────────────────────────────────
     let api_routes = Router::new()
         .route("/api/ping", get(ping))
-        .route("/api/resource/:doctype", get(resource_list))
-        .route("/api/resource/:doctype/:name", get(resource_get))
+        // Page routes
+        .route("/",          get(root_handler))
+        .route("/desk",      get(desk_page))
+        .route("/login",     get(login_page))
+        .route("/app/{*path}", get(app_wildcard))
+        // REST resource API
+        .route("/api/resource/{doctype}", get(resource_list))
+        .route("/api/resource/{doctype}/{name}", get(resource_get))
         .route(
-            "/api/resource/:doctype/:name/:fieldname",
+            "/api/resource/{doctype}/{name}/{fieldname}",
             get(resource_get_value),
         )
-        .route("/api/method/login", post(login_handler))
+        // Auth methods (dedicated routes — must precede catch-all)
+        .route("/api/method/login",  post(login_handler))
         .route("/api/method/logout", post(logout_handler))
         .route(
             "/api/method/frappe.auth.get_logged_user",
             post(get_logged_user_handler),
         )
+        // Generic method dispatcher
         .route("/api/method/{*path}", post(call_method));
 
     let app = api_routes
@@ -65,6 +82,17 @@ pub async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(app_state);
+
+    // Nest static file serving OUTSIDE the layered stack (no site middleware needed)
+    let app = if assets_dir.exists() {
+        let serve_assets = ServeDir::new(&assets_dir);
+        Router::new()
+            .nest_service("/assets", serve_assets)
+            .merge(app)
+    } else {
+        tracing::warn!(path = ?assets_dir, "assets directory not found; /assets/* will 404");
+        app
+    };
 
     // ── bind ─────────────────────────────────────────────────────────────────
     let bind_addr = args

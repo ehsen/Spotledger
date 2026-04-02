@@ -3,8 +3,10 @@
 
 mod auth;
 mod client;
+mod desk;
 pub use auth::{get_logged_user_handler, login_handler, logout_handler};
 pub use client::register_client_methods;
+pub use desk::register_desk_methods;
 
 use crate::state::SiteState;
 use dashmap::DashMap;
@@ -41,10 +43,11 @@ impl MethodRegistry {
     }
 }
 
-/// Build the default method registry with all built-in Tier 1 handlers.
+/// Build the default method registry with all built-in handlers.
 pub fn build_registry() -> Arc<MethodRegistry> {
     let registry = Arc::new(MethodRegistry::new());
     register_client_methods(&registry);
+    register_desk_methods(&registry);
     registry
 }
 
@@ -92,6 +95,18 @@ mod tests {
             "frappe.client.get",
             "frappe.client.get_value",
             "frappe.client.get_count",
+            "frappe.client.save",
+            "frappe.client.insert",
+            "frappe.client.set_value",
+            "frappe.client.delete",
+            "frappe.client.submit",
+            "frappe.client.cancel",
+            "frappe.desk.form.load.getdoctype",
+            "frappe.desk.form.load.getdoc",
+            "frappe.desk.reportview.get",
+            "frappe.desk.reportview.get_count",
+            "frappe.desk.notifications.get_notifications",
+            "frappe.utils.boot.get_boot_info",
         ] {
             assert!(registry.get(path).is_some(), "missing: {path}");
         }

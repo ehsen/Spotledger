@@ -4,6 +4,7 @@ use dashmap::DashMap;
 use moka::future::Cache;
 use serde_json::Value;
 use spotledger_db::connection::Db;
+use spotledger_db::hooks::HookRegistry;
 use spotledger_types::config::SiteConfig;
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,6 +20,8 @@ pub struct SiteState {
     pub doc_cache: Cache<(String, String), Value>,
     /// Registered `/api/method/` handlers (built-in Tier 1 + app-installed handlers).
     pub method_registry: Arc<MethodRegistry>,
+    /// Document lifecycle hook registry.
+    pub hook_registry: Arc<HookRegistry>,
 }
 
 impl SiteState {
@@ -32,6 +35,7 @@ impl SiteState {
             db,
             doc_cache,
             method_registry: build_registry(),
+            hook_registry: Arc::new(HookRegistry::new()),
         }
     }
 }

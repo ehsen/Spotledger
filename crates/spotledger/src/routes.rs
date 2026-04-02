@@ -1,8 +1,8 @@
-//! Axum route handlers — Phase 1 scope:
+//! Axum route handlers — Phase 2 scope:
 //!   GET  /api/ping                              → health check
-//!   GET  /api/resource/<doctype>                → get_list
-//!   GET  /api/resource/<doctype>/<name>         → get_doc
-//!   GET  /api/resource/<doctype>/<name>/<field> → get_value
+//!   GET  /api/resource/<doctype>                → get_list  (permission-gated)
+//!   GET  /api/resource/<doctype>/<name>         → get_doc   (permission-gated)
+//!   GET  /api/resource/<doctype>/<name>/<field> → get_value (permission-gated)
 //!   POST /api/method/{*path}                    → method registry dispatcher
 
 use axum::{
@@ -16,9 +16,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use spotledger_db::document::{get_doc, get_list, get_value};
+use spotledger_db::permissions::has_permission;
 use spotledger_types::response::{DocResponse, ErrorResponse, ListResponse, MethodResponse};
 
 use crate::methods::parse_form_params;
+use crate::middleware::CurrentUser;
 use crate::state::SiteState;
 
 // ── health check ─────────────────────────────────────────────────────────────
@@ -31,11 +33,32 @@ pub async fn ping() -> impl IntoResponse {
 
 pub async fn resource_get(
     Extension(site): Extension<Arc<SiteState>>,
+    Extension(current_user): Extension<CurrentUser>,
     Path((doctype, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    // Permission check: require "read"
+    match has_permission(&site.db, current_user.name(), &doctype, "read").await {
+        Ok(true) => {}
+        Ok(false) => {
+            let body = ErrorResponse::new(
+                "PermissionError",
+                format!("No read permission for {doctype}"),
+            );
+            return (StatusCode::FORBIDDEN, Json(body)).into_response();
+        }
+        Err(e) => {
+            let body = ErrorResponse::new("InternalError", e.to_string());
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response();
+        }
+    }
+
+    // Check doc cache first
+    if let Some(cached) = site.doc_cache.get(&(doctype.clone(), name.clone())).await {
+        return (StatusCode::OK, Json(DocResponse { data: cached })).into_response();
+    }
+
     match get_doc(&site.db, &doctype, &name).await {
         Ok(doc) => {
-            // Check doc cache miss/fill
             let _ = site
                 .doc_cache
                 .insert((doctype.clone(), name.clone()), doc.as_dict())
@@ -74,9 +97,26 @@ fn default_limit() -> usize { 20 }
 
 pub async fn resource_list(
     Extension(site): Extension<Arc<SiteState>>,
+    Extension(current_user): Extension<CurrentUser>,
     Path(doctype): Path<String>,
     Query(params): Query<ListParams>,
 ) -> impl IntoResponse {
+    // Permission check: require "read"
+    match has_permission(&site.db, current_user.name(), &doctype, "read").await {
+        Ok(true) => {}
+        Ok(false) => {
+            let body = ErrorResponse::new(
+                "PermissionError",
+                format!("No read permission for {doctype}"),
+            );
+            return (StatusCode::FORBIDDEN, Json(body)).into_response();
+        }
+        Err(e) => {
+            let body = ErrorResponse::new("InternalError", e.to_string());
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response();
+        }
+    }
+
     let fields_val: Option<Value> = params
         .fields
         .as_deref()
@@ -138,8 +178,25 @@ pub async fn resource_list(
 
 pub async fn resource_get_value(
     Extension(site): Extension<Arc<SiteState>>,
+    Extension(current_user): Extension<CurrentUser>,
     Path((doctype, name, fieldname)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
+    // Permission check: require "read"
+    match has_permission(&site.db, current_user.name(), &doctype, "read").await {
+        Ok(true) => {}
+        Ok(false) => {
+            let body = ErrorResponse::new(
+                "PermissionError",
+                format!("No read permission for {doctype}"),
+            );
+            return (StatusCode::FORBIDDEN, Json(body)).into_response();
+        }
+        Err(e) => {
+            let body = ErrorResponse::new("InternalError", e.to_string());
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response();
+        }
+    }
+
     match get_value(&site.db, &doctype, &name, &fieldname).await {
         Ok(Some(val)) => (StatusCode::OK, Json(json!({"message": val}))).into_response(),
         Ok(None) => (StatusCode::OK, Json(json!({"message": null}))).into_response(),
@@ -231,3 +288,4 @@ mod tests {
         assert_eq!(body["message"], json!("pong"));
     }
 }
+

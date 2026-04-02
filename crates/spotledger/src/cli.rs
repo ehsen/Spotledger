@@ -38,7 +38,7 @@ pub struct NewSiteArgs {
     pub hostname: String,
 
     /// SurrealDB WebSocket URL
-    #[arg(long, default_value = "ws://127.0.0.1:8500", env = "SPOTLEDGER_DB_URL")]
+    #[arg(long, default_value = "ws://127.0.0.1:8001", env = "SPOTLEDGER_DB_URL")]
     pub db_url: String,
 
     /// SurrealDB namespace (defaults to hostname)

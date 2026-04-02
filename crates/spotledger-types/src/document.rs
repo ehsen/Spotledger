@@ -40,6 +40,15 @@ impl Document {
         }
     }
 
+    /// Returns the string value of a field, or None if absent / not a string.
+    pub fn get_str(&self, key: &str) -> Option<&str> {
+        match key {
+            "doctype" => Some(&self.doctype),
+            "name"    => Some(&self.name),
+            _         => self.fields.get(key).and_then(Value::as_str),
+        }
+    }
+
     /// Flat JSON object matching Frappe's `as_dict()` output.
     pub fn as_dict(&self) -> Value {
         let mut map = serde_json::Map::new();

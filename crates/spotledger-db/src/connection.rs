@@ -21,9 +21,17 @@ pub type Db = Surreal<Client>;
 pub async fn connect(config: &DatabaseConfig) -> Result<Db, DbError> {
     let url = config.url.clone();
 
-    tracing::debug!(url = %url, "Connecting to SurrealDB");
+    // SurrealDB SDK v3: the Ws type already implies the ws:// scheme.
+    // Strip it if the caller passed a full URL so we don't double-prefix.
+    let endpoint = url
+        .strip_prefix("ws://")
+        .or_else(|| url.strip_prefix("wss://"))
+        .unwrap_or(&url)
+        .to_owned();
 
-    let db: Surreal<Client> = Surreal::new::<Ws>(url.as_str()).await?;
+    tracing::debug!(endpoint = %endpoint, "Connecting to SurrealDB");
+
+    let db: Surreal<Client> = Surreal::new::<Ws>(endpoint.as_str()).await?;
 
     db.signin(Root {
         username: config.user.clone(),
