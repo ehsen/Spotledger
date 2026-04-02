@@ -1,7 +1,7 @@
 //! Document CRUD operations backed by SurrealDB.
 //!
 //! Table convention: each Frappe DocType → SurrealDB table `tab<DocType>`.
-//! Records: `type::thing(table, name)` e.g. `type::thing("tabCustomer", "ACME Corp")`.
+//! Records: `type::record(table, name)` e.g. `type::record("tabCustomer", "ACME Corp")`.
 //!
 //! SurrealDB SDK v3 requires all `.bind()` values to be owned Strings.
 
@@ -32,9 +32,9 @@ pub async fn get_doc(
     let table = doctype_to_table(doctype);
     let record_name = name.to_string();
 
+    let query = format!("SELECT * FROM `{table}` WHERE name = $name LIMIT 1");
     let mut response = db
-        .query("SELECT * FROM type::thing($table, $name)")
-        .bind(("table", table.clone()))
+        .query(query.as_str())
         .bind(("name", record_name.clone()))
         .await?;
 
@@ -105,9 +105,9 @@ pub async fn get_value(
     fieldname: &str,
 ) -> Result<Option<Value>, DbError> {
     let table = doctype_to_table(doctype);
+    let query = format!("SELECT type::field($field) AS val FROM `{table}` WHERE name = $name LIMIT 1");
     let mut response = db
-        .query("SELECT type::field($field) AS val FROM type::thing($table, $name)")
-        .bind(("table", table))
+        .query(query.as_str())
         .bind(("name", name.to_string()))
         .bind(("field", fieldname.to_string()))
         .await?;
@@ -139,7 +139,7 @@ pub async fn insert_doc(
 
     let (set_clause, bindings) = build_set_from_fields(fields);
     let query = format!(
-        "CREATE type::thing($table, $name) SET \
+        "CREATE type::record($table, $name) SET \
          doctype = $doctype, creation = time::now(), modified = time::now(), {set_clause}"
     );
 
@@ -177,9 +177,12 @@ pub async fn upsert_doc(
 ) -> Result<Document, DbError> {
     let table = doctype_to_table(doctype);
     let (set_clause, bindings) = build_set_from_fields(fields);
+    // Use type::record so that new documents get the Frappe name as their SurrealDB ID
+    // (e.g. tabUser:Administrator).  For existing ULID-keyed records this will insert a
+    // duplicate keyed record; callers should prefer insert_doc for truly new documents.
     let query = format!(
-        "UPSERT type::thing($table, $name) SET \
-         doctype = $doctype, modified = time::now(), {set_clause}"
+        "UPSERT type::record($table, $name) SET \
+         doctype = $doctype, name = $name, modified = time::now(), {set_clause}"
     );
 
     let mut q = db
@@ -210,10 +213,9 @@ pub async fn set_field(
 ) -> Result<(), DbError> {
     let table = doctype_to_table(doctype);
     let query = format!(
-        "UPDATE type::thing($table, $name) SET `{fieldname}` = $val, modified = time::now()"
+        "UPDATE `{table}` SET `{fieldname}` = $val, modified = time::now() WHERE name = $name"
     );
     db.query(query.as_str())
-        .bind(("table", table))
         .bind(("name", name.to_owned()))
         .bind(("val", val))
         .await?;
@@ -227,8 +229,8 @@ pub async fn delete_doc(
     name: &str,
 ) -> Result<(), DbError> {
     let table = doctype_to_table(doctype);
-    db.query("DELETE type::thing($table, $name)")
-        .bind(("table", table))
+    let query = format!("DELETE `{table}` WHERE name = $name");
+    db.query(query.as_str())
         .bind(("name", name.to_owned()))
         .await?;
     Ok(())
@@ -243,9 +245,9 @@ pub async fn submit_doc(
 ) -> Result<Document, DbError> {
     let table = doctype_to_table(doctype);
     // Verify current docstatus is 0 (Draft)
+    let chk_q = format!("SELECT docstatus FROM `{table}` WHERE name = $name LIMIT 1");
     let mut chk = db
-        .query("SELECT docstatus FROM type::thing($table, $name)")
-        .bind(("table", table.clone()))
+        .query(chk_q.as_str())
         .bind(("name", name.to_owned()))
         .await?;
     let rows: Vec<Value> = chk.take(0)?;
@@ -260,13 +262,9 @@ pub async fn submit_doc(
         )));
     }
 
+    let upd_q = format!("UPDATE `{table}` SET docstatus = 1, modified = time::now() WHERE name = $name RETURN AFTER");
     let mut resp = db
-        .query(
-            "UPDATE type::thing($table, $name) \
-             SET docstatus = 1, modified = time::now() \
-             RETURN AFTER",
-        )
-        .bind(("table", table.clone()))
+        .query(upd_q.as_str())
         .bind(("name", name.to_owned()))
         .await?;
     let rows: Vec<Value> = resp.take(0)?;
@@ -286,9 +284,9 @@ pub async fn cancel_doc(
 ) -> Result<Document, DbError> {
     let table = doctype_to_table(doctype);
     // Verify current docstatus is 1 (Submitted)
+    let chk_q = format!("SELECT docstatus FROM `{table}` WHERE name = $name LIMIT 1");
     let mut chk = db
-        .query("SELECT docstatus FROM type::thing($table, $name)")
-        .bind(("table", table.clone()))
+        .query(chk_q.as_str())
         .bind(("name", name.to_owned()))
         .await?;
     let rows: Vec<Value> = chk.take(0)?;
@@ -303,13 +301,9 @@ pub async fn cancel_doc(
         )));
     }
 
+    let upd_q = format!("UPDATE `{table}` SET docstatus = 2, modified = time::now() WHERE name = $name RETURN AFTER");
     let mut resp = db
-        .query(
-            "UPDATE type::thing($table, $name) \
-             SET docstatus = 2, modified = time::now() \
-             RETURN AFTER",
-        )
-        .bind(("table", table.clone()))
+        .query(upd_q.as_str())
         .bind(("name", name.to_owned()))
         .await?;
     let rows: Vec<Value> = resp.take(0)?;

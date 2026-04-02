@@ -125,7 +125,7 @@ pub async fn save_children(
         };
 
         let query = format!(
-            "CREATE type::thing($table, $name) SET \
+            "CREATE type::record($table, $name) SET \
              doctype = $child_doctype, \
              parent = $parent, parenttype = $parenttype, parentfield = $parentfield, \
              idx = $idx, creation = time::now(), modified = time::now(), \
