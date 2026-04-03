@@ -33,12 +33,25 @@ pub async fn get_doc(
     let record_name = name.to_string();
 
     let query = format!("SELECT * FROM `{table}` WHERE name = $name LIMIT 1");
-    let mut response = db
+    let mut response = match db
         .query(query.as_str())
         .bind(("name", record_name.clone()))
-        .await?;
+        .await
+    {
+        Ok(r) => r,
+        Err(e) if is_table_not_found(&e) => {
+            return Err(DbError::NotFound { doctype: doctype.to_string(), name: name.to_string() })
+        }
+        Err(e) => return Err(DbError::Surreal(e)),
+    };
 
-    let rows: Vec<Value> = response.take(0)?;
+    let rows: Vec<Value> = match response.take(0) {
+        Ok(r) => r,
+        Err(e) if is_table_not_found(&e) => {
+            return Err(DbError::NotFound { doctype: doctype.to_string(), name: name.to_string() })
+        }
+        Err(e) => return Err(DbError::Surreal(e)),
+    };
     let row = rows.into_iter().next().ok_or_else(|| DbError::NotFound {
         doctype: table,
         name: record_name,
@@ -78,8 +91,16 @@ pub async fn get_list(
         q = q.bind((k, v));
     }
 
-    let mut response = q.await?;
-    let rows: Vec<Value> = response.take(0)?;
+    let mut response = match q.await {
+        Ok(r) => r,
+        Err(e) if is_table_not_found(&e) => return Ok(vec![]),
+        Err(e) => return Err(DbError::Surreal(e)),
+    };
+    let rows: Vec<Value> = match response.take(0) {
+        Ok(r) => r,
+        Err(e) if is_table_not_found(&e) => return Ok(vec![]),
+        Err(e) => return Err(DbError::Surreal(e)),
+    };;
 
     Ok(rows
         .into_iter()
@@ -182,7 +203,8 @@ pub async fn upsert_doc(
     // duplicate keyed record; callers should prefer insert_doc for truly new documents.
     let query = format!(
         "UPSERT type::record($table, $name) SET \
-         doctype = $doctype, name = $name, modified = time::now(), {set_clause}"
+         doctype = $doctype, name = $name, modified = time::now(), \
+         creation = IF creation THEN creation ELSE time::now() END, {set_clause}"
     );
 
     let mut q = db
@@ -327,8 +349,16 @@ pub async fn get_count(
     for (k, v) in bindings {
         q = q.bind((k, v));
     }
-    let mut resp = q.await?;
-    let rows: Vec<Value> = resp.take(0)?;
+    let mut resp = match q.await {
+        Ok(r) => r,
+        Err(e) if is_table_not_found(&e) => return Ok(0),
+        Err(e) => return Err(DbError::Surreal(e)),
+    };
+    let rows: Vec<Value> = match resp.take(0) {
+        Ok(r) => r,
+        Err(e) if is_table_not_found(&e) => return Ok(0),
+        Err(e) => return Err(DbError::Surreal(e)),
+    };
     let n = rows
         .first()
         .and_then(|obj| obj.get("count"))
@@ -338,6 +368,12 @@ pub async fn get_count(
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
+
+/// Returns true if a SurrealDB error indicates the queried table doesn't exist.
+/// In that case callers should return empty results rather than propagate an error.
+fn is_table_not_found(e: &surrealdb::Error) -> bool {
+    e.to_string().contains("does not exist")
+}
 
 /// Build a WHERE clause + bindings from a JSON filters object.
 /// Returns `(clause_string, Vec<(key, value)>)`.
