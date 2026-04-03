@@ -6,8 +6,9 @@
 //!   POST /api/method/{*path}                    → method registry dispatcher
 
 use axum::{
-    extract::{Extension, Form, Path, Query},
-    http::StatusCode,
+    body::Bytes,
+    extract::{Extension, Path, Query},
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Json},
 };
 use serde::Deserialize;
@@ -212,29 +213,77 @@ pub async fn resource_get_value(
 
 // ── /api/method/ dispatcher ───────────────────────────────────────────────────
 
-/// POST /api/method/{*path}
+/// GET or POST /api/method/{*path}
 ///
 /// The `path` segment is the dotted method name, e.g. `frappe.client.get_list`.
-/// Parameters are accepted as `application/x-www-form-urlencoded` (standard Frappe JS client).
-/// JSON-encoded parameter values (like `fields=["name","customer"]`) are automatically decoded.
+/// GET: params in query string. POST: params in body (form-urlencoded or JSON).
 pub async fn call_method(
     Extension(site): Extension<Arc<SiteState>>,
+    Extension(current_user): Extension<CurrentUser>,
     Path(path): Path<String>,
-    Form(raw_params): Form<HashMap<String, String>>,
+    Query(query_params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> impl IntoResponse {
+    // Parse params from body (POST) merged with query string (GET)
+    let mut raw_params: HashMap<String, String> = {
+        let ct = headers
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if ct.contains("application/json") {
+            // JSON body: may be a flat map or may have nested objects (stringify them)
+            match serde_json::from_slice::<serde_json::Value>(&body) {
+                Ok(serde_json::Value::Object(map)) => map
+                    .into_iter()
+                    .map(|(k, v)| {
+                        let s = match v {
+                            serde_json::Value::String(s) => s,
+                            other => other.to_string(),
+                        };
+                        (k, s)
+                    })
+                    .collect(),
+                _ => HashMap::new(),
+            }
+        } else if !body.is_empty() {
+            // form-urlencoded body (standard POST path)
+            serde_urlencoded::from_bytes(&body).unwrap_or_default()
+        } else {
+            HashMap::new()
+        }
+    };
+    // Merge query params (GET params win over body for duplicates)
+    raw_params.extend(query_params);
     // Strip leading slash that Axum may include for wildcard captures
     let method_path = path.trim_start_matches('/');
 
     let handler = match site.method_registry.get(method_path) {
         Some(h) => h,
         None => {
-            let body = ErrorResponse::new(
-                "MethodNotFoundError",
-                format!("Method not found: {method_path}"),
-            );
-            return (StatusCode::NOT_FOUND, Json(body)).into_response();
+            // Frappe returns HTTP 417 + ValidationError for unknown methods.
+            // _server_messages uses Frappe's double-encoded format:
+            // a JSON string containing a JSON array where each element is
+            // itself a JSON string containing a JSON object.
+            let msg = format!("Failed to get method for command {method_path}");
+            let inner_obj = serde_json::to_string(&serde_json::json!({"message": msg}))
+                .unwrap_or_else(|_| msg.clone());
+            let server_messages = serde_json::to_string(&[inner_obj])
+                .unwrap_or_else(|_| "[]".to_owned());
+            let body = serde_json::json!({
+                "exc_type":           "ValidationError",
+                "_server_messages":   server_messages,
+            });
+            return (
+                StatusCode::from_u16(417).unwrap(),
+                Json(body),
+            ).into_response();
         }
     };
+
+    // Inject session user as a reserved internal param so method handlers
+    // can identify who is making the request without accessing headers.
+    raw_params.insert("__current_user".to_owned(), current_user.name().to_owned());
 
     let params = parse_form_params(raw_params);
 
