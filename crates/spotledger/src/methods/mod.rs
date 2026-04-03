@@ -6,7 +6,7 @@ mod client;
 mod desk;
 pub use auth::{get_logged_user_handler, login_handler, logout_handler};
 pub use client::register_client_methods;
-pub use desk::{getdoc_handler, getdoctype_handler, register_desk_methods};
+pub use desk::{getdoc_handler, getdoctype_handler, getpage_handler, register_desk_methods};
 
 use crate::state::SiteState;
 use dashmap::DashMap;
@@ -107,6 +107,7 @@ mod tests {
             "frappe.desk.reportview.get_count",
             "frappe.desk.notifications.get_notifications",
             "frappe.utils.boot.get_boot_info",
+            "frappe.core.doctype.user_permission.user_permission.get_user_permissions",
         ] {
             assert!(registry.get(path).is_some(), "missing: {path}");
         }
