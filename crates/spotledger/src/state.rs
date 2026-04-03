@@ -16,6 +16,9 @@ use crate::methods::{build_registry, MethodRegistry};
 pub struct SiteState {
     pub config: SiteConfig,
     pub db: Db,
+    /// Parsed `sites/assets/assets.json` — maps bundle key to hashed URL path.
+    /// Loaded once at startup; never hardcoded.
+    pub assets_json: Value,
     /// Document cache keyed by `(doctype, name)` → Document as Value.
     pub doc_cache: Cache<(String, String), Value>,
     /// Registered `/api/method/` handlers (built-in Tier 1 + app-installed handlers).
@@ -25,7 +28,7 @@ pub struct SiteState {
 }
 
 impl SiteState {
-    pub fn new(config: SiteConfig, db: Db) -> Self {
+    pub fn new(config: SiteConfig, db: Db, assets_json: Value) -> Self {
         let doc_cache = Cache::builder()
             .max_capacity(config.cache.max_documents)
             .time_to_live(Duration::from_secs(config.cache.ttl_seconds))
@@ -33,6 +36,7 @@ impl SiteState {
         Self {
             config,
             db,
+            assets_json,
             doc_cache,
             method_registry: build_registry(),
             hook_registry: Arc::new(HookRegistry::new()),

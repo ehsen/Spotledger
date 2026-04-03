@@ -15,6 +15,10 @@ pub enum Commands {
     Serve(ServeArgs),
     /// Create a new site: write config + bootstrap SurrealDB schema
     NewSite(NewSiteArgs),
+    /// Seed all Frappe DocType definitions into an existing site's SurrealDB
+    SeedDoctypes(SeedDoctypesArgs),
+    /// Install a Frappe app: DocTypes + Module Defs + fixture records + Patch Log
+    InstallApp(InstallAppArgs),
 }
 
 #[derive(Debug, clap::Args, Clone)]
@@ -66,4 +70,27 @@ pub struct NewSiteArgs {
 pub enum RunMode {
     Dev,
     Prod,
+}
+
+#[derive(Debug, clap::Args, Clone)]
+pub struct SeedDoctypesArgs {
+    /// Hostname of the site to seed (must already exist via new-site)
+    pub site: String,
+
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: PathBuf,
+}
+
+#[derive(Debug, clap::Args, Clone)]
+pub struct InstallAppArgs {
+    /// Name of the app to install (e.g. frappe, erpnext)
+    pub app: String,
+
+    /// Hostname of the site to install into (must already exist via new-site)
+    pub site: String,
+
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: PathBuf,
 }

@@ -61,8 +61,12 @@ pub struct ErrorResponse {
 impl ErrorResponse {
     pub fn new(exc_type: impl Into<String>, message: impl Into<String>) -> Self {
         let msg = message.into();
-        // Encode server_messages as Frappe does: JSON array string inside the JSON
-        let server_messages = serde_json::to_string(&[&msg]).ok();
+        // Frappe _server_messages format: outer JSON string wrapping an array of
+        // JSON-encoded message objects {"message":"...","indicator":"red"}.
+        // messages.js does JSON.parse() on each inner element.
+        let inner_obj = serde_json::json!({"message": msg, "indicator": "red", "title": "Error"});
+        let inner_str = serde_json::to_string(&inner_obj).unwrap_or_default();
+        let server_messages = serde_json::to_string(&[inner_str]).ok();
         Self {
             exc_type: exc_type.into(),
             exc: None,
@@ -112,11 +116,17 @@ mod tests {
         // _server_messages must be a string (not an array)
         assert!(v["_server_messages"].is_string(), "_server_messages must be a JSON string");
 
-        // And that string must itself be a valid JSON array
+        // That string must be a valid JSON array
         let inner: Value =
             serde_json::from_str(v["_server_messages"].as_str().unwrap()).unwrap();
         assert!(inner.is_array());
-        assert_eq!(inner[0], json!("Amount cannot be negative"));
+
+        // Each element is a JSON-encoded message object (not a plain string).
+        // messages.js does JSON.parse() on each element to extract {message, indicator}.
+        let elem_str = inner[0].as_str().expect("each element must be a JSON string");
+        let msg_obj: Value = serde_json::from_str(elem_str).unwrap();
+        assert_eq!(msg_obj["message"], json!("Amount cannot be negative"));
+        assert_eq!(msg_obj["indicator"], json!("red"));
     }
 
     #[test]

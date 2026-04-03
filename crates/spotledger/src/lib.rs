@@ -1,8 +1,11 @@
+#![recursion_limit = "512"]
 pub mod cli;
 pub mod methods;
 pub mod middleware;
 pub mod new_site;
 pub mod pages;
 pub mod routes;
+pub mod install_app;
+pub mod seed_doctypes;
 pub mod server;
 pub mod state;
