@@ -102,10 +102,10 @@ struct ProxyState {
 /// Spotledger does not serve in the proxy-test scenario — the browser gets
 /// the genuine Frappe HTML shell and JS bundles.
 fn is_frappe_only(path: &str) -> bool {
-    let api_path = path.starts_with("/api/");
-    // Everything that is NOT an /api/ route goes to Frappe only.
-    // This includes /desk, /login, /app/*, /assets/*, /files/*, /favicon.ico, etc.
-    !api_path
+    let bare = path.split('?').next().unwrap_or(path);
+    // /api/* and /socket.io* are handled by Spotledger.
+    // Everything else (/desk, /login, /app/*, /assets/*, etc.) goes to Frappe only.
+    !bare.starts_with("/api/") && !bare.starts_with("/socket.io")
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
@@ -230,10 +230,11 @@ async fn proxy_handler(
             let (parts, body) = resp.into_parts();
             if let Ok(body_bytes) = axum::body::to_bytes(body, usize::MAX).await {
                 if let Ok(html) = std::str::from_utf8(&body_bytes) {
-                    let injected = html.replacen(
-                        "</head>",
-                        "<script>window.dev_server = 0;</script></head>",
-                        1,
+                    // Replace Frappe's dev_server=1 assignment directly so socket.io
+                    // doesn't attempt to connect to port 9000.
+                    let injected = html.replace(
+                        "window.dev_server = 1;",
+                        "window.dev_server = 0;",
                     );
                     return Ok(Response::from_parts(parts, Body::from(injected)));
                 } else {
@@ -245,6 +246,31 @@ async fn proxy_handler(
         }
 
         return Ok(resp);
+    }
+
+    // ── socket.io → Spotledger only (no Frappe shadow) ───────────────────────
+    let bare_path = path_and_query.split('?').next().unwrap_or(&path_and_query);
+    if bare_path.starts_with("/socket.io") {
+        let spot_url = format!("{}{}", state.args.spotledger_url, path_and_query);
+        let (status, headers, body) = forward_bytes(
+            &state.client,
+            &method,
+            &spot_url,
+            &req_headers,
+            &state.args.spotledger_site,
+            body_bytes,
+            None,
+        )
+        .await
+        .unwrap_or((502, HeaderMap::new(), b"Bad Gateway".to_vec()));
+        let mut builder = Response::builder().status(status);
+        for (name, value) in &headers {
+            let name_lower = name.as_str().to_lowercase();
+            if name_lower != "transfer-encoding" {
+                builder = builder.header(name, value);
+            }
+        }
+        return Ok(builder.body(Body::from(body)).unwrap_or_default());
     }
 
     // ── API route → Spotledger (primary) + Frappe (shadow diff) ──────────────

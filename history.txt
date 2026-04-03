@@ -1,0 +1,22 @@
+#V2
+DEFINE FIELD IF NOT EXISTS doctype ON tabHas_Role TYPE none | string;
+SELECT name, title, public, icon, sequence_id FROM tabWorkspace;
+SELECT id, name, title FROM tabWorkspace;
+DELETE tabWorkspace:02jtsrta8ibej4jdyhz5;
+DELETE tabWorkspace:0i6122o1bajm4jo5rlrc;
+DELETE tabWorkspace:47f3i1vt8tnwn0atctgy;
+DELETE tabWorkspace:div29c1e6qzcegm2bgq1;
+DELETE tabWorkspace:ufkg267nqs1btuse2hpa;
+DELETE tabWorkspace:z52vx5042g9ijmnkhbh1;
+SELECT id, name, title FROM tabWorkspace;
+SELECT fieldname FROM tabDocField WHERE parent='DocType' AND fieldname='allow_auto_repeat';
+SELECT fieldname FROM tabDocField WHERE parent='DocType' LIMIT 100;
+CREATE tabDocType:test_allow SET name='test_allow', allow_auto_repeat=1, owner='Administrator', modified_by='Administrator', docstatus=0, creation=time::now(), modified=time::now();
+CREATE tabDocType:test1 SET name='test1', allow_auto_repeat=1, owner='A', modified_by='A', docstatus=0, creation=time::now(), modified=time::now();
+SELECT * FROM tabDocType LIMIT 1;
+INFO FOR TABLE tabDocType;
+SELECT name, description, status FROM tabToDo LIMIT 5;
+SELECT name, autoname, naming_rule FROM tabDocType WHERE name='Page';
+SELECT name, autoname, naming_rule FROM tabDocType WHERE name='DocType';
+SELECT name, autoname, naming_rule FROM tabDocType WHERE name='ToDo';
+SELECT name, autoname, naming_rule FROM tabDocType WHERE name='User';

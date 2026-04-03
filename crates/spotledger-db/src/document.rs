@@ -143,6 +143,43 @@ pub async fn get_value(
     }))
 }
 
+/// Return the set of field names that are valid for a given DocType.
+///
+/// Uses SurrealDB's `INFO FOR TABLE` to get the fields actually DEFINE'd in
+/// the schema, which is the ground truth for what the DB will accept.
+/// Standard system fields are always included as a baseline.
+pub async fn get_valid_columns(
+    db: &Surreal<Client>,
+    doctype: &str,
+) -> std::collections::HashSet<String> {
+    // Standard Frappe system fields — always valid.
+    let mut cols: std::collections::HashSet<String> = [
+        "name", "owner", "creation", "modified", "modified_by",
+        "docstatus", "idx", "parent", "parenttype", "parentfield",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let table = doctype_to_table(doctype);
+    // INFO FOR TABLE returns a map with a "fields" key whose values are
+    // DEFINE FIELD statements as strings. Extract fieldnames from those.
+    let query = format!("INFO FOR TABLE `{table}`;");
+    let mut resp = match db.query(query.as_str()).await {
+        Ok(r) => r,
+        Err(_) => return cols,
+    };
+    let info: Vec<Value> = resp.take(0).unwrap_or_default();
+    if let Some(Value::Object(map)) = info.into_iter().next() {
+        if let Some(Value::Object(fields_map)) = map.get("fields") {
+            for key in fields_map.keys() {
+                cols.insert(key.clone());
+            }
+        }
+    }
+    cols
+}
+
 // ── WRITE ────────────────────────────────────────────────────────────────────
 
 /// Insert a new document (CREATE).  `fields` must include a non-empty `name`.
@@ -158,17 +195,18 @@ pub async fn insert_doc(
         .unwrap_or("")
         .to_owned();
 
-    let (set_clause, bindings) = build_set_from_fields(fields);
+    let valid = get_valid_columns(db, doctype).await;
+    let filtered = filter_to_valid_columns(fields, &valid);
+    let (set_clause, bindings) = build_set_from_fields(&filtered);
     let query = format!(
         "CREATE type::record($table, $name) SET \
-         doctype = $doctype, creation = time::now(), modified = time::now(), {set_clause}"
+         name = $name, creation = time::now(), modified = time::now(), {set_clause}"
     );
 
     let mut q = db
         .query(query.as_str())
         .bind(("table", table.clone()))
-        .bind(("name", name.clone()))
-        .bind(("doctype", doctype.to_owned()));
+        .bind(("name", name.clone()));
     for (k, v) in bindings {
         q = q.bind((k, v));
     }
@@ -197,21 +235,22 @@ pub async fn upsert_doc(
     fields: &Value,
 ) -> Result<Document, DbError> {
     let table = doctype_to_table(doctype);
-    let (set_clause, bindings) = build_set_from_fields(fields);
+    let valid = get_valid_columns(db, doctype).await;
+    let filtered = filter_to_valid_columns(fields, &valid);
+    let (set_clause, bindings) = build_set_from_fields(&filtered);
     // Use type::record so that new documents get the Frappe name as their SurrealDB ID
     // (e.g. tabUser:Administrator).  For existing ULID-keyed records this will insert a
     // duplicate keyed record; callers should prefer insert_doc for truly new documents.
     let query = format!(
         "UPSERT type::record($table, $name) SET \
-         doctype = $doctype, name = $name, modified = time::now(), \
+         name = $name, modified = time::now(), \
          creation = IF creation THEN creation ELSE time::now() END, {set_clause}"
     );
 
     let mut q = db
         .query(query.as_str())
         .bind(("table", table.clone()))
-        .bind(("name", name.to_owned()))
-        .bind(("doctype", doctype.to_owned()));
+        .bind(("name", name.to_owned()));
     for (k, v) in bindings {
         q = q.bind((k, v));
     }
@@ -407,6 +446,23 @@ pub fn build_where(filters: Option<&Value>) -> (String, Vec<(String, Value)>) {
         return (String::new(), vec![]);
     }
     (format!(" WHERE {}", conditions.join(" AND ")), bindings)
+}
+
+/// Filter a fields object to only include keys present in `valid_columns`.
+/// Arrays are always excluded (child tables live in separate tables).
+pub fn filter_to_valid_columns(
+    fields: &Value,
+    valid: &std::collections::HashSet<String>,
+) -> Value {
+    let Value::Object(map) = fields else {
+        return fields.clone();
+    };
+    let filtered: serde_json::Map<String, Value> = map
+        .iter()
+        .filter(|(k, v)| valid.contains(*k) && !v.is_array())
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    Value::Object(filtered)
 }
 
 /// Build a SET clause + owned bindings from a JSON object for INSERT/UPSERT.

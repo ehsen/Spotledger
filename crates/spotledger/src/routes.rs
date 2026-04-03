@@ -289,6 +289,14 @@ pub async fn call_method(
 
     match handler(site.clone(), params).await {
         Ok(result) => {
+            // Methods like savedocs return {docs:[...], docinfo:{...}} at the top level.
+            // Frappe's request.js checks data.docs / data.docinfo directly (not inside message).
+            // Detect this pattern and return as-is without the {message:} wrapper.
+            if let Value::Object(ref map) = result {
+                if map.contains_key("docs") || map.contains_key("docinfo") {
+                    return (StatusCode::OK, Json(result)).into_response();
+                }
+            }
             let body = MethodResponse { message: result };
             (StatusCode::OK, Json(body)).into_response()
         }

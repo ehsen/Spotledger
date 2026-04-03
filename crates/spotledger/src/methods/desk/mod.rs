@@ -53,6 +53,7 @@ pub fn register_desk_methods(registry: &Arc<MethodRegistry>) {
 
     // ── Form save / cancel / discard ──────────────────────────────────────
     reg!("frappe.desk.form.save.savedocs", handle_savedocs);
+    reg!("savedocs",                       handle_savedocs); // short alias used by browser
     reg!("frappe.desk.form.save.cancel",   handle_form_cancel);
     reg!("frappe.desk.form.save.discard",  handle_noop_ok);
 
@@ -431,16 +432,46 @@ async fn handle_getdoc(
     let doctype = require_str(&params, "doctype")?;
     let name = require_str(&params, "name")?;
 
-    let user = "Administrator";
+    let user = params.get("__current_user").and_then(Value::as_str).unwrap_or("Administrator");
 
-    let (doc, perms) = tokio::try_join!(
-        async { get_doc(&site.db, doctype, name).await.map_err(SpotError::from) },
-        async {
-            get_doc_permissions(&site.db, user, doctype)
-                .await
-                .map_err(SpotError::from)
+    let doc_result = get_doc(&site.db, doctype, name).await;
+
+    // For Single doctypes, a missing record is normal — return an empty default doc.
+    let doc = match doc_result {
+        Ok(d) => d,
+        Err(spotledger_db::error::DbError::NotFound { .. }) => {
+            // Check if this is a Single doctype
+            let is_single = get_doc(&site.db, "DocType", doctype).await
+                .ok()
+                .and_then(|dt| dt.get_value("issingle"))
+                .and_then(|v| match &v {
+                    Value::Number(n) => n.as_i64().map(|n| n != 0),
+                    Value::Bool(b) => Some(*b),
+                    _ => None,
+                })
+                .unwrap_or(false);
+
+            if is_single {
+                // Return an empty default doc (name == doctype for Singles)
+                let mut empty = spotledger_types::document::Document::default();
+                empty.doctype = doctype.to_string();
+                empty.name = doctype.to_string();
+                empty.set("__islocal", json!(1));
+                empty.set("__unsaved", json!(1));
+                empty
+            } else {
+                return Err(SpotError::NotFound {
+                    doctype: doctype.to_string(),
+                    name: name.to_string(),
+                });
+            }
         }
-    )?;
+        Err(e) => return Err(SpotError::from(e)),
+    };
+
+    let perms = get_doc_permissions(&site.db, user, doctype)
+        .await
+        .map_err(SpotError::from)?;
 
     let link_titles = build_link_titles(&site.db, doctype, &doc).await;
 
@@ -451,19 +482,29 @@ async fn handle_getdoc(
     let docinfo_user_info = build_user_info(&site.db, &owner_users).await;
 
     let docinfo = json!({
+        "doctype":         doctype,
+        "name":            name,
         "attachments":     [],
         "comments":        [],
         "communications":  [],
+        "automated_messages": [],
         "assignments":     [],
-        "shared_with":     [],
-        "permissions":     perms.to_json(),
+        "shared":          [],
         "views":           [],
         "energy_point_logs": [],
         "additional_timeline_content": [],
         "milestones":      [],
+        "versions":        [],
         "is_document_followed": false,
         "tags":            "",
         "document_email":  null,
+        "share_logs":      [],
+        "assignment_logs": [],
+        "attachment_logs": [],
+        "info_logs":       [],
+        "like_logs":       [],
+        "workflow_logs":   [],
+        "permissions":     perms.to_json(),
         "user_info":       docinfo_user_info,
     });
 
@@ -508,6 +549,12 @@ async fn handle_get_docinfo(
         "milestones": [],
         "is_document_followed": false,
         "tags": "",
+        "share_logs": [],
+        "assignment_logs": [],
+        "attachment_logs": [],
+        "info_logs": [],
+        "like_logs": [],
+        "workflow_logs": [],
         "workflow_logs": [],
         "info_logs": [],
         "assignment_logs": [],
@@ -670,44 +717,235 @@ async fn handle_savedocs(
     site: Arc<SiteState>,
     params: HashMap<String, Value>,
 ) -> Result<Value, SpotError> {
-    let doc_str = params.get("doc")
-        .and_then(Value::as_str)
-        .ok_or_else(|| SpotError::Validation("doc param required".into()))?;
-
-    let doc_val: Value = serde_json::from_str(doc_str)
-        .map_err(|e| SpotError::Validation(format!("invalid doc JSON: {e}")))?;
+    // Frappe's request.js JSON.stringify's the doc object before sending,
+    // so it arrives as a JSON string in the form body. parse_form_params then
+    // further parses it into a Value::Object. Accept both cases.
+    let doc_val: Value = match params.get("doc") {
+        Some(Value::Object(o)) => Value::Object(o.clone()),
+        Some(Value::String(s)) => serde_json::from_str(s)
+            .map_err(|e| SpotError::Validation(format!("invalid doc JSON: {e}")))?,
+        _ => return Err(SpotError::Validation("doc param required".into())),
+    };
 
     let action = params.get("action").and_then(Value::as_str).unwrap_or("Save");
     let doctype = doc_val.get("doctype").and_then(Value::as_str)
         .ok_or_else(|| SpotError::Validation("doctype missing in doc".into()))?
         .to_string();
-    let name = doc_val.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+
+    // The browser's original local name (e.g. "new-todo-abc123xyz").
+    // Captured before resolving to a final saved name.
+    let browser_local_name = doc_val.get("name")
+        .and_then(Value::as_str)
+        .filter(|s| s.starts_with("new-"))
+        .map(str::to_string);
+
+    // __newname = user typed name (Prompt autoname), present when the form shows a name field.
+    let explicit_name = doc_val.get("__newname")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    let is_new = explicit_name.is_none()
+        && (browser_local_name.is_some()
+            || doc_val.get("name").and_then(Value::as_str).map(|n| n.is_empty()).unwrap_or(true)
+            || doc_val.get("__islocal").and_then(Value::as_i64).unwrap_or(0) == 1);
+
+    // The browser's local name returned as `localname` so sync.js rename_after_save
+    // can update locals[] from the temp name to the real saved name.
+    let local_name = if is_new { browser_local_name.clone() } else { None };
+
+    // Resolve final name following Frappe's autoname rules:
+    //   1. Prompt / __newname  → explicit_name
+    //   2. field:fieldname     → value of that field in the doc
+    //   3. hash / empty / else → generate a random name
+    let saved_name: String = if let Some(n) = explicit_name {
+        // autoname = "Prompt" or user supplied __newname
+        n
+    } else if is_new {
+        // Look up autoname from tabDocType
+        let autoname = get_doc(&site.db, "DocType", &doctype).await
+            .ok()
+            .and_then(|dt| dt.get_str("autoname").map(str::to_string));
+
+        match autoname.as_deref() {
+            Some(an) if an.starts_with("field:") => {
+                // autoname = "field:fieldname" → use that field's value as the name
+                let fieldname = &an["field:".len()..];
+                doc_val.get(fieldname)
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .ok_or_else(|| SpotError::Validation(
+                        format!("autoname field '{fieldname}' is empty or missing")
+                    ))?
+            }
+            Some(an) if an.starts_with("format:") => {
+                // autoname = "format:{fieldname}-..." — simple single-field case
+                // Full Jinja format strings not yet supported; fall back to random.
+                let _ = an;
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_nanos();
+                format!("{}-{:08x}", doctype.to_lowercase().replace(' ', "-"), ts)
+            }
+            _ => {
+                // hash, None, or anything else → random
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_nanos();
+                format!("{}-{:08x}", doctype.to_lowercase().replace(' ', "-"), ts)
+            }
+        }
+    } else {
+        // Existing doc — name from doc itself
+        doc_val.get("name")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| SpotError::Validation("name missing for existing doc".into()))?
+    };
+
+    // Build a clean parent doc: strip UI-only meta fields and child table arrays.
+    // Child table rows (identified by having a parentfield key, or being arrays of objects)
+    // are saved separately to their own SurrealDB tables.
+    let mut parent_fields = serde_json::Map::new();
+    let mut child_rows: Vec<Value> = vec![];  // collect all child table rows
+
+    if let Value::Object(ref map) = doc_val {
+        for (k, v) in map {
+            match k.as_str() {
+                // Strip UI-only fields
+                "__islocal" | "__unsaved" | "__newname" | "__run_link_triggers"
+                | "__last_sync_on" | "__dirty" | "__checked" | "__doctype_fields" => {}
+                _ => {
+                    // Arrays are always child table rows in Frappe's data model.
+                    // Frappe never stores child table arrays on the parent record —
+                    // they live in their own tables (tabDocField, tabDocPerm, etc.).
+                    // Collect non-empty arrays as child rows; skip empty arrays entirely.
+                    if let Value::Array(arr) = v {
+                        for row in arr {
+                            if row.as_object().is_some() {
+                                child_rows.push(row.clone());
+                            }
+                        }
+                        // Never include array fields in the parent record
+                        continue;
+                    }
+                    parent_fields.insert(k.clone(), v.clone());
+                }
+            }
+        }
+    }
+    parent_fields.insert("name".into(), Value::String(saved_name.clone()));
+
+    // Inject standard Frappe tracking fields if not already present
+    let current_user = params.get("__current_user").and_then(Value::as_str).unwrap_or("Administrator");
+    parent_fields.entry("owner".to_string()).or_insert_with(|| Value::String(current_user.to_string()));
+    parent_fields.entry("modified_by".to_string()).or_insert_with(|| Value::String(current_user.to_string()));
+    parent_fields.entry("docstatus".to_string()).or_insert_with(|| Value::Number(0.into()));
+
+    let parent_val = Value::Object(parent_fields);
 
     match action {
         "Save" | "Update" => {
-            if name.is_empty() || name.starts_with("new-") {
-                spotledger_db::document::insert_doc(&site.db, &doctype, &doc_val).await
+            if is_new {
+                spotledger_db::document::insert_doc(&site.db, &doctype, &parent_val).await
                     .map_err(|e| SpotError::Db(e.to_string()))?;
             } else {
-                spotledger_db::document::upsert_doc(&site.db, &doctype, &name, &doc_val).await
+                spotledger_db::document::upsert_doc(&site.db, &doctype, &saved_name, &parent_val).await
                     .map_err(|e| SpotError::Db(e.to_string()))?;
-                site.doc_cache.remove(&(doctype.clone(), name.clone())).await;
+                site.doc_cache.remove(&(doctype.clone(), saved_name.clone())).await;
             }
         }
         "Submit" => {
-            spotledger_db::document::submit_doc(&site.db, &doctype, &name).await
+            spotledger_db::document::submit_doc(&site.db, &doctype, &saved_name).await
                 .map_err(|e| SpotError::Db(e.to_string()))?;
-            site.doc_cache.remove(&(doctype.clone(), name.clone())).await;
+            site.doc_cache.remove(&(doctype.clone(), saved_name.clone())).await;
         }
         "Cancel" => {
-            spotledger_db::document::cancel_doc(&site.db, &doctype, &name).await
+            spotledger_db::document::cancel_doc(&site.db, &doctype, &saved_name).await
                 .map_err(|e| SpotError::Db(e.to_string()))?;
-            site.doc_cache.remove(&(doctype.clone(), name.clone())).await;
+            site.doc_cache.remove(&(doctype.clone(), saved_name.clone())).await;
         }
         _ => {}
     }
 
-    Ok(json!({"docname": name}))
+    // Save child table rows to their own tables
+    for child in &child_rows {
+        if let Value::Object(row_map) = child {
+            let child_doctype = row_map.get("doctype").and_then(Value::as_str).unwrap_or("");
+            if child_doctype.is_empty() { continue; }
+            let child_name = row_map.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+            let mut row_val = child.clone();
+            // Inject parent linkage
+            if let Some(obj) = row_val.as_object_mut() {
+                obj.insert("parent".into(), Value::String(saved_name.clone()));
+                obj.insert("parenttype".into(), Value::String(doctype.clone()));
+                obj.remove("__islocal");
+                obj.remove("__unsaved");
+            }
+            let is_child_new = child_name.is_empty() || child_name.starts_with("new-")
+                || row_map.get("__islocal").and_then(Value::as_i64).unwrap_or(0) == 1;
+            if is_child_new {
+                // Generate name for child row if missing
+                if let Some(obj) = row_val.as_object_mut() {
+                    if obj.get("name").and_then(Value::as_str).map(|n| n.is_empty() || n.starts_with("new-")).unwrap_or(true) {
+                        use std::time::{SystemTime, UNIX_EPOCH};
+                        let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_nanos();
+                        let n = format!("{}-{:08x}", child_doctype.to_lowercase().replace(' ', "-"), ts);
+                        obj.insert("name".into(), Value::String(n));
+                    }
+                }
+                let _ = spotledger_db::document::insert_doc(&site.db, child_doctype, &row_val).await;
+            } else {
+                let _ = spotledger_db::document::upsert_doc(&site.db, child_doctype, &child_name, &row_val).await;
+            }
+        }
+    }
+
+    // Re-fetch the saved parent doc to return the post-save state
+    let saved_doc = get_doc(&site.db, &doctype, &saved_name).await
+        .map_err(|e| SpotError::Db(e.to_string()))?;
+
+    // Build the response doc dict; for new docs inject `localname` so that
+    // sync.js rename_after_save can update locals[] from the browser's temp name.
+    let mut doc_dict = saved_doc.as_dict();
+    if let (Some(ln), Value::Object(ref mut map)) = (local_name, &mut doc_dict) {
+        map.insert("localname".to_string(), Value::String(ln));
+    }
+
+    let user = params.get("__current_user").and_then(Value::as_str).unwrap_or("Administrator");
+    let perms = get_doc_permissions(&site.db, user, &doctype).await
+        .map(|p| p.to_json())
+        .unwrap_or_else(|_| json!({"read": 1, "write": 1, "create": 1}));
+
+    // Return in Frappe's send_updated_docs format (top-level docs + docinfo)
+    Ok(json!({
+        "docs": [doc_dict],
+        "docinfo": {
+            "doctype": &doctype,
+            "name": &saved_name,
+            "attachments": [],
+            "comments": [],
+            "communications": [],
+            "automated_messages": [],
+            "assignments": [],
+            "shared": [],
+            "views": [],
+            "additional_timeline_content": [],
+            "milestones": [],
+            "versions": [],
+            "is_document_followed": false,
+            "tags": "",
+            "document_email": null,
+            "share_logs": [],
+            "assignment_logs": [],
+            "attachment_logs": [],
+            "info_logs": [],
+            "like_logs": [],
+            "workflow_logs": [],
+            "permissions": perms,
+            "user_info": {},
+        }
+    }))
 }
 
 // ── frappe.desk.form.save.cancel ─────────────────────────────────────────────
@@ -917,6 +1155,7 @@ async fn handle_get_boot_info(
         "user_type":      &user_type,
         "is_system_user": is_system_user,
         "disable_async":  1,
+        "socketio_port":  null,
         "user_permissions": {},
         "desktop_icons":  [],
         "app_list":       [],
