@@ -6,3 +6,9 @@ sites/*/private/
 sites/*/logs/
 *.log
 .env
+
+# UI build artifacts and dependencies
+ui/node_modules/
+ui/dist/
+ui/dist-ssr/
+ui/.eslintcache
