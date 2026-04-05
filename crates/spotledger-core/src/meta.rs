@@ -205,8 +205,12 @@ impl DocField {
     pub fn set_only_once(mut self) -> Self             { self.set_only_once = true; self }
     pub fn allow_on_submit(mut self) -> Self           { self.allow_on_submit = true; self }
     pub fn ignore_xss_filter(mut self) -> Self         { self.ignore_xss_filter = true; self }
+    pub fn in_standard_filter(mut self) -> Self        { self.in_standard_filter = true; self }
     pub fn permlevel(mut self, lvl: u8) -> Self        { self.permlevel = lvl; self }
     pub fn length(mut self, n: u32) -> Self            { self.length = Some(n); self }
+    pub fn description(mut self, d: impl Into<String>) -> Self {
+        self.description = Some(d.into()); self
+    }
     pub fn fetch_from(mut self, s: impl Into<String>) -> Self {
         self.fetch_from = Some(s.into()); self
     }
@@ -216,6 +220,9 @@ impl DocField {
     }
     pub fn select_options(mut self, opts: impl Into<String>) -> Self {
         self.select_options = Some(opts.into()); self
+    }
+    pub fn default_value(mut self, val: impl Into<String>) -> Self {
+        self.default_value = Some(val.into()); self
     }
     pub fn default(mut self, val: impl Into<String>) -> Self {
         self.default_value = Some(val.into()); self
