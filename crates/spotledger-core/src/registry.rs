@@ -4,6 +4,10 @@
 //! Dynamic track:  DocTypes created at runtime stored as `DynamicMeta`.
 //!
 //! Compiled types take priority over dynamic ones with the same name.
+//!
+//! Schema sync: every compiled DocType also submits a `MetaEntry` so the
+//! `schema::ensure_all_schemas` function can emit SurrealDB DDL at startup
+//! without needing a live DocType instance.
 
 use std::collections::HashMap;
 
@@ -12,8 +16,21 @@ use dashmap::DashMap;
 use crate::document::Document;
 use crate::doctype::DocType;
 use crate::error::CoreError;
+use crate::meta::DocTypeMeta;
 
-// ── DocTypeEntry ──────────────────────────────────────────────────────────────
+// ── MetaEntry — schema inventory ─────────────────────────────────────────────
+
+/// A self-registering schema entry for a compiled Rust DocType.
+///
+/// Use `inventory::submit!(MetaEntry { name: "MyDocType", meta: my_meta_fn })`
+/// alongside `DocTypeEntry` so that `ensure_all_schemas` can drive DB DDL.
+pub struct MetaEntry {
+    pub name: &'static str,
+    /// Returns the `DocTypeMeta` for this DocType.
+    pub meta: fn() -> DocTypeMeta,
+}
+
+inventory::collect!(MetaEntry);
 
 /// A self-registering entry for a compiled Rust DocType.
 pub struct DocTypeEntry {

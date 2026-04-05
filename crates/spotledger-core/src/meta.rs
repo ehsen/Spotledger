@@ -129,6 +129,7 @@ pub struct DocField {
     pub label:      String,
     pub fieldtype:  FieldType,
     /// For `Link` fields — the target DocType name.
+    /// For `Select` fields — use `select_options`.
     pub options:    Option<String>,
     /// For `Select` fields — `\n`-separated choices.
     pub select_options: Option<String>,
@@ -141,6 +142,28 @@ pub struct DocField {
     pub default_value: Option<String>,
     pub description:   Option<String>,
     pub precision:  Option<u8>,
+
+    // ── Validation flags ──────────────────────────────────────────────────
+    /// Cannot be changed once set (Frappe: `set_only_once`).
+    pub set_only_once: bool,
+    /// Field can be edited even after submission.
+    pub allow_on_submit: bool,
+    /// Skip XSS sanitization for this field.
+    pub ignore_xss_filter: bool,
+    /// Permission level — 0 = base, higher = sensitive.
+    pub permlevel: u8,
+    /// Unique constraint on this field.
+    pub unique: bool,
+    /// Field must not be NULL in DB.
+    pub not_nullable: bool,
+    /// Max length override (for Data/Text fields). 0 = use field-type default.
+    pub length: Option<u32>,
+
+    // ── Fetch-from (Link field auto-fill) ─────────────────────────────────
+    /// `"linked_field.source_fieldname"` — copy value from linked doc.
+    pub fetch_from: Option<String>,
+    /// Only fetch when this field's current value is empty.
+    pub fetch_if_empty: bool,
 }
 
 impl DocField {
@@ -160,19 +183,44 @@ impl DocField {
             default_value: None,
             description: None,
             precision: None,
+            set_only_once: false,
+            allow_on_submit: false,
+            ignore_xss_filter: false,
+            permlevel: 0,
+            unique: false,
+            not_nullable: false,
+            length: None,
+            fetch_from: None,
+            fetch_if_empty: false,
         }
     }
 
-    pub fn required(mut self) -> Self { self.reqd = true; self }
-    pub fn in_list(mut self) -> Self  { self.in_list_view = true; self }
-    pub fn bold(mut self) -> Self     { self.bold = true; self }
-    pub fn read_only(mut self) -> Self { self.read_only = true; self }
+    pub fn required(mut self) -> Self                  { self.reqd = true; self }
+    pub fn in_list(mut self) -> Self                   { self.in_list_view = true; self }
+    pub fn bold(mut self) -> Self                      { self.bold = true; self }
+    pub fn read_only(mut self) -> Self                 { self.read_only = true; self }
+    pub fn hidden(mut self) -> Self                    { self.hidden = true; self }
+    pub fn unique(mut self) -> Self                    { self.unique = true; self }
+    pub fn not_nullable(mut self) -> Self              { self.not_nullable = true; self }
+    pub fn set_only_once(mut self) -> Self             { self.set_only_once = true; self }
+    pub fn allow_on_submit(mut self) -> Self           { self.allow_on_submit = true; self }
+    pub fn ignore_xss_filter(mut self) -> Self         { self.ignore_xss_filter = true; self }
+    pub fn permlevel(mut self, lvl: u8) -> Self        { self.permlevel = lvl; self }
+    pub fn length(mut self, n: u32) -> Self            { self.length = Some(n); self }
+    pub fn fetch_from(mut self, s: impl Into<String>) -> Self {
+        self.fetch_from = Some(s.into()); self
+    }
+    pub fn fetch_if_empty(mut self) -> Self            { self.fetch_if_empty = true; self }
     pub fn options(mut self, opts: impl Into<String>) -> Self {
         self.options = Some(opts.into()); self
+    }
+    pub fn select_options(mut self, opts: impl Into<String>) -> Self {
+        self.select_options = Some(opts.into()); self
     }
     pub fn default(mut self, val: impl Into<String>) -> Self {
         self.default_value = Some(val.into()); self
     }
+    pub fn precision(mut self, p: u8) -> Self          { self.precision = Some(p); self }
 }
 
 // ── DocTypeMeta ───────────────────────────────────────────────────────────────
@@ -196,6 +244,10 @@ pub struct DocTypeMeta {
     pub search_fields: Vec<String>,
     pub sort_field: Option<String>,
     pub sort_order: Option<String>,
+    /// Frappe `autoname` — e.g. `"naming_series:"`, `"field:fieldname"`, `"hash"`, `"Prompt"`.
+    pub autoname: Option<String>,
+    /// Default naming series template shown in `naming_series` field.
+    pub naming_series: Option<String>,
 }
 
 impl DocTypeMeta {
@@ -227,8 +279,18 @@ impl DocTypeMetaBuilder {
                 search_fields: Vec::new(),
                 sort_field: None,
                 sort_order: None,
+                autoname: None,
+                naming_series: None,
             },
         }
+    }
+
+    pub fn autoname(mut self, s: impl Into<String>) -> Self {
+        self.meta.autoname = Some(s.into()); self
+    }
+
+    pub fn naming_series(mut self, s: impl Into<String>) -> Self {
+        self.meta.naming_series = Some(s.into()); self
     }
 
     pub fn single(mut self) -> Self           { self.meta.is_single = true; self }
