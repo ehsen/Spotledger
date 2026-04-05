@@ -4,7 +4,6 @@
 //! After `sl_plugin_init()`, plugins are discoverable via the REST API and
 //! can receive lifecycle hooks.
 
-use crate::versioning::{PluginManifest, PluginDependency, HOST_ABI_VERSION};
 use spotledger_core::meta::DocTypeMeta;
 use std::sync::Arc;
 use dashmap::DashMap;

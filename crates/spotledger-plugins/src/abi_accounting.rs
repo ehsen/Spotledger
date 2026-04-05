@@ -1,7 +1,7 @@
 //! Host function bindings for accounting operations (GL engine).
 //!
-//! Phase 2: function stubs for the accounting ABI.
-//! Phase 2.5: will integrate with extism and spotledger-accounting.
+//! Phase 2.5: function stubs with GL adapter integration.
+//! Phase 3: will fully integrate with spotledger-accounting.
 //!
 //! Plugin host functions:
 //!   - sl_make_gl_entries(payload) → list of created GL Entry IDs
@@ -12,6 +12,7 @@
 
 use tracing::debug;
 use crate::context::get_execution_context;
+use crate::gl::GlAdapter;
 
 /// Post GL entries via the accounting engine.
 ///
@@ -40,10 +41,16 @@ pub fn sl_make_gl_entries(payload_ptr: u64, payload_len: u32) -> i32 {
         );
     }
 
-    // Phase 2.5: deserialize GlPayload from plugin memory,
-    // call spotledger_accounting::gl_engine::post_gl_entries,
-    // validate balance, insert GL Entry rows, serialize results back to plugin memory.
-    0
+    let gl = GlAdapter::new();
+    
+    // TODO: Deserialize GlPayload from plugin memory
+    match gl.make_gl_entries(&serde_json::json!({})) {
+        Ok(_entries) => {
+            // TODO: Serialize results back to plugin memory
+            0
+        }
+        Err(_e) => -1,
+    }
 }
 
 /// Reverse (cancel) GL entries for a voucher.
@@ -54,19 +61,25 @@ pub fn sl_make_gl_entries(payload_ptr: u64, payload_len: u32) -> i32 {
 /// Returns: memory offset to JSON array of reversal GL Entry names, or -1 on error
 pub fn sl_reverse_gl_entries(
     voucher_type_ptr: u64,
-    voucher_type_len: u32,
+    _voucher_type_len: u32,
     voucher_name_ptr: u64,
-    voucher_name_len: u32,
+    _voucher_name_len: u32,
 ) -> i32 {
     debug!(
         "sl_reverse_gl_entries called: voucher_type_ptr={}, voucher_name_ptr={}",
         voucher_type_ptr, voucher_name_ptr
     );
 
-    // Phase 2.5: look up original GL entries for voucher,
-    // create reversal rows (same account, debit ↔ credit swapped),
-    // post reversal entries, return list of names.
-    0
+    let gl = GlAdapter::new();
+    
+    // TODO: Deserialize voucher_type and voucher_name from plugin memory
+    match gl.reverse_gl_entries("SI", "SI-001") {
+        Ok(_entries) => {
+            // TODO: Serialize results back to plugin memory
+            0
+        }
+        Err(_) => -1,
+    }
 }
 
 /// Get the balance of an account at a point in time.
@@ -77,21 +90,27 @@ pub fn sl_reverse_gl_entries(
 /// Returns: memory offset to serialized Decimal, or -1 on error
 pub fn sl_get_account_balance(
     account_ptr: u64,
-    account_len: u32,
+    _account_len: u32,
     company_ptr: u64,
-    company_len: u32,
+    _company_len: u32,
     date_ptr: u64,
-    date_len: u32,
+    _date_len: u32,
 ) -> i32 {
     debug!(
         "sl_get_account_balance called: account_ptr={}, company_ptr={}, date_ptr={}",
         account_ptr, company_ptr, date_ptr
     );
 
-    // Phase 2.5: deserialize account, company, date from plugin memory,
-    // query GL_Entry table for account + company where posting_date <= date,
-    // sum debit/credit, serialize result back to plugin memory.
-    0
+    let gl = GlAdapter::new();
+    
+    // TODO: Deserialize account, company, date from plugin memory
+    match gl.get_account_balance("Debtors", "Company", "2026-01-01") {
+        Ok(_balance) => {
+            // TODO: Serialize balance back to plugin memory
+            0
+        }
+        Err(_) => -1,
+    }
 }
 
 /// Get the fiscal year for a date.
@@ -101,18 +120,25 @@ pub fn sl_get_account_balance(
 /// Returns: memory offset to serialized fiscal year name string, or -1 on error
 pub fn sl_get_fiscal_year(
     company_ptr: u64,
-    company_len: u32,
+    _company_len: u32,
     date_ptr: u64,
-    date_len: u32,
+    _date_len: u32,
 ) -> i32 {
     debug!(
         "sl_get_fiscal_year called: company_ptr={}, date_ptr={}",
         company_ptr, date_ptr
     );
 
-    // Phase 2.5: look up Fiscal Year document that contains date for company,
-    // serialize FY name back to plugin memory.
-    0
+    let gl = GlAdapter::new();
+    
+    // TODO: Deserialize company and date from plugin memory
+    match gl.get_fiscal_year("Company", "2026-01-01") {
+        Ok(_fy) => {
+            // TODO: Serialize FY name back to plugin memory
+            0
+        }
+        Err(_) => -1,
+    }
 }
 
 /// Get the exchange rate between two currencies on a date.
@@ -123,18 +149,25 @@ pub fn sl_get_fiscal_year(
 /// Returns: memory offset to serialized Decimal rate, or -1 on error
 pub fn sl_get_exchange_rate(
     from_currency_ptr: u64,
-    from_currency_len: u32,
+    _from_currency_len: u32,
     to_currency_ptr: u64,
-    to_currency_len: u32,
+    _to_currency_len: u32,
     date_ptr: u64,
-    date_len: u32,
+    _date_len: u32,
 ) -> i32 {
     debug!(
         "sl_get_exchange_rate called: from={}, to={}, date={}",
         from_currency_ptr, to_currency_ptr, date_ptr
     );
 
-    // Phase 2.5: look up Currency Exchange snapshot for from_currency + to_currency
-    // on date, serialize rate back to plugin memory.
-    0
+    let gl = GlAdapter::new();
+    
+    // TODO: Deserialize from_currency, to_currency, date from plugin memory
+    match gl.get_exchange_rate("USD", "INR", "2026-01-01") {
+        Ok(_rate) => {
+            // TODO: Serialize rate back to plugin memory
+            0
+        }
+        Err(_) => -1,
+    }
 }

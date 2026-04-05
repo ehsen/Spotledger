@@ -16,11 +16,17 @@
 pub mod abi;
 pub mod abi_accounting;
 pub mod context;
+pub mod db;
 pub mod extension;
+pub mod gl;
+pub mod memory;
 pub mod registry;
 pub mod versioning;
 
 pub use context::{PluginExecutionContext, set_execution_context, get_execution_context, clear_execution_context};
+pub use db::{DbAdapter, DbError, DbResult};
 pub use extension::ExtensionRegistry;
+pub use gl::{GlAdapter, GlError, GlResult};
+pub use memory::{MemoryError, MemoryResult};
 pub use registry::{PluginId, PluginInfo, PluginRegistry};
 pub use versioning::{PluginManifest, VersioningResolver};

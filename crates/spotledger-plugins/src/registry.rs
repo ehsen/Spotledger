@@ -30,8 +30,8 @@ pub struct PluginInfo {
 
 /// Holds loaded extism Plugin instances and metadata.
 pub struct PluginRegistry {
-    // Map: PluginId → extism::Plugin
-    plugins: DashMap<PluginId, Arc<Plugin>>,
+    // Map: PluginId → RefCell<extism::Plugin> (allows mutation through Arc)
+    plugins: DashMap<PluginId, Arc<std::sync::Mutex<Plugin>>>,
     // Map: PluginId → PluginInfo
     metadata: DashMap<PluginId, PluginInfo>,
     // Plugins directory (e.g., ./plugins)
@@ -125,7 +125,8 @@ impl PluginRegistry {
             resolver.register(manifest);
         }
 
-        self.plugins.insert(PluginId(plugin_id.to_owned()), Arc::new(plugin));
+        // Store plugin wrapped in Mutex for interior mutability
+        self.plugins.insert(PluginId(plugin_id.to_owned()), Arc::new(std::sync::Mutex::new(plugin)));
         self.metadata.insert(
             PluginId(plugin_id.to_owned()),
             PluginInfo {
@@ -141,23 +142,21 @@ impl PluginRegistry {
 
     /// Call the `sl_plugin_init()` export in a loaded plugin.
     /// This is where the plugin registers its DocTypes.
-    ///
-    /// Note: Phase 2.5 only. Requires mutable access to plugin, which necessitates
-    /// RefCell or other interior mutability pattern to work with Arc.
-    pub fn plugin_init(&self, _plugin_id: &str) -> anyhow::Result<()> {
-        // TODO Phase 2.5: implement with interior mutability
-        // let plugin = self
-        //     .plugins
-        //     .get(&PluginId(_plugin_id.to_owned()))
-        //     .ok_or_else(|| anyhow::anyhow!("Plugin not loaded: {}", _plugin_id))?;
-        //
-        // plugin.call::<(), ()>("sl_plugin_init", ())?;
+    pub fn plugin_init(&self, plugin_id: &str) -> anyhow::Result<()> {
+        let plugin = self
+            .plugins
+            .get(&PluginId(plugin_id.to_owned()))
+            .ok_or_else(|| anyhow::anyhow!("Plugin not loaded: {}", plugin_id))?;
+
+        // Lock the mutex to call the plugin method
+        let mut p = plugin.lock().map_err(|_| anyhow::anyhow!("Plugin mutex poisoned"))?;
+        p.call::<(), ()>("sl_plugin_init", ())?;
 
         Ok(())
     }
 
     /// Get a loaded plugin by ID.
-    pub fn get(&self, plugin_id: &str) -> Option<Arc<Plugin>> {
+    pub fn get(&self, plugin_id: &str) -> Option<Arc<std::sync::Mutex<Plugin>>> {
         self.plugins.get(&PluginId(plugin_id.to_owned())).map(|p| p.clone())
     }
 

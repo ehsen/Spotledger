@@ -1,0 +1,48 @@
+// Example WASM plugin manifest
+// This would be stored in a plugin's custom DWARF section or as a comment block
+// Phase 3: Parser will extract this from .wasm files automatically
+
+{
+  "id": "selling",
+  "name": "Selling',
+  "version": "1.0.0",
+  "abi_version": 1,
+  "description": "Sales Order, Sales Invoice, and related selling doctypes",
+  "dependencies": [],
+  "exported_functions": [
+    {
+      "name": "sl_plugin_init",
+      "signature": "() -> ()",
+      "description": "Initialize plugin and register doctypes"
+    },
+    {
+      "name": "on_sales_order_submit",
+      "signature": "() -> ()",
+      "description": "Called when Sales Order is submitted"
+    },
+    {
+      "name": "on_sales_with_validation_submit",
+      "signature": "() -> ()",
+      "description": "Called when Sales Invoice is submitted"
+    }
+  ],
+  "imported_functions": [
+    "spotledger:sl_get_doc",
+    "spotledger:sl_save_doc",
+    "spotledger:sl_delete_doc",
+    "spotledger:sl_get_value",
+    "spotledger:sl_set_value",
+    "spotledger:sl_has_permission",
+    "spotledger:sl_make_gl_entries",
+    "spotledger:sl_reverse_gl_entries",
+    "spotledger:sl_get_account_balance",
+    "spotledger:sl_throw_error",
+    "spotledger:sl_log"
+  ],
+  "permissions": [
+    {
+      "role": "Selling Manager",
+      "allow": ["sales_order", "sales_invoice", "delivery_note"]
+    }
+  ]
+}

@@ -8,7 +8,7 @@
 //! On init, topologically sort to initialize plugins in dependency order.
 
 use crate::registry::PluginId;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use tracing::warn;
 
 /// ABI version of the host (SpotledgerCore).
