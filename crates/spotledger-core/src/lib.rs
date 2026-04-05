@@ -6,6 +6,8 @@ pub mod meta;
 pub mod registry;
 pub mod response;
 pub mod validation;
+pub mod doctypes;
+pub mod migrations;
 
 // Re-export the most commonly used types at the crate root.
 pub use config::{GlobalConfig, SiteConfig};
