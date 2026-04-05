@@ -75,6 +75,9 @@ crates/
 - Document caching (Moka)
 - **Typed `DocTypeMeta` / `DocField` / `FieldType`** — full validation constraint fields, builder API
 - **`MetaEntry` self-registration** via `inventory::collect!` for schema inventory
+- **`DocType::meta()` trait method** — returns `&'static DocTypeMeta` for compiled types
+- **`to_frappe_json()` conversion** — DocTypeMeta/DocField/Permission convert to Frappe REST API format
+- **`handle_getdoctype` optimized** — now uses compiled meta first (zero DB queries for compiled types), falls back to DB for dynamic types
 - **Child tables embedded** in parent SurrealDB record (`array<object>`) — scatter/gather removed
 - **Document validation pipeline** (`validation.rs`) — mandatory, select options, length, set_only_once, allow_on_submit, XSS sanitize
 - **Ordered save controller** (`controller.rs`) — 15-step pipeline with hooks integration
@@ -703,10 +706,10 @@ systemctl restart spotledger
 - [x] `MetaEntry` + `inventory::collect!(MetaEntry)` for schema inventory
 - [x] `DocTypeRegistry` extended with `MetaEntry`; `get_compiled_meta(doctype)` in `controller.rs`
 - [x] DB sync rule: `FieldType::is_layout()` skips layout fields in schema DDL
-- [ ] Extend `DocType` trait with `fn meta() -> &'static DocTypeMeta` — not yet added to trait
-- [ ] Update `handle_getdoctype`: use compiled meta (still queries DB for DocField rows)
+- [x] Extend `DocType` trait with `fn meta() -> &'static DocTypeMeta` — added to trait
+- [x] Update `handle_getdoctype`: use compiled meta (now uses compiled meta, falls back to DB for uncompiled types)
 
-**Exit criterion**: ⚠️ `meta.rs` fully typed; `getdoctype` still queries DB for DocField rows (compiled meta not yet wired to handler)
+**Exit criterion**: ✅ Meta system complete. `getdoctype` now prioritizes compiled meta (zero DB queries for compiled doctypes), with automatic fallback to DB for dynamic/uncompiled types.
 
 ---
 
