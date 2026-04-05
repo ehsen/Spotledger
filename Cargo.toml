@@ -1,9 +1,14 @@
 [workspace]
 members = [
-    "crates/spotledger-types",
+    "crates/spotledger-core",
     "crates/spotledger-db",
+    "crates/spotledger-desk",
+    "crates/spotledger-accounting",
+    "crates/spotledger-automation",
+    "crates/spotledger-http",
+    "crates/spotledger-plugins",
+    # spotledger-pdk excluded: targets wasm32, needs separate cargo config
     "crates/spotledger",
-    "crates/spotledger-proxy",
 ]
 resolver = "2"
 
@@ -21,7 +26,7 @@ tokio        = { version = "1", features = ["full"] }
 # Web framework
 axum         = { version = "0.8", features = ["macros"] }
 tower        = "0.5"
-tower-http   = { version = "0.6", features = ["cors", "compression-gzip", "trace", "fs"] }
+tower-http   = { version = "0.6", features = ["cors", "compression-gzip", "trace"] }
 
 # SurrealDB official SDK v3 — remote WebSocket only (no embedded RocksDB)
 surrealdb    = { version = "3" }
@@ -62,6 +67,23 @@ base64  = "0.22"
 rand    = "0.8"
 hex     = "0.4"
 
+# Ordered maps — preserves field insertion order (important for Frappe doc serialisation)
+indexmap = { version = "2", features = ["serde"] }
+
+# Async trait support
+async-trait = "0.1"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Distributed type self-registration (DocType inventory)
+inventory = "0.3"
+
 # Internal crates
-spotledger-types = { path = "crates/spotledger-types" }
-spotledger-db    = { path = "crates/spotledger-db" }
+spotledger-core        = { path = "crates/spotledger-core" }
+spotledger-db          = { path = "crates/spotledger-db" }
+spotledger-desk        = { path = "crates/spotledger-desk" }
+spotledger-accounting  = { path = "crates/spotledger-accounting" }
+spotledger-automation  = { path = "crates/spotledger-automation" }
+spotledger-http        = { path = "crates/spotledger-http" }
+spotledger-plugins     = { path = "crates/spotledger-plugins" }
