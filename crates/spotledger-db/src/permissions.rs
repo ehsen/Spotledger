@@ -12,9 +12,8 @@
 //! User-level sharing (shared_doc edges) is a Phase 3 enhancement.
 
 use serde_json::Value;
-use surrealdb::engine::remote::ws::Client;
-use surrealdb::Surreal;
 
+use crate::adapter::DbAdapter;
 use crate::error::DbError;
 
 /// Permission type names matching Frappe's ptype strings.
@@ -64,7 +63,7 @@ impl Ptype {
 /// 3. Check `tabDocPerm` for any row matching (parent=doctype, role IN roles, <ptype>=1).
 /// 4. Return true if any matching row is found.
 pub async fn has_permission(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     user: &str,
     doctype: &str,
     ptype: &str,
@@ -75,7 +74,7 @@ pub async fn has_permission(
     }
 
     // Fetch user's roles
-    let roles = get_user_roles(db, user).await?;
+    let roles = get_user_roles(adapter, user).await?;
 
     if roles.contains(&"System Manager".to_string()) {
         return Ok(true);
@@ -100,13 +99,15 @@ pub async fn has_permission(
          LIMIT 1"
     );
 
-    let mut resp = db
-        .query(&surql)
-        .bind(("doctype", doctype.to_owned()))
-        .bind(("roles", Value::Array(roles_json)))
+    let rows = adapter
+        .run(
+            &surql,
+            vec![
+                ("doctype".into(), doctype.into()),
+                ("roles".into(),   Value::Array(roles_json)),
+            ],
+        )
         .await?;
-
-    let rows: Vec<Value> = resp.take(0)?;
     let ok = rows
         .first()
         .and_then(|r| r.get("ok"))
@@ -117,13 +118,13 @@ pub async fn has_permission(
 }
 
 /// Fetch all role names assigned to a user from `tabHas_Role`.
-pub async fn get_user_roles(db: &Surreal<Client>, user: &str) -> Result<Vec<String>, DbError> {
-    let mut resp = db
-        .query("SELECT role FROM tabHas_Role WHERE parent = $user AND parenttype = 'User'")
-        .bind(("user", user.to_owned()))
+pub async fn get_user_roles(adapter: &DbAdapter, user: &str) -> Result<Vec<String>, DbError> {
+    let rows = adapter
+        .run(
+            "SELECT role FROM tabHas_Role WHERE parent = $user AND parenttype = 'User'",
+            vec![("user".into(), user.into())],
+        )
         .await?;
-
-    let rows: Vec<Value> = resp.take(0)?;
     let roles: Vec<String> = rows
         .into_iter()
         .filter_map(|r| r.get("role").and_then(Value::as_str).map(str::to_owned))
@@ -134,7 +135,7 @@ pub async fn get_user_roles(db: &Surreal<Client>, user: &str) -> Result<Vec<Stri
 /// Get all permissions for a doctype for a given user.
 /// Returns a map of ptype → bool.
 pub async fn get_doc_permissions(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     user: &str,
     doctype: &str,
 ) -> Result<DocPermissions, DbError> {
@@ -142,7 +143,7 @@ pub async fn get_doc_permissions(
         return Ok(DocPermissions::all());
     }
 
-    let roles = get_user_roles(db, user).await?;
+    let roles = get_user_roles(adapter, user).await?;
 
     if roles.contains(&"System Manager".to_string()) {
         return Ok(DocPermissions::all());
@@ -154,17 +155,17 @@ pub async fn get_doc_permissions(
 
     let roles_json: Vec<Value> = roles.iter().map(|r| Value::String(r.clone())).collect();
 
-    let mut resp = db
-        .query(
+    let rows = adapter
+        .run(
             "SELECT read, write, create, delete, submit, cancel, amend \
              FROM tabDocPerm \
              WHERE parent = $doctype AND role IN $roles",
+            vec![
+                ("doctype".into(), doctype.into()),
+                ("roles".into(),   Value::Array(roles_json)),
+            ],
         )
-        .bind(("doctype", doctype.to_owned()))
-        .bind(("roles", Value::Array(roles_json)))
         .await?;
-
-    let rows: Vec<Value> = resp.take(0)?;
 
     let mut perms = DocPermissions::none();
     for row in rows {

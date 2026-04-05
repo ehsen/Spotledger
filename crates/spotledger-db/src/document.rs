@@ -1,67 +1,130 @@
 //! Document CRUD operations backed by SurrealDB.
 //!
-//! Table convention: each Frappe DocType → SurrealDB table `tab<DocType>`.
-//! Records: `type::record(table, name)` e.g. `type::record("tabCustomer", "ACME Corp")`.
+//! ## Table convention
 //!
-//! SurrealDB SDK v3 requires all `.bind()` values to be owned Strings.
+//! Each Frappe DocType maps to a SurrealDB table: `tab<DocType>` with spaces
+//! replaced by underscores.  Examples:
+//! - `Customer`    -> `tabCustomer`
+//! - `Sales Order` -> `tabSales_Order`
+//!
+//! ## Single chokepoint
+//!
+//! All SQL in this module flows through [`DbAdapter`].  No raw
+//! `Surreal<Client>` handles escape this module.
 
+use indexmap::IndexMap;
 use serde_json::Value;
-use surrealdb::engine::remote::ws::Client;
-use surrealdb::Surreal;
 
-use spotledger_types::document::{DocRow, Document};
+use spotledger_core::document::{DocRow, Document};
 
+use crate::adapter::DbAdapter;
 use crate::error::DbError;
+use crate::query::{SetClause, WhereClause};
+
+// -- helpers ------------------------------------------------------------------
 
 /// Convert a Frappe DocType name to a SurrealDB table name.
 ///
-/// "Customer"    → "tabCustomer"
-/// "Sales Order" → "tabSales_Order"
+/// `"Customer"` -> `"tabCustomer"`, `"Sales Order"` -> `"tabSales_Order"`
 pub fn doctype_to_table(doctype: &str) -> String {
     format!("tab{}", doctype.replace(' ', "_"))
 }
 
-// ── READ ─────────────────────────────────────────────────────────────────────
+/// Deserialize a raw SurrealDB JSON row into a [`Document`].
+fn value_to_document(v: Value, doctype: &str, name: &str) -> Result<Document, DbError> {
+    let Value::Object(mut map) = v else {
+        return Err(DbError::Other("expected JSON object from DB".into()));
+    };
+    map.remove("id");
+
+    let mut doc = Document::new(doctype);
+    doc.name = name.to_owned();
+    for (k, val) in map {
+        if k != "doctype" && k != "name" {
+            doc.fields.insert(k, val);
+        }
+    }
+    Ok(doc)
+}
+
+/// Convert a raw SurrealDB JSON Value to a DocRow.
+fn value_to_docrow(v: Value) -> DocRow {
+    let mut row: DocRow = IndexMap::new();
+    if let Value::Object(map) = v {
+        for (k, val) in map {
+            if k != "id" {
+                row.insert(k, val);
+            }
+        }
+    }
+    row
+}
+
+/// Return the set of field names that SurrealDB has DEFINE FIELD for on a table,
+/// plus the standard Frappe system fields which are always valid.
+pub(crate) async fn get_valid_columns(
+    adapter: &DbAdapter,
+    doctype: &str,
+) -> std::collections::HashSet<String> {
+    let mut cols: std::collections::HashSet<String> = [
+        "name", "owner", "creation", "modified", "modified_by",
+        "docstatus", "idx", "parent", "parenttype", "parentfield",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let table = doctype_to_table(doctype);
+    let sql   = format!("INFO FOR TABLE `{table}`;");
+
+    let mut resp: surrealdb::IndexedResults = match adapter.raw_query(&sql).await {
+        Ok(r)  => r,
+        Err(_) => return cols,
+    };
+    let info: Vec<Value> = resp.take(0).unwrap_or_default();
+    if let Some(Value::Object(map)) = info.into_iter().next() {
+        if let Some(Value::Object(fields_map)) = map.get("fields") {
+            for key in fields_map.keys() {
+                cols.insert(key.clone());
+            }
+        }
+    }
+    cols
+}
+
+/// Filter fields to only those the schema accepts.
+pub(crate) fn filter_to_valid_columns(
+    fields: &Value,
+    valid: &std::collections::HashSet<String>,
+) -> Value {
+    let Value::Object(map) = fields else { return fields.clone() };
+    let filtered: serde_json::Map<String, Value> = map
+        .iter()
+        .filter(|(k, v)| valid.contains(*k) && !v.is_array())
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    Value::Object(filtered)
+}
+
+// -- READ ---------------------------------------------------------------------
 
 /// Fetch a single document by doctype + name.
 pub async fn get_doc(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     doctype: &str,
     name: &str,
 ) -> Result<Document, DbError> {
     let table = doctype_to_table(doctype);
-    let record_name = name.to_string();
-
-    let query = format!("SELECT * FROM `{table}` WHERE name = $name LIMIT 1");
-    let mut response = match db
-        .query(query.as_str())
-        .bind(("name", record_name.clone()))
-        .await
-    {
-        Ok(r) => r,
-        Err(e) if is_table_not_found(&e) => {
-            return Err(DbError::NotFound { doctype: doctype.to_string(), name: name.to_string() })
-        }
-        Err(e) => return Err(DbError::Surreal(e)),
-    };
-
-    let rows: Vec<Value> = match response.take(0) {
-        Ok(r) => r,
-        Err(e) if is_table_not_found(&e) => {
-            return Err(DbError::NotFound { doctype: doctype.to_string(), name: name.to_string() })
-        }
-        Err(e) => return Err(DbError::Surreal(e)),
-    };
-    let row = rows.into_iter().next().ok_or_else(|| DbError::NotFound {
-        doctype: table,
-        name: record_name,
-    })?;
+    let sql   = format!("SELECT * FROM `{table}` WHERE name = $name LIMIT 1");
+    let row   = adapter
+        .run_one(&sql, vec![("name".into(), name.into())], doctype, name)
+        .await?;
     value_to_document(row, doctype, name)
 }
 
 /// Fetch a list of documents with optional field selection and filters.
 pub async fn get_list(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     doctype: &str,
     fields: Option<&[&str]>,
     filters: Option<&Value>,
@@ -79,145 +142,94 @@ pub async fn get_list(
         _ => "*".to_string(),
     };
 
-    let (where_clause, bindings) = build_where(filters);
-    let table = doctype_to_table(doctype);
-    let query = format!(
-        "SELECT {field_clause} FROM `{table}`{where_clause} LIMIT {limit} START {start}"
+    let where_clause = WhereClause::from_filters(filters);
+    let table        = doctype_to_table(doctype);
+    let sql = format!(
+        "SELECT {field_clause} FROM `{table}`{} LIMIT {limit} START {start}",
+        where_clause.as_sql()
     );
-    tracing::debug!(%query, "get_list");
+    tracing::debug!(%sql, "get_list");
 
-    let mut q = db.query(query.as_str());
-    for (k, v) in bindings {
-        q = q.bind((k, v));
-    }
-
-    let mut response = match q.await {
-        Ok(r) => r,
-        Err(e) if is_table_not_found(&e) => return Ok(vec![]),
-        Err(e) => return Err(DbError::Surreal(e)),
-    };
-    let rows: Vec<Value> = match response.take(0) {
-        Ok(r) => r,
-        Err(e) if is_table_not_found(&e) => return Ok(vec![]),
-        Err(e) => return Err(DbError::Surreal(e)),
-    };;
-
-    Ok(rows
-        .into_iter()
-        .map(|v| {
-            let mut row: DocRow = Default::default();
-            if let Value::Object(map) = v {
-                for (k, val) in map {
-                    if k != "id" {
-                        row.insert(k, val);
-                    }
-                }
-            }
-            row
-        })
-        .collect())
+    let rows = adapter.run(&sql, where_clause.bindings().to_vec()).await?;
+    Ok(rows.into_iter().map(value_to_docrow).collect())
 }
 
 /// Fetch a single field value from a document.
 pub async fn get_value(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     doctype: &str,
     name: &str,
     fieldname: &str,
 ) -> Result<Option<Value>, DbError> {
     let table = doctype_to_table(doctype);
-    let query = format!("SELECT type::field($field) AS val FROM `{table}` WHERE name = $name LIMIT 1");
-    let mut response = db
-        .query(query.as_str())
-        .bind(("name", name.to_string()))
-        .bind(("field", fieldname.to_string()))
+    let sql = format!(
+        "SELECT type::field($field) AS val FROM `{table}` WHERE name = $name LIMIT 1"
+    );
+    let rows = adapter
+        .run(
+            &sql,
+            vec![
+                ("name".into(),  name.into()),
+                ("field".into(), fieldname.into()),
+            ],
+        )
         .await?;
 
-    let rows: Vec<Value> = response.take(0)?;
     Ok(rows.into_iter().next().and_then(|row| {
-        if let Value::Object(map) = row {
-            map.get("val").cloned()
-        } else {
-            None
-        }
+        if let Value::Object(map) = row { map.get("val").cloned() } else { None }
     }))
 }
 
-/// Return the set of field names that are valid for a given DocType.
-///
-/// Uses SurrealDB's `INFO FOR TABLE` to get the fields actually DEFINE'd in
-/// the schema, which is the ground truth for what the DB will accept.
-/// Standard system fields are always included as a baseline.
-pub async fn get_valid_columns(
-    db: &Surreal<Client>,
+/// Count documents matching the given filters.
+pub async fn get_count(
+    adapter: &DbAdapter,
     doctype: &str,
-) -> std::collections::HashSet<String> {
-    // Standard Frappe system fields — always valid.
-    let mut cols: std::collections::HashSet<String> = [
-        "name", "owner", "creation", "modified", "modified_by",
-        "docstatus", "idx", "parent", "parenttype", "parentfield",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
+    filters: Option<&Value>,
+) -> Result<u64, DbError> {
+    let where_clause = WhereClause::from_filters(filters);
+    let table        = doctype_to_table(doctype);
+    let sql = format!("SELECT count() FROM `{table}`{} GROUP ALL", where_clause.as_sql());
 
-    let table = doctype_to_table(doctype);
-    // INFO FOR TABLE returns a map with a "fields" key whose values are
-    // DEFINE FIELD statements as strings. Extract fieldnames from those.
-    let query = format!("INFO FOR TABLE `{table}`;");
-    let mut resp = match db.query(query.as_str()).await {
-        Ok(r) => r,
-        Err(_) => return cols,
-    };
-    let info: Vec<Value> = resp.take(0).unwrap_or_default();
-    if let Some(Value::Object(map)) = info.into_iter().next() {
-        if let Some(Value::Object(fields_map)) = map.get("fields") {
-            for key in fields_map.keys() {
-                cols.insert(key.clone());
-            }
-        }
-    }
-    cols
+    let rows = adapter.run(&sql, where_clause.bindings().to_vec()).await?;
+    Ok(rows
+        .first()
+        .and_then(|obj| obj.get("count"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0))
 }
 
-// ── WRITE ────────────────────────────────────────────────────────────────────
+// -- WRITE --------------------------------------------------------------------
 
-/// Insert a new document (CREATE).  `fields` must include a non-empty `name`.
+/// Insert a new document.  `fields` must contain a non-empty `name`.
 pub async fn insert_doc(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     doctype: &str,
     fields: &Value,
 ) -> Result<Document, DbError> {
-    let table = doctype_to_table(doctype);
     let name = fields
         .get("name")
         .and_then(Value::as_str)
-        .unwrap_or("")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| DbError::Other("insert_doc: 'name' field is required".into()))?
         .to_owned();
 
-    let valid = get_valid_columns(db, doctype).await;
+    let valid    = get_valid_columns(adapter, doctype).await;
     let filtered = filter_to_valid_columns(fields, &valid);
-    let (set_clause, bindings) = build_set_from_fields(&filtered);
-    let query = format!(
+    let set      = SetClause::from_fields(&filtered);
+    let table    = doctype_to_table(doctype);
+    let sql = format!(
         "CREATE type::record($table, $name) SET \
-         name = $name, creation = time::now(), modified = time::now(), {set_clause}"
+         name = $name, creation = time::now(), modified = time::now(), {}",
+        set.as_sql()
     );
 
-    let mut q = db
-        .query(query.as_str())
-        .bind(("table", table.clone()))
-        .bind(("name", name.clone()));
-    for (k, v) in bindings {
-        q = q.bind((k, v));
-    }
+    let mut bindings = vec![
+        ("table".into(), Value::String(table)),
+        ("name".into(),  Value::String(name.clone())),
+    ];
+    bindings.extend_from_slice(set.bindings());
 
-    let mut response = q.await?;
-    let rows: Vec<Value> = response.take(0)?;
-    let row = rows.into_iter().next().ok_or_else(|| DbError::NotFound {
-        doctype: table,
-        name: name.clone(),
-    })?;
-
+    let row = adapter.run_one(&sql, bindings, doctype, &name).await?;
     let actual_name = row
         .get("name")
         .and_then(Value::as_str)
@@ -226,348 +238,134 @@ pub async fn insert_doc(
     value_to_document(row, doctype, &actual_name)
 }
 
-/// Save (upsert) a document by name.  Supplied fields are merged;
-/// unmentioned fields are left unchanged.
+/// Upsert (save) a document -- merges supplied fields, leaves unmentioned fields intact.
 pub async fn upsert_doc(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     doctype: &str,
     name: &str,
     fields: &Value,
 ) -> Result<Document, DbError> {
-    let table = doctype_to_table(doctype);
-    let valid = get_valid_columns(db, doctype).await;
+    let valid    = get_valid_columns(adapter, doctype).await;
     let filtered = filter_to_valid_columns(fields, &valid);
-    let (set_clause, bindings) = build_set_from_fields(&filtered);
-    // Use type::record so that new documents get the Frappe name as their SurrealDB ID
-    // (e.g. tabUser:Administrator).  For existing ULID-keyed records this will insert a
-    // duplicate keyed record; callers should prefer insert_doc for truly new documents.
-    let query = format!(
+    let set      = SetClause::from_fields(&filtered);
+    let table    = doctype_to_table(doctype);
+    let sql = format!(
         "UPSERT type::record($table, $name) SET \
          name = $name, modified = time::now(), \
-         creation = IF creation THEN creation ELSE time::now() END, {set_clause}"
+         creation = IF creation THEN creation ELSE time::now() END, {}",
+        set.as_sql()
     );
 
-    let mut q = db
-        .query(query.as_str())
-        .bind(("table", table.clone()))
-        .bind(("name", name.to_owned()));
-    for (k, v) in bindings {
-        q = q.bind((k, v));
-    }
+    let mut bindings = vec![
+        ("table".into(), Value::String(table)),
+        ("name".into(),  Value::String(name.to_owned())),
+    ];
+    bindings.extend_from_slice(set.bindings());
 
-    let mut response = q.await?;
-    let rows: Vec<Value> = response.take(0)?;
-    let row = rows.into_iter().next().ok_or_else(|| DbError::NotFound {
-        doctype: table,
-        name: name.into(),
-    })?;
+    let row = adapter.run_one(&sql, bindings, doctype, name).await?;
     value_to_document(row, doctype, name)
 }
 
 /// Update a single field value on an existing document.
 pub async fn set_field(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     doctype: &str,
     name: &str,
     fieldname: &str,
     val: Value,
 ) -> Result<(), DbError> {
     let table = doctype_to_table(doctype);
-    let query = format!(
+    let sql = format!(
         "UPDATE `{table}` SET `{fieldname}` = $val, modified = time::now() WHERE name = $name"
     );
-    db.query(query.as_str())
-        .bind(("name", name.to_owned()))
-        .bind(("val", val))
-        .await?;
-    Ok(())
+    adapter
+        .execute(&sql, vec![("name".into(), name.into()), ("val".into(), val)])
+        .await
 }
 
 /// Delete a document.  Silent no-op if the document does not exist.
 pub async fn delete_doc(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     doctype: &str,
     name: &str,
 ) -> Result<(), DbError> {
     let table = doctype_to_table(doctype);
-    let query = format!("DELETE `{table}` WHERE name = $name");
-    db.query(query.as_str())
-        .bind(("name", name.to_owned()))
-        .await?;
-    Ok(())
+    let sql   = format!("DELETE `{table}` WHERE name = $name");
+    adapter.execute(&sql, vec![("name".into(), name.into())]).await
 }
 
-/// Submit a document: set `docstatus = 1`.
-/// Returns the updated document.  Errors if document is not in Draft (docstatus 0).
-pub async fn submit_doc(
-    db: &Surreal<Client>,
-    doctype: &str,
-    name: &str,
-) -> Result<Document, DbError> {
-    let table = doctype_to_table(doctype);
-    // Verify current docstatus is 0 (Draft)
-    let chk_q = format!("SELECT docstatus FROM `{table}` WHERE name = $name LIMIT 1");
-    let mut chk = db
-        .query(chk_q.as_str())
-        .bind(("name", name.to_owned()))
-        .await?;
-    let rows: Vec<Value> = chk.take(0)?;
-    let row = rows.into_iter().next().ok_or_else(|| DbError::NotFound {
-        doctype: table.clone(),
-        name: name.into(),
-    })?;
-    let docstatus = row.get("docstatus").and_then(Value::as_i64).unwrap_or(0);
-    if docstatus != 0 {
-        return Err(DbError::Other(format!(
-            "{doctype} {name} is not in Draft state (docstatus={docstatus})"
-        )));
-    }
+// -- docstatus transitions ----------------------------------------------------
 
-    let upd_q = format!("UPDATE `{table}` SET docstatus = 1, modified = time::now() WHERE name = $name RETURN AFTER");
-    let mut resp = db
-        .query(upd_q.as_str())
-        .bind(("name", name.to_owned()))
-        .await?;
-    let rows: Vec<Value> = resp.take(0)?;
-    let row = rows.into_iter().next().ok_or_else(|| DbError::NotFound {
-        doctype: table,
-        name: name.into(),
-    })?;
-    value_to_document(row, doctype, name)
-}
-
-/// Cancel a submitted document: set `docstatus = 2`.
-/// Returns the updated document.  Errors if document is not Submitted (docstatus 1).
-pub async fn cancel_doc(
-    db: &Surreal<Client>,
-    doctype: &str,
-    name: &str,
-) -> Result<Document, DbError> {
-    let table = doctype_to_table(doctype);
-    // Verify current docstatus is 1 (Submitted)
-    let chk_q = format!("SELECT docstatus FROM `{table}` WHERE name = $name LIMIT 1");
-    let mut chk = db
-        .query(chk_q.as_str())
-        .bind(("name", name.to_owned()))
-        .await?;
-    let rows: Vec<Value> = chk.take(0)?;
-    let row = rows.into_iter().next().ok_or_else(|| DbError::NotFound {
-        doctype: table.clone(),
-        name: name.into(),
-    })?;
-    let docstatus = row.get("docstatus").and_then(Value::as_i64).unwrap_or(0);
-    if docstatus != 1 {
-        return Err(DbError::Other(format!(
-            "{doctype} {name} is not Submitted (docstatus={docstatus})"
-        )));
-    }
-
-    let upd_q = format!("UPDATE `{table}` SET docstatus = 2, modified = time::now() WHERE name = $name RETURN AFTER");
-    let mut resp = db
-        .query(upd_q.as_str())
-        .bind(("name", name.to_owned()))
-        .await?;
-    let rows: Vec<Value> = resp.take(0)?;
-    let row = rows.into_iter().next().ok_or_else(|| DbError::NotFound {
-        doctype: table,
-        name: name.into(),
-    })?;
-    value_to_document(row, doctype, name)
-}
-
-/// Count documents matching the given filters.
-pub async fn get_count(
-    db: &Surreal<Client>,
-    doctype: &str,
-    filters: Option<&Value>,
-) -> Result<u64, DbError> {
-    let table = doctype_to_table(doctype);
-    let (where_clause, bindings) = build_where(filters);
-    let surql = format!("SELECT count() FROM `{table}`{where_clause} GROUP ALL");
-    let mut q = db.query(&surql);
-    for (k, v) in bindings {
-        q = q.bind((k, v));
-    }
-    let mut resp = match q.await {
-        Ok(r) => r,
-        Err(e) if is_table_not_found(&e) => return Ok(0),
-        Err(e) => return Err(DbError::Surreal(e)),
-    };
-    let rows: Vec<Value> = match resp.take(0) {
-        Ok(r) => r,
-        Err(e) if is_table_not_found(&e) => return Ok(0),
-        Err(e) => return Err(DbError::Surreal(e)),
-    };
-    let n = rows
-        .first()
-        .and_then(|obj| obj.get("count"))
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    Ok(n)
-}
-
-// ── HELPERS ───────────────────────────────────────────────────────────────────
-
-/// Returns true if a SurrealDB error indicates the queried table doesn't exist.
-/// In that case callers should return empty results rather than propagate an error.
-fn is_table_not_found(e: &surrealdb::Error) -> bool {
-    e.to_string().contains("does not exist")
-}
-
-/// Build a WHERE clause + bindings from a JSON filters object.
-/// Returns `(clause_string, Vec<(key, value)>)`.
+/// Internal: atomically transition `docstatus` from `from` to `to`.
 ///
-/// Simple equality:  `{"status": "Active"}` → `status = $f_status`
-/// With operator:    `{"total": [">", 100]}` → `total > $f_total`
-pub fn build_where(filters: Option<&Value>) -> (String, Vec<(String, Value)>) {
-    let Some(Value::Object(map)) = filters else {
-        return (String::new(), vec![]);
-    };
+/// Shared implementation eliminating duplication between [`submit_doc`] and [`cancel_doc`].
+async fn transition_docstatus(
+    adapter: &DbAdapter,
+    doctype: &str,
+    name: &str,
+    from: i64,
+    to: i64,
+) -> Result<Document, DbError> {
+    let table = doctype_to_table(doctype);
 
-    let mut conditions = Vec::new();
-    let mut bindings: Vec<(String, Value)> = Vec::new();
+    // Read current status.
+    let chk_sql = format!("SELECT docstatus FROM `{table}` WHERE name = $name LIMIT 1");
+    let chk_row = adapter
+        .run_one(&chk_sql, vec![("name".into(), name.into())], doctype, name)
+        .await?;
 
-    for (field, val) in map {
-        let bind_key = format!("f_{field}");
-        match val {
-            Value::Array(arr) if arr.len() == 2 => {
-                let op = arr[0].as_str().unwrap_or("=");
-                conditions.push(format!("`{field}` {op} ${bind_key}"));
-                bindings.push((bind_key, arr[1].clone()));
-            }
-            other => {
-                conditions.push(format!("`{field}` = ${bind_key}"));
-                bindings.push((bind_key, other.clone()));
-            }
-        }
+    let current = chk_row.get("docstatus").and_then(Value::as_i64).unwrap_or(0);
+    if current != from {
+        return Err(DbError::Other(format!(
+            "{doctype}/{name}: expected docstatus {from}, got {current}"
+        )));
     }
 
-    if conditions.is_empty() {
-        return (String::new(), vec![]);
-    }
-    (format!(" WHERE {}", conditions.join(" AND ")), bindings)
+    // Atomic update.
+    let upd_sql = format!(
+        "UPDATE `{table}` SET docstatus = $to, modified = time::now() \
+         WHERE name = $name RETURN AFTER"
+    );
+    let row = adapter
+        .run_one(
+            &upd_sql,
+            vec![("name".into(), name.into()), ("to".into(), to.into())],
+            doctype,
+            name,
+        )
+        .await?;
+
+    value_to_document(row, doctype, name)
 }
 
-/// Filter a fields object to only include keys present in `valid_columns`.
-/// Arrays are always excluded (child tables live in separate tables).
-pub fn filter_to_valid_columns(
-    fields: &Value,
-    valid: &std::collections::HashSet<String>,
-) -> Value {
-    let Value::Object(map) = fields else {
-        return fields.clone();
-    };
-    let filtered: serde_json::Map<String, Value> = map
-        .iter()
-        .filter(|(k, v)| valid.contains(*k) && !v.is_array())
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    Value::Object(filtered)
+/// Submit a document: `docstatus` 0 -> 1.  Errors if not in Draft state.
+pub async fn submit_doc(
+    adapter: &DbAdapter,
+    doctype: &str,
+    name: &str,
+) -> Result<Document, DbError> {
+    transition_docstatus(adapter, doctype, name, 0, 1).await
 }
 
-/// Build a SET clause + owned bindings from a JSON object for INSERT/UPSERT.
-/// Skips system fields managed elsewhere (name, doctype, modified, creation, id).
-pub fn build_set_from_fields(fields: &Value) -> (String, Vec<(String, Value)>) {
-    const SKIP: &[&str] = &["name", "doctype", "modified", "creation", "id"];
-    let Value::Object(map) = fields else {
-        return ("nothing = NONE".to_owned(), vec![]);
-    };
-
-    let mut parts = Vec::new();
-    let mut bindings = Vec::new();
-    for (k, v) in map {
-        if !SKIP.contains(&k.as_str()) {
-            let key = format!("f_{k}");
-            parts.push(format!("`{k}` = ${key}"));
-            bindings.push((key, v.clone()));
-        }
-    }
-    if parts.is_empty() {
-        return ("nothing = NONE".to_owned(), vec![]);
-    }
-    (parts.join(", "), bindings)
+/// Cancel a document: `docstatus` 1 -> 2.  Errors if not Submitted.
+pub async fn cancel_doc(
+    adapter: &DbAdapter,
+    doctype: &str,
+    name: &str,
+) -> Result<Document, DbError> {
+    transition_docstatus(adapter, doctype, name, 1, 2).await
 }
 
-fn value_to_document(v: Value, doctype: &str, name: &str) -> Result<Document, DbError> {
-    let mut doc = Document {
-        doctype: doctype.to_string(),
-        name: name.to_string(),
-        fields: Default::default(),
-    };
-    if let Value::Object(map) = v {
-        for (k, val) in map {
-            if k != "id" {
-                doc.set(k, val);
-            }
-        }
-    }
-    Ok(doc)
-}
-
-// ── TESTS ─────────────────────────────────────────────────────────────────────
+// -- tests --------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
-    fn doctype_to_table_simple() {
-        assert_eq!(doctype_to_table("Customer"), "tabCustomer");
+    fn doctype_to_table_variants() {
+        assert_eq!(doctype_to_table("Customer"),    "tabCustomer");
         assert_eq!(doctype_to_table("Sales Order"), "tabSales_Order");
-        assert_eq!(doctype_to_table("DocType"), "tabDocType");
-    }
-
-    #[test]
-    fn build_where_empty() {
-        let (clause, bindings) = build_where(None);
-        assert!(clause.is_empty());
-        assert!(bindings.is_empty());
-    }
-
-    #[test]
-    fn build_where_simple_equality() {
-        let filters = json!({"status": "Active"});
-        let (clause, bindings) = build_where(Some(&filters));
-        assert!(clause.contains("`status` = $f_status"), "clause: {clause}");
-        assert_eq!(bindings.len(), 1);
-        assert_eq!(bindings[0].1, json!("Active"));
-    }
-
-    #[test]
-    fn build_where_operator_shape() {
-        let filters = json!({"grand_total": [">", 1000]});
-        let (clause, bindings) = build_where(Some(&filters));
-        assert!(clause.contains("`grand_total` > $f_grand_total"), "clause: {clause}");
-        assert_eq!(bindings[0].1, json!(1000));
-    }
-
-    #[test]
-    fn build_where_multiple_fields() {
-        let filters = json!({"status": "Active", "enabled": 1});
-        let (clause, bindings) = build_where(Some(&filters));
-        assert!(clause.contains("WHERE"), "clause: {clause}");
-        assert_eq!(bindings.len(), 2);
-    }
-
-    #[test]
-    fn build_set_from_fields_skips_system_fields() {
-        let fields = json!({"name": "SO-0001", "doctype": "Sales Order", "customer": "Acme", "total": 100});
-        let (clause, bindings) = build_set_from_fields(&fields);
-        assert!(!clause.contains("`name`"), "should skip name");
-        assert!(!clause.contains("`doctype`"), "should skip doctype");
-        // bindings should only contain non-system fields
-        let keys: Vec<&str> = bindings.iter().map(|(k, _)| k.as_str()).collect();
-        assert!(keys.contains(&"f_customer"));
-        assert!(keys.contains(&"f_total"));
-        assert!(!keys.contains(&"f_name"));
-    }
-
-    #[test]
-    fn build_set_from_fields_empty_returns_sentinel() {
-        let fields = json!({"name": "X", "doctype": "Test"});
-        let (clause, bindings) = build_set_from_fields(&fields);
-        assert_eq!(clause, "nothing = NONE");
-        assert!(bindings.is_empty());
+        assert_eq!(doctype_to_table("DocType"),     "tabDocType");
     }
 }

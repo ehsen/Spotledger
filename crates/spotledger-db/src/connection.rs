@@ -1,52 +1,16 @@
-//! SurrealDB connection via WebSocket.
+//! SurrealDB connection — construct a [`DbAdapter`] from a [`DatabaseConfig`].
 //!
-//! Spotledger always connects to an external running SurrealDB process.
-//! In dev: `surreal start --bind 127.0.0.1:8500`
-//! In prod: point `config.url` at the production instance.
-//!
-//! The `Db` handle is cheaply cloneable (Arc internally).
+//! Every other part of the codebase receives a cloned `DbAdapter`; only this
+//! module deals with the raw SurrealDB SDK types.
 
-use spotledger_types::config::DatabaseConfig;
-use surrealdb::engine::remote::ws::{Client, Ws};
-use surrealdb::opt::auth::Root;
-use surrealdb::Surreal;
+use spotledger_core::config::DatabaseConfig;
 
+use crate::adapter::DbAdapter;
 use crate::error::DbError;
 
-/// A connected, ready-to-use SurrealDB client scoped to a namespace+database.
-/// Clone is cheap — the inner connection is reference-counted.
-pub type Db = Surreal<Client>;
-
-/// Connect to SurrealDB at `config.url` via WebSocket.
-pub async fn connect(config: &DatabaseConfig) -> Result<Db, DbError> {
-    let url = config.url.clone();
-
-    // SurrealDB SDK v3: the Ws type already implies the ws:// scheme.
-    // Strip it if the caller passed a full URL so we don't double-prefix.
-    let endpoint = url
-        .strip_prefix("ws://")
-        .or_else(|| url.strip_prefix("wss://"))
-        .unwrap_or(&url)
-        .to_owned();
-
-    tracing::debug!(endpoint = %endpoint, "Connecting to SurrealDB");
-
-    let db: Surreal<Client> = Surreal::new::<Ws>(endpoint.as_str()).await?;
-
-    db.signin(Root {
-        username: config.user.clone(),
-        password: config.pass.clone(),
-    })
-    .await?;
-
-    let ns = if config.ns.is_empty() { &config.db } else { &config.ns };
-    let database = if config.db.is_empty() { &config.ns } else { &config.db };
-
-    db.use_ns(ns).use_db(database).await?;
-
-    tracing::info!(ns = %ns, db = %database, "SurrealDB ready");
-
-    Ok(db)
+/// Connect to SurrealDB at `config.url` via WebSocket and return a ready [`DbAdapter`].
+pub async fn connect(config: &DatabaseConfig) -> Result<DbAdapter, DbError> {
+    DbAdapter::connect(config).await
 }
 
 #[cfg(test)]
@@ -59,7 +23,7 @@ mod tests {
     #[tokio::test]
     async fn connect_to_local_surreal() {
         use super::*;
-        use spotledger_types::config::DatabaseConfig;
+        use spotledger_core::config::DatabaseConfig;
 
         let cfg = DatabaseConfig {
             url: "ws://127.0.0.1:8500".into(),

@@ -22,8 +22,8 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
-use spotledger_types::document::Document;
-use spotledger_types::error::SpotError;
+use spotledger_core::document::Document;
+use spotledger_core::error::SpotError;
 
 // ── Hook signature ────────────────────────────────────────────────────────────
 
@@ -196,7 +196,7 @@ pub async fn run_on_cancel_hooks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spotledger_types::document::Document;
+    use spotledger_core::document::Document;
 
     fn make_doc(doctype: &str, name: &str) -> Document {
         Document {

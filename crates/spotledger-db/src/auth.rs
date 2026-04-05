@@ -15,9 +15,8 @@
 //!   sid, user, status ("Active"/"Expired"), lastupdate, ipaddress, sessiondata
 
 use serde_json::Value;
-use surrealdb::engine::remote::ws::Client;
-use surrealdb::Surreal;
 
+use crate::adapter::DbAdapter;
 use crate::error::DbError;
 
 // ── User lookup ───────────────────────────────────────────────────────────────
@@ -36,16 +35,14 @@ pub struct UserInfo {
 
 /// Look up a user by their username (`name`) or `email` field.
 /// Returns `DbError::NotFound` if no user matches.
-pub async fn lookup_user(db: &Surreal<Client>, usr: &str) -> Result<UserInfo, DbError> {
-    let mut resp = db
-        .query(
+pub async fn lookup_user(adapter: &DbAdapter, usr: &str) -> Result<UserInfo, DbError> {
+    let rows = adapter
+        .run(
             "SELECT name, full_name, first_name, last_name, user_type, enabled, language \
              FROM tabUser WHERE name = $usr OR email = $usr LIMIT 1",
+            vec![("usr".into(), usr.into())],
         )
-        .bind(("usr", usr.to_owned()))
         .await?;
-
-    let rows: Vec<Value> = resp.take(0)?;
     let row = rows.into_iter().next().ok_or_else(|| DbError::NotFound {
         doctype: "User".into(),
         name: usr.into(),
@@ -79,18 +76,16 @@ pub async fn lookup_user(db: &Surreal<Client>, usr: &str) -> Result<UserInfo, Db
 
 /// Fetch the stored password hash from `__Auth` for a given user.
 /// The hash is in passlib format (pbkdf2-sha256 or argon2).
-pub async fn get_password_hash(db: &Surreal<Client>, user: &str) -> Result<String, DbError> {
-    let mut resp = db
-        .query(
+pub async fn get_password_hash(adapter: &DbAdapter, user: &str) -> Result<String, DbError> {
+    let rows = adapter
+        .run(
             "SELECT password FROM __Auth \
              WHERE doctype = 'User' AND name = $user \
                AND fieldname = 'password' AND encrypted = false \
              LIMIT 1",
+            vec![("user".into(), user.into())],
         )
-        .bind(("user", user.to_owned()))
         .await?;
-
-    let rows: Vec<Value> = resp.take(0)?;
     rows.into_iter()
         .next()
         .and_then(|v| v.get("password").and_then(Value::as_str).map(str::to_owned))
@@ -209,24 +204,26 @@ pub fn hash_password(password: &str) -> String {
 /// Safe to call on both freshly created and existing records — uses
 /// `INSERT ... ON DUPLICATE KEY UPDATE` semantics via SurrealDB's UPSERT.
 pub async fn set_user_password(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     user: &str,
     password: &str,
 ) -> Result<(), DbError> {
     let hash = hash_password(password);
-    db.query(
-        "UPSERT __Auth SET \
-           doctype = 'User', \
-           name = $user, \
-           fieldname = 'password', \
-           password = $hash, \
-           encrypted = false \
-         WHERE doctype = 'User' AND name = $user AND fieldname = 'password'",
-    )
-    .bind(("user", user.to_owned()))
-    .bind(("hash", hash))
-    .await?;
-    Ok(())
+    adapter
+        .execute(
+            "UPSERT __Auth SET \
+               doctype = 'User', \
+               name = $user, \
+               fieldname = 'password', \
+               password = $hash, \
+               encrypted = false \
+             WHERE doctype = 'User' AND name = $user AND fieldname = 'password'",
+            vec![
+                ("user".into(), user.to_owned().into()),
+                ("hash".into(), hash.into()),
+            ],
+        )
+        .await
 }
 
 // ── Session management ────────────────────────────────────────────────────────
@@ -242,7 +239,7 @@ pub struct SessionInfo {
 /// Create a new active session in `tabSessions`.
 /// Returns the generated `sid` (32 hex chars).
 pub async fn create_session(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     user: &str,
     ip: Option<&str>,
 ) -> Result<String, DbError> {
@@ -253,38 +250,40 @@ pub async fn create_session(
     })
     .to_string();
 
-    db.query(
-        "INSERT INTO tabSessions {
-            sid: $sid,
-            user: $user,
-            status: 'Active',
-            lastupdate: time::now(),
-            ipaddress: $ip,
-            sessiondata: $sessiondata
-        }",
-    )
-    .bind(("sid", sid.clone()))
-    .bind(("user", user.to_owned()))
-    .bind(("ip", ip.unwrap_or("").to_owned()))
-    .bind(("sessiondata", session_data))
-    .await?;
+    adapter
+        .execute(
+            "INSERT INTO tabSessions {
+                sid: $sid,
+                user: $user,
+                status: 'Active',
+                lastupdate: time::now(),
+                ipaddress: $ip,
+                sessiondata: $sessiondata
+            }",
+            vec![
+                ("sid".into(),         sid.clone().into()),
+                ("user".into(),        user.to_owned().into()),
+                ("ip".into(),          ip.unwrap_or("").to_owned().into()),
+                ("sessiondata".into(), session_data.into()),
+            ],
+        )
+        .await?;
 
     Ok(sid)
 }
 
 /// Look up an active session by `sid`.
 /// Returns `None` if the session does not exist or is not active.
-pub async fn get_session(db: &Surreal<Client>, sid: &str) -> Result<Option<SessionInfo>, DbError> {
-    let mut resp = db
-        .query(
+pub async fn get_session(adapter: &DbAdapter, sid: &str) -> Result<Option<SessionInfo>, DbError> {
+    let rows = adapter
+        .run(
             "SELECT sid, user, status FROM tabSessions \
              WHERE sid = $sid AND status = 'Active' LIMIT 1",
+            vec![("sid".into(), sid.to_owned().into())],
         )
-        .bind(("sid", sid.to_owned()))
         .await?;
 
-    let rows: Vec<Value> = resp.take(0)?;
-    Ok(rows.into_iter().next().and_then(|v| {
+    Ok(rows.into_iter().next().and_then(|v: Value| {
         let sid = v.get("sid")?.as_str()?.to_owned();
         let user = v.get("user")?.as_str()?.to_owned();
         let status = v.get("status")?.as_str()?.to_owned();
@@ -294,11 +293,13 @@ pub async fn get_session(db: &Surreal<Client>, sid: &str) -> Result<Option<Sessi
 
 /// Expire a session (sets `status = 'Expired'`).
 /// Does not delete the record so audit trails are preserved.
-pub async fn expire_session(db: &Surreal<Client>, sid: &str) -> Result<(), DbError> {
-    db.query("UPDATE tabSessions SET status = 'Expired', lastupdate = time::now() WHERE sid = $sid")
-        .bind(("sid", sid.to_owned()))
-        .await?;
-    Ok(())
+pub async fn expire_session(adapter: &DbAdapter, sid: &str) -> Result<(), DbError> {
+    adapter
+        .execute(
+            "UPDATE tabSessions SET status = 'Expired', lastupdate = time::now() WHERE sid = $sid",
+            vec![("sid".into(), sid.to_owned().into())],
+        )
+        .await
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

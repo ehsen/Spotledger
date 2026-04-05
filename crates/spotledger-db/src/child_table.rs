@@ -18,11 +18,10 @@
 //! `parent = name AND parenttype = doctype`.
 
 use serde_json::Value;
-use surrealdb::engine::remote::ws::Client;
-use surrealdb::Surreal;
 
+use crate::adapter::DbAdapter;
 use crate::document::doctype_to_table;
-use spotledger_types::document::DocRow;
+use spotledger_core::document::DocRow;
 use crate::error::DbError;
 
 /// Fetch all child rows for a parent document from a single child table.
@@ -33,30 +32,30 @@ use crate::error::DbError;
 /// * `parenttype`    — the parent DocType name   (e.g. "Sales Invoice")
 /// * `parentfield`   — the field name on the parent (e.g. "items")
 pub async fn fetch_children(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     child_doctype: &str,
     parent_name: &str,
     parenttype: &str,
     parentfield: &str,
 ) -> Result<Vec<DocRow>, DbError> {
     let table = doctype_to_table(child_doctype);
-    let mut resp = db
-        .query(
+    let rows = adapter
+        .run(
             "SELECT * FROM type::table($table) \
              WHERE parent = $parent AND parenttype = $parenttype AND parentfield = $parentfield \
              ORDER BY idx ASC",
+            vec![
+                ("table".into(),       table.into()),
+                ("parent".into(),      parent_name.into()),
+                ("parenttype".into(),  parenttype.into()),
+                ("parentfield".into(), parentfield.into()),
+            ],
         )
-        .bind(("table", table))
-        .bind(("parent", parent_name.to_owned()))
-        .bind(("parenttype", parenttype.to_owned()))
-        .bind(("parentfield", parentfield.to_owned()))
         .await?;
-
-    let rows: Vec<Value> = resp.take(0)?;
     Ok(rows
         .into_iter()
         .map(|v| {
-            let mut row: DocRow = Default::default();
+            let mut row: DocRow = DocRow::new();
             if let Value::Object(map) = v {
                 for (k, val) in map {
                     if k != "id" {
@@ -74,7 +73,7 @@ pub async fn fetch_children(
 /// Strategy: delete existing children for this parent+parentfield, then re-insert.
 /// `idx` is assigned automatically from the array position (1-based).
 pub async fn save_children(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     child_doctype: &str,
     parent_name: &str,
     parenttype: &str,
@@ -84,15 +83,18 @@ pub async fn save_children(
     let table = doctype_to_table(child_doctype);
 
     // Delete existing children
-    db.query(
-        "DELETE FROM type::table($table) \
-         WHERE parent = $parent AND parenttype = $parenttype AND parentfield = $parentfield",
-    )
-    .bind(("table", table.clone()))
-    .bind(("parent", parent_name.to_owned()))
-    .bind(("parenttype", parenttype.to_owned()))
-    .bind(("parentfield", parentfield.to_owned()))
-    .await?;
+    adapter
+        .execute(
+            "DELETE FROM type::table($table) \
+             WHERE parent = $parent AND parenttype = $parenttype AND parentfield = $parentfield",
+            vec![
+                ("table".into(),       table.clone().into()),
+                ("parent".into(),      parent_name.into()),
+                ("parenttype".into(),  parenttype.into()),
+                ("parentfield".into(), parentfield.into()),
+            ],
+        )
+        .await?;
 
     // Insert new children
     for (idx, child) in children.iter().enumerate() {
@@ -104,7 +106,7 @@ pub async fn save_children(
 
         // Build field set from child value, skipping system fields
         let mut field_parts: Vec<String> = Vec::new();
-        let mut bindings: Vec<(String, Value)> = Vec::new();
+        let mut extra_bindings: Vec<(String, Value)> = Vec::new();
 
         const SKIP: &[&str] = &["name", "doctype", "id", "parent", "parenttype", "parentfield", "idx"];
 
@@ -113,7 +115,7 @@ pub async fn save_children(
                 if !SKIP.contains(&k.as_str()) {
                     let bk = format!("cf_{}", k.replace('-', "_"));
                     field_parts.push(format!("`{k}` = ${bk}"));
-                    bindings.push((bk, v.clone()));
+                    extra_bindings.push((bk, v.clone()));
                 }
             }
         }
@@ -132,19 +134,17 @@ pub async fn save_children(
              {set_clause}"
         );
 
-        let mut q = db
-            .query(&query)
-            .bind(("table", table.clone()))
-            .bind(("name", child_name))
-            .bind(("child_doctype", child_doctype.to_owned()))
-            .bind(("parent", parent_name.to_owned()))
-            .bind(("parenttype", parenttype.to_owned()))
-            .bind(("parentfield", parentfield.to_owned()))
-            .bind(("idx", (idx + 1) as i64));
-        for (k, v) in bindings {
-            q = q.bind((k, v));
-        }
-        q.await?;
+        let mut bindings: Vec<(String, Value)> = vec![
+            ("table".into(),        table.clone().into()),
+            ("name".into(),         child_name.into()),
+            ("child_doctype".into(),child_doctype.into()),
+            ("parent".into(),       parent_name.into()),
+            ("parenttype".into(),   parenttype.into()),
+            ("parentfield".into(),  parentfield.into()),
+            ("idx".into(),          ((idx + 1) as i64).into()),
+        ];
+        bindings.extend_from_slice(&extra_bindings);
+        adapter.execute(&query, bindings).await?;
     }
 
     Ok(())

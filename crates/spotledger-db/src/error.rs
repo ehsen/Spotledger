@@ -15,13 +15,13 @@ pub enum DbError {
     Other(String),
 }
 
-impl From<DbError> for spotledger_types::error::SpotError {
+impl From<DbError> for spotledger_core::error::CoreError {
     fn from(e: DbError) -> Self {
         match e {
             DbError::NotFound { doctype, name } => {
-                spotledger_types::error::SpotError::NotFound { doctype, name }
+                spotledger_core::error::CoreError::NotFound { doctype, name }
             }
-            other => spotledger_types::error::SpotError::Db(other.to_string()),
+            other => spotledger_core::error::CoreError::Db(other.to_string()),
         }
     }
 }

@@ -18,9 +18,8 @@
 
 use chrono::Utc;
 use serde_json::Value;
-use surrealdb::engine::remote::ws::Client;
-use surrealdb::Surreal;
 
+use crate::adapter::DbAdapter;
 use crate::error::DbError;
 
 /// Given a naming series template like `"SO-.YYYY.-.####"`, generate the
@@ -28,7 +27,7 @@ use crate::error::DbError;
 ///
 /// Returns the generated name string.
 pub async fn next_name(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     series: &str,
 ) -> Result<String, DbError> {
     // Expand the date tokens first (these don't require the counter)
@@ -52,7 +51,7 @@ pub async fn next_name(
     let hash_count = series.chars().rev().take_while(|c| *c == '#').count().max(1);
 
     // Atomically fetch+increment the series counter
-    let counter = increment_series(db, &prefix_key).await?;
+    let counter = increment_series(adapter, &prefix_key).await?;
 
     // Format: prefix + zero-padded counter
     let name = format!("{}{:0>width$}", prefix_key, counter, width = hash_count);
@@ -61,27 +60,27 @@ pub async fn next_name(
 
 /// Increment the `tabSeries` row for `name`, creating it if absent.
 /// Returns the new counter value (1-based).
-async fn increment_series(db: &Surreal<Client>, name: &str) -> Result<u64, DbError> {
+async fn increment_series(adapter: &DbAdapter, name: &str) -> Result<u64, DbError> {
     // Try to update existing row
-    let mut resp = db
-        .query(
+    let rows = adapter
+        .run(
             "UPDATE tabSeries SET current = current + 1 WHERE name = $name RETURN AFTER",
+            vec![("name".into(), name.into())],
         )
-        .bind(("name", name.to_owned()))
         .await?;
-    let rows: Vec<Value> = resp.take(0)?;
 
     if let Some(row) = rows.into_iter().next() {
         let n = row.get("current").and_then(Value::as_u64).unwrap_or(1);
         return Ok(n);
     }
 
-    // Row didn't exist — create it with current = 1
-    let mut resp = db
-        .query("INSERT INTO tabSeries (name, current) VALUES ($name, 1) RETURN AFTER")
-        .bind(("name", name.to_owned()))
+    // Row didn't exist -- create it with current = 1
+    let rows = adapter
+        .run(
+            "INSERT INTO tabSeries (name, current) VALUES ($name, 1) RETURN AFTER",
+            vec![("name".into(), name.into())],
+        )
         .await?;
-    let rows: Vec<Value> = resp.take(0)?;
     let n = rows
         .into_iter()
         .next()
@@ -100,7 +99,7 @@ async fn increment_series(db: &Surreal<Client>, name: &str) -> Result<u64, DbErr
 /// For Phase 2, we rely on the caller passing a `naming_series` field or we
 /// inspect the `tabDocType` record's `autoname` column.
 pub async fn resolve_name(
-    db: &Surreal<Client>,
+    adapter: &DbAdapter,
     doctype: &str,
     fields: &Value,
 ) -> Result<String, DbError> {
@@ -114,16 +113,17 @@ pub async fn resolve_name(
     // 2. naming_series field in the document
     if let Some(ns) = fields.get("naming_series").and_then(Value::as_str) {
         if !ns.is_empty() {
-            return next_name(db, ns).await;
+            return next_name(adapter, ns).await;
         }
     }
 
     // 3. Inspect tabDocType.autoname
-    let mut resp = db
-        .query("SELECT autoname FROM tabDocType WHERE name = $dt LIMIT 1")
-        .bind(("dt", doctype.to_owned()))
+    let rows = adapter
+        .run(
+            "SELECT autoname FROM tabDocType WHERE name = $dt LIMIT 1",
+            vec![("dt".into(), doctype.into())],
+        )
         .await?;
-    let rows: Vec<Value> = resp.take(0)?;
     if let Some(row) = rows.into_iter().next() {
         if let Some(autoname) = row.get("autoname").and_then(Value::as_str) {
             if autoname.starts_with("field:") {
@@ -140,7 +140,7 @@ pub async fn resolve_name(
                 && autoname != "UUID"
             {
                 // It's a naming series template
-                return next_name(db, autoname).await;
+                return next_name(adapter, autoname).await;
             }
         }
     }
