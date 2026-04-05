@@ -1,7 +1,7 @@
 # SpotledgerCore Architecture Plan
 
-**Date**: April 5, 2026
-**Status**: In Progress — Phases 0–2 complete, Phase 1b partially complete
+**Date**: April 6, 2026
+**Status**: In Progress — Phases 0–2 complete, Phase 1b complete
 **Scope**: Full architectural rewrite from current monolithic Axum crate to a Linux-kernel-style modular WASM plugin system, written entirely in Rust.
 
 ---
@@ -29,7 +29,7 @@ Key design decisions:
 |-------|-------------|--------|
 | **Phase 0** | Repository Restructure | ✅ Complete |
 | **Phase 1** | Typed Schema (DocTypeMeta) | ✅ Complete |
-| **Phase 1b** | Framework DocTypes (Tier 0/1/3) | 🔄 In Progress — Tier 3 schema files exist; Tier 0/1 and engine wiring remain |
+| **Phase 1b** | Framework DocTypes (Tier 0/1/3) | ✅ Complete — Tier 0 schema + migrations, lib.rs wired, project builds |
 | **Phase 1c** | Core Utils | ⏳ Not Started |
 | **Phase 2** | WASM Plugin Host | ✅ Complete (infrastructure); live `.wasm` e2e test pending |
 | **Phase 3** | spotledger-pdk | ⏳ Stub only |
@@ -85,6 +85,10 @@ crates/
 - **`new-site`** calls `ensure_all_schemas` — all compiled DocType schemas synced at startup
 - **WASM plugin host** (`spotledger-plugins`) — `PluginRegistry`, `host_fn` ABI, memory marshaling, versioning
 - **Accounting engine stubs** (Company, Account, Currency, FiscalYear, JournalEntry, GL engine) in `spotledger-accounting`
+- **Tier 0 framework DocTypes fully implemented** — 14 DocType schemas: DocType, DocField, DocPerm, CustomField, PropertySetter, User, Role, HasRole, UserPermission, UserGroup, UserGroupMember, UserType, SystemSettings, DefaultValue, DocumentNamingRule, DocumentNamingSettings
+- **Tier 0 SurrealQL migrations** (`tier0.surql`) — 300 lines of DEFINE TABLE/FIELD/INDEX DDL, auto-embedded in binary
+- **Module wiring complete** — `doctypes::*` and `migrations::*` exported from lib.rs for startup schema sync
+- **DocField builder enhancements** — added `.in_standard_filter()`, `.description()`, `.default_value()` for full field metadata
 
 **What is missing / stubbed:**
 - `frappe.client.rename_doc`, `attach_file`, `validate_link`
@@ -97,7 +101,7 @@ crates/
 - `spotledger-desk` — Tier 1 DocTypes (stub structure exists, no DocType implementations)
 - `spotledger-automation` — Tier 2 DocTypes (stub, partial hooks only)
 - Core utils module (`utils/` subtree not yet created)
-- Accounting DocType hooks wired to GL engine (schema defined, `on_submit`/`on_cancel` stubs incomplete)
+- Accounting DocType hooks wired to GL engine (`on_submit`/`on_cancel` stubs incomplete)
 
 ---
 
