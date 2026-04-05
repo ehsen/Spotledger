@@ -73,8 +73,9 @@ impl WhereClause {
 
 /// A compiled SET clause with its parameter bindings.
 ///
-/// System fields (`name`, `doctype`, `modified`, `creation`, `id`) and array
-/// fields (child tables) are excluded — the DB layer manages them separately.
+/// System fields (`name`, `doctype`, `modified`, `creation`, `id`) are
+/// excluded — the DB layer inserts them explicitly.  Array fields (child
+/// tables) are included so they are embedded directly in the parent record.
 pub struct SetClause {
     sql:      String,
     bindings: Vec<(String, Value)>,
@@ -91,7 +92,7 @@ impl SetClause {
         let mut bindings = Vec::new();
 
         for (k, v) in map {
-            if SKIP_FIELDS.contains(&k.as_str()) || v.is_array() {
+            if SKIP_FIELDS.contains(&k.as_str()) {
                 continue;
             }
             let key = format!("f_{k}");
@@ -158,15 +159,17 @@ mod tests {
             "doctype": "Sales Order",
             "customer": "Acme",
             "total": 100,
-            "items": [{"item_code": "X"}]
+            "items": [{"item_code": "X", "qty": 1}]
         });
         let s = SetClause::from_fields(&fields);
         assert!(!s.as_sql().contains("`name`"),    "should skip name");
         assert!(!s.as_sql().contains("`doctype`"), "should skip doctype");
-        assert!(!s.as_sql().contains("`items`"),   "should skip arrays");
+        // arrays (child tables) are now embedded — must appear in SET
+        assert!(s.as_sql().contains("`items`"),    "child table array must be in SET");
         let keys: Vec<&str> = s.bindings().iter().map(|(k, _)| k.as_str()).collect();
         assert!(keys.contains(&"f_customer"));
         assert!(keys.contains(&"f_total"));
+        assert!(keys.contains(&"f_items"));
     }
 
     #[test]

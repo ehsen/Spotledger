@@ -21,6 +21,10 @@ use crate::adapter::DbAdapter;
 use crate::error::DbError;
 use crate::query::{SetClause, WhereClause};
 
+// Child tables are embedded directly in the parent document record as JSON
+// arrays.  No separate scatter/gather per child table — SurrealDB stores the
+// nested array as a first-class field alongside all scalar fields.
+
 // -- helpers ------------------------------------------------------------------
 
 /// Convert a Frappe DocType name to a SurrealDB table name.
@@ -58,52 +62,6 @@ fn value_to_docrow(v: Value) -> DocRow {
         }
     }
     row
-}
-
-/// Return the set of field names that SurrealDB has DEFINE FIELD for on a table,
-/// plus the standard Frappe system fields which are always valid.
-pub(crate) async fn get_valid_columns(
-    adapter: &DbAdapter,
-    doctype: &str,
-) -> std::collections::HashSet<String> {
-    let mut cols: std::collections::HashSet<String> = [
-        "name", "owner", "creation", "modified", "modified_by",
-        "docstatus", "idx", "parent", "parenttype", "parentfield",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
-
-    let table = doctype_to_table(doctype);
-    let sql   = format!("INFO FOR TABLE `{table}`;");
-
-    let mut resp: surrealdb::IndexedResults = match adapter.raw_query(&sql).await {
-        Ok(r)  => r,
-        Err(_) => return cols,
-    };
-    let info: Vec<Value> = resp.take(0).unwrap_or_default();
-    if let Some(Value::Object(map)) = info.into_iter().next() {
-        if let Some(Value::Object(fields_map)) = map.get("fields") {
-            for key in fields_map.keys() {
-                cols.insert(key.clone());
-            }
-        }
-    }
-    cols
-}
-
-/// Filter fields to only those the schema accepts.
-pub(crate) fn filter_to_valid_columns(
-    fields: &Value,
-    valid: &std::collections::HashSet<String>,
-) -> Value {
-    let Value::Object(map) = fields else { return fields.clone() };
-    let filtered: serde_json::Map<String, Value> = map
-        .iter()
-        .filter(|(k, v)| valid.contains(*k) && !v.is_array())
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    Value::Object(filtered)
 }
 
 // -- READ ---------------------------------------------------------------------
@@ -213,10 +171,8 @@ pub async fn insert_doc(
         .ok_or_else(|| DbError::Other("insert_doc: 'name' field is required".into()))?
         .to_owned();
 
-    let valid    = get_valid_columns(adapter, doctype).await;
-    let filtered = filter_to_valid_columns(fields, &valid);
-    let set      = SetClause::from_fields(&filtered);
-    let table    = doctype_to_table(doctype);
+    let set   = SetClause::from_fields(fields);
+    let table = doctype_to_table(doctype);
     let sql = format!(
         "CREATE type::record($table, $name) SET \
          name = $name, creation = time::now(), modified = time::now(), {}",
@@ -245,10 +201,8 @@ pub async fn upsert_doc(
     name: &str,
     fields: &Value,
 ) -> Result<Document, DbError> {
-    let valid    = get_valid_columns(adapter, doctype).await;
-    let filtered = filter_to_valid_columns(fields, &valid);
-    let set      = SetClause::from_fields(&filtered);
-    let table    = doctype_to_table(doctype);
+    let set   = SetClause::from_fields(fields);
+    let table = doctype_to_table(doctype);
     let sql = format!(
         "UPSERT type::record($table, $name) SET \
          name = $name, modified = time::now(), \

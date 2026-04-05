@@ -118,14 +118,6 @@ impl DbAdapter {
         }
         q.await.map(|_| ()).map_err(DbError::Surreal)
     }
-
-    /// Execute raw SQL returning all result sets unprocessed.
-    ///
-    /// Used for SurrealDB DDL / INFO queries that do not follow the standard
-    /// row-return pattern.  Prefer `run` / `run_one` / `execute` for DML.
-    pub(crate) async fn raw_query(&self, sql: &str) -> Result<surrealdb::IndexedResults, DbError> {
-        self.db.query(sql).await.map_err(DbError::Surreal)
-    }
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
