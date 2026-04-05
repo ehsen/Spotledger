@@ -4,16 +4,13 @@
 use super::{BoxFuture, MethodRegistry};
 use crate::state::SiteState;
 use serde_json::Value;
-use spotledger_db::child_table::{extract_child_tables, save_children};
+use spotledger_db::controller::{delete_doc_checked, get_compiled_meta, save_doc};
 use spotledger_db::document::{
-    cancel_doc, delete_doc, get_count, get_doc, get_list, get_value, insert_doc, set_field,
-    submit_doc, upsert_doc,
+    cancel_doc, get_count, get_doc, get_list, get_value, set_field, submit_doc, upsert_doc,
 };
 use spotledger_db::hooks::{
-    run_after_save_hooks, run_before_cancel_hooks, run_before_submit_hooks, run_on_cancel_hooks,
-    run_on_submit_hooks, run_save_hooks,
+    run_before_cancel_hooks, run_before_submit_hooks, run_on_cancel_hooks, run_on_submit_hooks,
 };
-use spotledger_db::naming::resolve_name;
 use spotledger_core::document::Document;
 use spotledger_core::error::SpotError;
 use std::collections::HashMap;
@@ -126,7 +123,6 @@ async fn handle_save(
     site: Arc<SiteState>,
     params: HashMap<String, Value>,
 ) -> Result<Value, SpotError> {
-    // The Desk JS sends `doc` as a JSON-encoded string or Value
     let doc_val = params
         .get("doc")
         .ok_or_else(|| SpotError::Validation("'doc' is required".into()))?
@@ -138,108 +134,46 @@ async fn handle_save(
         .ok_or_else(|| SpotError::Validation("doc.doctype is required".into()))?
         .to_owned();
 
-    let raw_name = doc_val
-        .get("name")
+    let user = params
+        .get("__current_user")
         .and_then(Value::as_str)
-        .unwrap_or("")
+        .unwrap_or("Administrator")
         .to_owned();
 
-    let is_new = raw_name.is_empty();
-    let user = params.get("__current_user").and_then(Value::as_str).unwrap_or("Administrator").to_owned();
+    // Build the in-memory Document from the incoming JSON
+    let doc = doc_from_value(&doctype, &doc_val);
 
-    // Resolve name for new docs via naming series
-    let name = if is_new {
-        resolve_name(&site.db, &doctype, &doc_val)
-            .await
-            .map_err(SpotError::from)?
+    // Look up compiled meta (fall back to hook-only pipeline if not compiled)
+    let saved = if let Some(meta) = get_compiled_meta(&doctype) {
+        save_doc(&site.db, &site.hook_registry, &meta, doc, &user).await?
     } else {
-        raw_name.clone()
+        save_doc_no_meta(&site, doc, &user).await?
     };
-
-    // Build Document struct for hook dispatch
-    let mut doc = Document { doctype: doctype.clone(), name: name.clone(), fields: Default::default() };
-    if let Value::Object(map) = &doc_val {
-        for (k, v) in map {
-            if k != "doctype" && k != "name" {
-                doc.set(k.clone(), v.clone());
-            }
-        }
-    }
-
-    // Run before-save hooks
-    let doc = run_save_hooks(&site.hook_registry, doc, is_new).await?;
-
-    // Snapshot old doc before write (for version diff on updates)
-    let old_doc_snap: Option<Value> = if !is_new {
-        spotledger_db::document::get_doc(&site.db, &doctype, &name)
-            .await
-            .ok()
-            .map(|d| d.as_dict())
-    } else {
-        None
-    };
-
-    // DB write
-    let mut fields_val = doc.as_dict();
-    if let Value::Object(ref mut m) = fields_val {
-        m.insert("name".into(), Value::String(name.clone()));
-    }
-
-    let saved = if is_new {
-        insert_doc(&site.db, &doctype, &fields_val)
-            .await
-            .map_err(SpotError::from)?
-    } else {
-        upsert_doc(&site.db, &doctype, &name, &fields_val)
-            .await
-            .map_err(SpotError::from)?
-    };
-
-    // Scatter child table arrays into their own tables
-    for (parentfield, child_doctype, children) in extract_child_tables(&fields_val) {
-        let children_vals: Vec<Value> = children.into_iter().collect();
-        save_children(&site.db, &child_doctype, &name, &doctype, &parentfield, &children_vals)
-            .await
-            .map_err(SpotError::from)?;
-    }
 
     // Invalidate cache
-    site.doc_cache.remove(&(doctype.clone(), name.clone())).await;
+    site.doc_cache
+        .remove(&(doctype.clone(), saved.name.clone()))
+        .await;
 
-    // B6: create version snapshot on update, log activity for both paths
-    let action = if is_new { "created" } else { "saved" };
-    let new_snap = saved.as_dict();
-    if !is_new {
-        if let Some(old) = old_doc_snap {
-            let _ = site.db
-                .execute(
-                    "RETURN fn::create_version($user, $dt, $dn, $old, $new)",
-                    vec![
-                        ("user".into(), user.clone().into()),
-                        ("dt".into(),   doctype.clone().into()),
-                        ("dn".into(),   name.clone().into()),
-                        ("old".into(),  old),
-                        ("new".into(),  new_snap),
-                    ],
-                )
-                .await;
-        }
-    }
-    let _ = site.db
+    // Activity log (best-effort — failures are silently ignored)
+    let action = if saved.fields.get("creation") == saved.fields.get("modified") {
+        "created"
+    } else {
+        "saved"
+    };
+    let _ = site
+        .db
         .execute(
             "RETURN fn::log_activity($user, $dt, $dn, $action, $data)",
             vec![
-                ("user".into(),   user.clone().into()),
-                ("dt".into(),     doctype.clone().into()),
-                ("dn".into(),     name.clone().into()),
+                ("user".into(),   user.into()),
+                ("dt".into(),     doctype.into()),
+                ("dn".into(),     saved.name.clone().into()),
                 ("action".into(), action.into()),
                 ("data".into(),   Value::Null),
             ],
         )
         .await;
-
-    // Run after-save hooks
-    let saved = run_after_save_hooks(&site.hook_registry, saved, is_new).await?;
 
     Ok(saved.as_dict())
 }
@@ -261,58 +195,42 @@ async fn handle_insert(
         .ok_or_else(|| SpotError::Validation("doc.doctype is required".into()))?
         .to_owned();
 
-    // Resolve name
-    let name = resolve_name(&site.db, &doctype, &doc_val)
-        .await
-        .map_err(SpotError::from)?;
+    let user = params
+        .get("__current_user")
+        .and_then(Value::as_str)
+        .unwrap_or("Administrator")
+        .to_owned();
 
-    let mut doc = Document { doctype: doctype.clone(), name: name.clone(), fields: Default::default() };
-    if let Value::Object(map) = &doc_val {
-        for (k, v) in map {
-            if k != "doctype" && k != "name" {
-                doc.set(k.clone(), v.clone());
-            }
-        }
-    }
+    // Force is_new by clearing name so the controller assigns one via naming series
+    let mut doc = doc_from_value(&doctype, &doc_val);
+    doc.name.clear();
+    doc.fields.insert("__islocal".into(), Value::Number(1.into()));
 
-    let doc = run_save_hooks(&site.hook_registry, doc, true).await?;
+    let saved = if let Some(meta) = get_compiled_meta(&doctype) {
+        save_doc(&site.db, &site.hook_registry, &meta, doc, &user).await?
+    } else {
+        save_doc_no_meta(&site, doc, &user).await?
+    };
 
-    let mut fields_val = doc.as_dict();
-    if let Value::Object(ref mut m) = fields_val {
-        m.insert("name".into(), Value::String(name.clone()));
-    }
+    site.doc_cache
+        .remove(&(doctype.clone(), saved.name.clone()))
+        .await;
 
-    let inserted = insert_doc(&site.db, &doctype, &fields_val)
-        .await
-        .map_err(SpotError::from)?;
-
-    // Scatter child tables
-    for (parentfield, child_doctype, children) in extract_child_tables(&fields_val) {
-        let children_vals: Vec<Value> = children.into_iter().collect();
-        save_children(&site.db, &child_doctype, &name, &doctype, &parentfield, &children_vals)
-            .await
-            .map_err(SpotError::from)?;
-    }
-
-    site.doc_cache.remove(&(doctype.clone(), name.clone())).await;
-
-    // B6: log activity for insert path
-    let user = params.get("__current_user").and_then(Value::as_str).unwrap_or("Administrator").to_owned();
-    let _ = site.db
+    let _ = site
+        .db
         .execute(
             "RETURN fn::log_activity($user, $dt, $dn, $action, $data)",
             vec![
                 ("user".into(),   user.into()),
-                ("dt".into(),     doctype.clone().into()),
-                ("dn".into(),     name.clone().into()),
+                ("dt".into(),     doctype.into()),
+                ("dn".into(),     saved.name.clone().into()),
                 ("action".into(), "created".into()),
                 ("data".into(),   Value::Null),
             ],
         )
         .await;
 
-    let inserted = run_after_save_hooks(&site.hook_registry, inserted, true).await?;
-    Ok(inserted.as_dict())
+    Ok(saved.as_dict())
 }
 
 // ── frappe.client.set_value ───────────────────────────────────────────────────
@@ -345,8 +263,8 @@ async fn handle_delete(
     params: HashMap<String, Value>,
 ) -> Result<Value, SpotError> {
     let doctype = require_str(&params, "doctype")?;
-    let name = require_str(&params, "name")?;
-    delete_doc(&site.db, doctype, name).await.map_err(SpotError::from)?;
+    let name    = require_str(&params, "name")?;
+    delete_doc_checked(&site.db, &site.hook_registry, doctype, name).await?;
     site.doc_cache.remove(&(doctype.to_owned(), name.to_owned())).await;
     Ok(Value::String("ok".into()))
 }
@@ -448,4 +366,61 @@ fn require_str<'a>(params: &'a HashMap<String, Value>, key: &str) -> Result<&'a 
         .get(key)
         .and_then(Value::as_str)
         .ok_or_else(|| SpotError::Validation(format!("'{key}' is required")))
+}
+
+/// Build a [`Document`] from the raw JSON value sent by the client.
+fn doc_from_value(doctype: &str, val: &Value) -> Document {
+    let mut doc = Document::new(doctype);
+    if let Some(name) = val.get("name").and_then(Value::as_str) {
+        doc.name = name.to_owned();
+    }
+    if let Value::Object(map) = val {
+        for (k, v) in map {
+            if k != "doctype" && k != "name" {
+                doc.set(k.clone(), v.clone());
+            }
+        }
+    }
+    doc
+}
+
+/// Fallback save pipeline for DocTypes without a compiled `DocTypeMeta`.
+///
+/// Runs hooks only — no validation, no naming series from meta.
+/// Use `get_compiled_meta` to check in advance and prefer `save_doc`.
+async fn save_doc_no_meta(
+    site: &Arc<SiteState>,
+    doc: Document,
+    user: &str,
+) -> Result<Document, SpotError> {
+    use spotledger_db::document::{insert_doc, upsert_doc};
+    use spotledger_db::hooks::{run_after_save_hooks, run_save_hooks};
+    use spotledger_db::naming::resolve_name;
+
+    let doctype = doc.doctype.clone();
+    let is_new  = doc.name.is_empty()
+        || doc.fields.get("__islocal").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+
+    let name = if is_new {
+        resolve_name(&site.db, &doctype, &doc.as_dict())
+            .await
+            .map_err(SpotError::from)?
+    } else {
+        doc.name.clone()
+    };
+
+    let mut doc = doc;
+    doc.name = name.clone();
+    doc.set_user_and_timestamp(user, &chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(), is_new);
+
+    let doc = run_save_hooks(&site.hook_registry, doc, is_new).await?;
+    let fields_val = doc.as_dict();
+
+    let saved = if is_new {
+        insert_doc(&site.db, &doctype, &fields_val).await.map_err(SpotError::from)?
+    } else {
+        upsert_doc(&site.db, &doctype, &name, &fields_val).await.map_err(SpotError::from)?
+    };
+
+    run_after_save_hooks(&site.hook_registry, saved, is_new).await
 }
