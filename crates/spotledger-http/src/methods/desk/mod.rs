@@ -19,6 +19,7 @@ use spotledger_db::DbAdapter;
 use spotledger_db::permissions::get_doc_permissions;
 use spotledger_core::document::Document;
 use spotledger_core::error::SpotError;
+use spotledger_core::meta::FieldType;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -386,14 +387,56 @@ async fn handle_getdoctype(
 ) -> Result<Value, SpotError> {
     let doctype = require_str(&params, "doctype")?;
 
-    let dt_doc = get_doc(&site.db, "DocType", doctype)
-        .await
-        .map_err(SpotError::from)?;
+    // Try to use compiled meta first (Phase 1 optimization)
+    let dt_obj = if let Some(compiled_meta) = spotledger_db::controller::get_compiled_meta(doctype) {
+        // Convert compiled meta to Frappe JSON format
+        let obj = compiled_meta.to_frappe_json();
 
-    let mut dt_obj = dt_doc.as_dict();
-    append_doctype_children(&site.db, doctype, &mut dt_obj).await;
+        // Collect child doctype names from compiled fields
+        let child_dt_names: Vec<String> = compiled_meta.fields
+            .iter()
+            .filter_map(|f| {
+                let is_table = matches!(f.fieldtype, FieldType::Table | FieldType::TableMultiSelect);
+                if is_table && f.options.is_some() {
+                    f.options.clone()
+                } else {
+                    None
+                }
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
 
-    // Collect child doctype names from Table / Table MultiSelect fields
+        // Load child doctypes (both compiled and DB)
+        let mut docs = vec![obj];
+        for child_name in child_dt_names {
+            let child_obj = if let Some(child_meta) = spotledger_db::controller::get_compiled_meta(&child_name) {
+                child_meta.to_frappe_json()
+            } else if let Ok(child_doc_raw) = get_doc(&site.db, "DocType", &child_name).await {
+                let mut child_obj = child_doc_raw.as_dict();
+                append_doctype_children(&site.db, &child_name, &mut child_obj).await;
+                child_obj
+            } else {
+                continue;
+            };
+            docs.push(child_obj);
+        }
+
+        return Ok(json!({
+            "docs":          docs,
+            "lang_modified": null,
+        }));
+    } else {
+        // Fall back to DB query for dynamic/uncompiled doctypes
+        let dt_doc = get_doc(&site.db, "DocType", doctype)
+            .await
+            .map_err(SpotError::from)?;
+
+        let mut dt_obj = dt_doc.as_dict();
+        append_doctype_children(&site.db, doctype, &mut dt_obj).await;
+        dt_obj
+    };
+
+    // Collect child doctype names from Table / Table MultiSelect fields  
     let child_dt_names: Vec<String> = if let Value::Array(ref fields) = dt_obj.get("fields").cloned().unwrap_or(Value::Array(vec![])) {
         fields.iter()
             .filter(|f| {

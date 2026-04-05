@@ -7,11 +7,13 @@ use async_trait::async_trait;
 
 use crate::document::Document;
 use crate::error::CoreError;
+use crate::meta::DocTypeMeta;
 
 /// Every compiled DocType implements this trait.
 #[async_trait]
 pub trait DocType: Send + Sync + 'static {
     fn doctype_name() -> &'static str where Self: Sized;
+    fn meta() -> &'static DocTypeMeta where Self: Sized;
     fn doc(&self)         -> &Document;
     fn doc_mut(&mut self) -> &mut Document;
 

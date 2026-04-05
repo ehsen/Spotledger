@@ -10,6 +10,7 @@
 //! without needing a live DocType instance.
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use dashmap::DashMap;
 
@@ -99,9 +100,33 @@ impl DocTypeRegistry {
 
 pub struct DynamicDocument(pub Document);
 
+/// Fallback empty meta for dynamic documents (never actually used in handle_getdoctype
+/// since get_compiled_meta returns None for dynamic types, and we fall back to DB query).
+fn dynamic_meta_fallback() -> &'static DocTypeMeta {
+    static FALLBACK: OnceLock<DocTypeMeta> = OnceLock::new();
+    FALLBACK.get_or_init(|| DocTypeMeta {
+        name: "Dynamic".into(),
+        module: "Core".into(),
+        is_single: false,
+        is_tree: false,
+        is_child: false,
+        is_submittable: false,
+        track_changes: false,
+        fields: vec![],
+        permissions: vec![],
+        title_field: None,
+        search_fields: vec![],
+        sort_field: None,
+        sort_order: None,
+        autoname: None,
+        naming_series: None,
+    })
+}
+
 #[async_trait::async_trait]
 impl DocType for DynamicDocument {
     fn doctype_name() -> &'static str where Self: Sized { "Dynamic" }
+    fn meta() -> &'static DocTypeMeta where Self: Sized { dynamic_meta_fallback() }
     fn doc(&self)         -> &Document     { &self.0 }
     fn doc_mut(&mut self) -> &mut Document { &mut self.0 }
 }

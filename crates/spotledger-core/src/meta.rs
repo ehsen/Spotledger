@@ -325,3 +325,173 @@ impl DocTypeMetaBuilder {
 
     pub fn build(self) -> DocTypeMeta { self.meta }
 }
+
+// ── Frappe JSON Conversion ────────────────────────────────────────────────────
+
+impl DocTypeMeta {
+    /// Convert to Frappe REST API JSON response format.
+    pub fn to_frappe_json(&self) -> serde_json::Value {
+        use serde_json::{json, Value};
+
+        let fields: Vec<Value> = self.fields
+            .iter()
+            .map(|f| f.to_frappe_json())
+            .collect();
+
+        let permissions: Vec<Value> = self.permissions
+            .iter()
+            .map(|p| p.to_frappe_json())
+            .collect();
+
+        let mut obj = json!({
+            "name": self.name,
+            "module": self.module,
+            "doctype": "DocType",
+            "issingle": self.is_single,
+            "istree": self.is_tree,
+            "issubmittable": self.is_submittable,
+            "track_changes": self.track_changes,
+            "is_child_table": self.is_child,
+            "fields": fields,
+            "permissions": permissions,
+        });
+
+        if let Value::Object(ref mut map) = obj {
+            if let Some(tf) = &self.title_field {
+                map.insert("title_field".into(), Value::String(tf.clone()));
+            }
+            if !self.search_fields.is_empty() {
+                map.insert("search_fields".into(), Value::String(self.search_fields.join(", ")));
+            }
+            if let Some(sf) = &self.sort_field {
+                map.insert("sort_field".into(), Value::String(sf.clone()));
+            }
+            if let Some(so) = &self.sort_order {
+                map.insert("sort_order".into(), Value::String(so.clone()));
+            }
+            if let Some(an) = &self.autoname {
+                map.insert("autoname".into(), Value::String(an.clone()));
+            }
+            if let Some(ns) = &self.naming_series {
+                map.insert("naming_series".into(), Value::String(ns.clone()));
+            }
+            // Standard defaults for compatibility with Frappe desk
+            map.entry("links".to_string()).or_insert(Value::Array(vec![]));
+            map.entry("actions".to_string()).or_insert(Value::Array(vec![]));
+            map.entry("states".to_string()).or_insert(Value::Array(vec![]));
+        }
+
+        obj
+    }
+}
+
+impl DocField {
+    /// Convert to Frappe REST API JSON format.
+    pub fn to_frappe_json(&self) -> serde_json::Value {
+        use serde_json::{json, Value};
+
+        let fieldtype = match self.fieldtype {
+            FieldType::Data => "Data",
+            FieldType::SmallText => "Small Text",
+            FieldType::Text => "Text",
+            FieldType::LongText => "Long Text",
+            FieldType::Code => "Code",
+            FieldType::Password => "Password",
+            FieldType::Int => "Int",
+            FieldType::Float => "Float",
+            FieldType::Currency => "Currency",
+            FieldType::Percent => "Percent",
+            FieldType::Check => "Check",
+            FieldType::Date => "Date",
+            FieldType::Datetime => "Datetime",
+            FieldType::Time => "Time",
+            FieldType::Select => "Select",
+            FieldType::Link => "Link",
+            FieldType::DynamicLink => "Dynamic Link",
+            FieldType::Table => "Table",
+            FieldType::TableMultiSelect => "Table MultiSelect",
+            FieldType::Attach => "Attach",
+            FieldType::AttachImage => "Attach Image",
+            FieldType::Html => "HTML",
+            FieldType::Signature => "Signature",
+            FieldType::Color => "Color",
+            FieldType::Rating => "Rating",
+            FieldType::Json => "JSON",
+            FieldType::SectionBreak => "Section Break",
+            FieldType::ColumnBreak => "Column Break",
+            FieldType::TabBreak => "Tab Break",
+        };
+
+        let mut obj = json!({
+            "fieldname": self.fieldname,
+            "label": self.label,
+            "fieldtype": fieldtype,
+            "reqd": self.reqd as i32,
+            "in_list_view": self.in_list_view as i32,
+            "in_standard_filter": self.in_standard_filter as i32,
+            "bold": self.bold as i32,
+            "read_only": self.read_only as i32,
+            "hidden": self.hidden as i32,
+            "set_only_once": self.set_only_once as i32,
+            "allow_on_submit": self.allow_on_submit as i32,
+            "ignore_xss_filter": self.ignore_xss_filter as i32,
+            "permlevel": self.permlevel,
+            "unique": self.unique as i32,
+        });
+
+        if let Value::Object(ref mut map) = obj {
+            if let Some(opts) = &self.options {
+                map.insert("options".into(), Value::String(opts.clone()));
+            }
+            if let Some(sel_opts) = &self.select_options {
+                map.insert("options".into(), Value::String(sel_opts.clone()));
+            }
+            if let Some(dv) = &self.default_value {
+                map.insert("default".into(), Value::String(dv.clone()));
+            }
+            if let Some(desc) = &self.description {
+                map.insert("description".into(), Value::String(desc.clone()));
+            }
+            if let Some(prec) = self.precision {
+                map.insert("precision".into(), Value::Number(prec.into()));
+            }
+            if let Some(len) = self.length {
+                map.insert("length".into(), Value::Number(len.into()));
+            }
+            if let Some(ff) = &self.fetch_from {
+                map.insert("fetch_from".into(), Value::String(ff.clone()));
+            }
+            if self.fetch_if_empty {
+                map.insert("fetch_if_empty".into(), Value::Number(1.into()));
+            }
+        }
+
+        obj
+    }
+}
+
+impl Permission {
+    /// Convert to Frappe REST API JSON format.
+    pub fn to_frappe_json(&self) -> serde_json::Value {
+        use serde_json::json;
+
+        json!({
+            "role": self.role,
+            "read": self.read as i32,
+            "write": self.write as i32,
+            "create": self.create as i32,
+            "delete": self.delete as i32,
+            "submit": self.submit as i32,
+            "cancel": self.cancel as i32,
+            "amend": self.amend as i32,
+            "report": self.report as i32,
+            "import": self.import as i32,
+            "export": self.export as i32,
+            "print": self.print as i32,
+            "email": self.email as i32,
+            "share": self.share as i32,
+            "permlevel": 0,
+            "if_owner": 0,
+        })
+    }
+}
