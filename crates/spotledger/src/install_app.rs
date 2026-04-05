@@ -16,9 +16,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
-use spotledger_db::connection::{connect, Db};
+use spotledger_db::connection::connect;
+use spotledger_db::DbAdapter;
 use spotledger_db::document::upsert_doc;
-use spotledger_types::config::SiteConfig;
+use spotledger_core::config::SiteConfig;
 
 use crate::cli::InstallAppArgs;
 use crate::seed_doctypes::{build_child_row, seed_doctypes_for_app};
@@ -152,7 +153,7 @@ pub async fn install_app(args: InstallAppArgs) -> Result<()> {
 // Step helpers
 // ---------------------------------------------------------------------------
 
-async fn connect_to_site(bench: &Path, site: &str) -> Result<Db> {
+async fn connect_to_site(bench: &Path, site: &str) -> Result<DbAdapter> {
     let config_path = bench.join("sites").join(site).join("site_config.toml");
     let config_str = tokio::fs::read_to_string(&config_path)
         .await
@@ -170,7 +171,7 @@ async fn connect_to_site(bench: &Path, site: &str) -> Result<Db> {
     Ok(db)
 }
 
-async fn seed_module_defs(db: &Db, app_root: &Path, app_name: &str) -> Result<usize> {
+async fn seed_module_defs(db: &DbAdapter, app_root: &Path, app_name: &str) -> Result<usize> {
     let modules_txt = app_root.join("modules.txt");
     let content = match tokio::fs::read_to_string(&modules_txt).await {
         Ok(s) => s,
@@ -205,7 +206,7 @@ async fn seed_module_defs(db: &Db, app_root: &Path, app_name: &str) -> Result<us
 ///
 /// Walk pattern: `app_root/{module}/{dir_name}/{record_name}/{record_name}.json`
 /// This is the Frappe `get_doc_files()` pattern from `frappe/model/sync.py`.
-async fn seed_fixture_records(db: &Db, app_root: &Path) -> Result<usize> {
+async fn seed_fixture_records(db: &DbAdapter, app_root: &Path) -> Result<usize> {
     let mut total = 0usize;
 
     for &(dir_name, doctype_name, child_fields) in IMPORTABLE_TYPES {
@@ -291,7 +292,7 @@ async fn seed_fixture_records(db: &Db, app_root: &Path) -> Result<usize> {
 ///
 /// patches.txt uses an INI-like format with `[pre_model_sync]` / `[post_model_sync]`
 /// sections; comments start with `#`.
-async fn seed_patch_log(db: &Db, app_root: &Path) -> Result<usize> {
+async fn seed_patch_log(db: &DbAdapter, app_root: &Path) -> Result<usize> {
     let patches_txt = app_root.join("patches.txt");
     let content = match tokio::fs::read_to_string(&patches_txt).await {
         Ok(s) => s,

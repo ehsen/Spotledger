@@ -19,7 +19,7 @@ use std::sync::Arc;
 use spotledger_db::auth::{
     create_session, expire_session, get_password_hash, get_session, lookup_user, verify_password,
 };
-use spotledger_types::response::{ErrorResponse, MethodResponse};
+use spotledger_core::response::{ErrorResponse, MethodResponse};
 
 use crate::state::SiteState;
 

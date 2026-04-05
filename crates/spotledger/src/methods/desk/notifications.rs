@@ -6,9 +6,9 @@
 
 use crate::state::SiteState;
 use serde_json::{json, Value};
-use spotledger_db::connection::Db;
+use spotledger_db::DbAdapter;
 use spotledger_db::document::{doctype_to_table, get_list};
-use spotledger_types::error::SpotError;
+use spotledger_core::error::SpotError;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -144,10 +144,10 @@ pub async fn handle_mark_notification_as_read(
         let table = doctype_to_table("Notification Log");
         let _ = site
             .db
-            .query(format!(
-                "UPDATE `{table}` SET `read` = true WHERE name = $name"
-            ))
-            .bind(("name", name))
+            .execute(
+                &format!("UPDATE `{table}` SET `read` = true WHERE name = $name"),
+                vec![("name".into(), name.into())],
+            )
             .await;
     }
     Ok(Value::Null)
@@ -162,10 +162,10 @@ pub async fn handle_mark_all_notifications_as_read(
     let table = doctype_to_table("Notification Log");
     let _ = site
         .db
-        .query(format!(
-            "UPDATE `{table}` SET `read` = true WHERE for_user = $user"
-        ))
-        .bind(("user", user.to_owned()))
+        .execute(
+            &format!("UPDATE `{table}` SET `read` = true WHERE for_user = $user"),
+            vec![("user".into(), user.to_owned().into())],
+        )
         .await;
     Ok(Value::Null)
 }
@@ -189,25 +189,10 @@ pub async fn handle_set_notification_seen(
 // ── Shared helper ─────────────────────────────────────────────────────────────
 
 async fn count_records(
-    db: &Db,
+    db: &DbAdapter,
     doctype: &str,
     filter: Option<&Value>,
 ) -> u64 {
-    let table = doctype_to_table(doctype);
-    let (where_clause, bindings) = spotledger_db::document::build_where(filter);
-    let surql = format!("SELECT count() FROM `{table}`{where_clause} GROUP ALL");
-    let mut q = db.query(&surql);
-    for (k, v) in bindings {
-        q = q.bind((k, v));
-    }
-    match q.await {
-        Ok(mut resp) => {
-            let rows: Vec<Value> = resp.take(0).unwrap_or_default();
-            rows.first()
-                .and_then(|r: &Value| r.get("count"))
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-        }
-        Err(_) => 0,
-    }
+    use spotledger_db::document::get_count;
+    get_count(db, doctype, filter).await.unwrap_or(0)
 }

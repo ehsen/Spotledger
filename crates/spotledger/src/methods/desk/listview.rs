@@ -6,8 +6,9 @@
 
 use crate::state::SiteState;
 use serde_json::{json, Value};
-use spotledger_db::document::{doctype_to_table, get_doc, build_where};
-use spotledger_types::error::SpotError;
+use spotledger_db::document::{doctype_to_table, get_doc};
+use spotledger_db::query::WhereClause;
+use spotledger_core::error::SpotError;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -143,21 +144,19 @@ pub async fn handle_get_group_by_count(
     }
 
     let table = doctype_to_table(&doctype);
-    let (where_clause, bindings) = build_where(Some(&current_filters));
+    let where_clause = WhereClause::from_filters(Some(&current_filters));
 
     // SurrealQL: SELECT field, count() AS count GROUP BY field
     let surql = format!(
-        "SELECT `{field}` as name, count() as count FROM `{table}`{where_clause} \
-         GROUP BY `{field}` ORDER BY count DESC LIMIT 50"
+        "SELECT `{field}` as name, count() as count FROM `{table}`{} \
+         GROUP BY `{field}` ORDER BY count DESC LIMIT 50",
+        where_clause.as_sql()
     );
-    let mut q = site.db.query(&surql);
-    for (k, v) in bindings {
-        q = q.bind((k, v));
-    }
+    let bindings: Vec<(String, Value)> = where_clause.bindings().to_vec();
 
-    let rows: Vec<Value> = match q.await {
-        Ok(mut resp) => resp.take(0).unwrap_or_default(),
-        Err(_) => return Ok(Value::Array(vec![])),
+    let rows = match site.db.run(&surql, bindings).await {
+        Ok(rows) => rows,
+        Err(_)   => return Ok(Value::Array(vec![])),
     };
 
     Ok(Value::Array(rows))

@@ -11,7 +11,7 @@ pub use desk::{getdoc_handler, getdoctype_handler, getpage_handler, register_des
 use crate::state::SiteState;
 use dashmap::DashMap;
 use serde_json::Value;
-use spotledger_types::error::SpotError;
+use spotledger_core::error::SpotError;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;

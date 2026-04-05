@@ -14,11 +14,11 @@ use super::{BoxFuture, MethodRegistry};
 use crate::state::SiteState;
 use axum::extract::Query as AxumQuery;
 use serde_json::{json, Value};
-use spotledger_db::connection::Db;
-use spotledger_db::document::{build_where, doctype_to_table, get_doc, get_list, get_value};
+use spotledger_db::document::{get_doc, get_list, get_value};
+use spotledger_db::DbAdapter;
 use spotledger_db::permissions::get_doc_permissions;
-use spotledger_types::document::Document;
-use spotledger_types::error::SpotError;
+use spotledger_core::document::Document;
+use spotledger_core::error::SpotError;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -337,7 +337,7 @@ pub fn register_desk_methods(registry: &Arc<MethodRegistry>) {
 
 // ── frappe.desk.form.load.getdoctype ─────────────────────────────────────────
 
-async fn append_doctype_children(db: &Db, dt_name: &str, doc_obj: &mut Value) {
+async fn append_doctype_children(db: &DbAdapter, dt_name: &str, doc_obj: &mut Value) {
     let child_filter = json!({"parent": dt_name, "parenttype": "DocType"});
 
     // fields
@@ -453,7 +453,7 @@ async fn handle_getdoc(
 
             if is_single {
                 // Return an empty default doc (name == doctype for Singles)
-                let mut empty = spotledger_types::document::Document::default();
+                let mut empty = spotledger_core::document::Document::default();
                 empty.doctype = doctype.to_string();
                 empty.name = doctype.to_string();
                 empty.set("__islocal", json!(1));
@@ -481,22 +481,108 @@ async fn handle_getdoc(
     owner_users.dedup();
     let docinfo_user_info = build_user_info(&site.db, &owner_users).await;
 
+    // B22: mark_as_seen + fetch live docinfo from SurrealDB fn:: calls
+    let _ = site.db
+        .execute(
+            "fn::mark_as_seen($user, $dt, $dn)",
+            vec![
+                ("user".into(), user.to_string().into()),
+                ("dt".into(),   doctype.to_string().into()),
+                ("dn".into(),   name.to_string().into()),
+            ],
+        )
+        .await;
+
+    // Fetch comments, versions, tags, shares, assignments via fn::
+    let comments: Vec<Value> = site.db
+        .run(
+            "RETURN fn::get_communications($dt, $dn, NONE)",
+            vec![
+                ("dt".into(), doctype.to_string().into()),
+                ("dn".into(), name.to_string().into()),
+            ],
+        )
+        .await
+        .unwrap_or_default();
+
+    let versions: Vec<Value> = site.db
+        .run(
+            "SELECT name, creation, owner, data FROM tabVersion \
+             WHERE ref_doctype = $dt AND docname = $dn ORDER BY creation DESC LIMIT 20",
+            vec![
+                ("dt".into(), doctype.to_string().into()),
+                ("dn".into(), name.to_string().into()),
+            ],
+        )
+        .await
+        .unwrap_or_default();
+
+    let tags_rows: Vec<Value> = site.db
+        .run(
+            "RETURN fn::get_tags($dt, $dn)",
+            vec![
+                ("dt".into(), doctype.to_string().into()),
+                ("dn".into(), name.to_string().into()),
+            ],
+        )
+        .await
+        .unwrap_or_default();
+    let tags_str = tags_rows.iter()
+        .filter_map(|v| v.get("tag").and_then(Value::as_str))
+        .collect::<Vec<_>>().join(",");
+
+    let shared: Vec<Value> = site.db
+        .run(
+            "RETURN fn::share_get_users($dt, $dn)",
+            vec![
+                ("dt".into(), doctype.to_string().into()),
+                ("dn".into(), name.to_string().into()),
+            ],
+        )
+        .await
+        .unwrap_or_default();
+
+    let assignments: Vec<Value> = site.db
+        .run(
+            "RETURN fn::get_assignments($dt, $dn)",
+            vec![
+                ("dt".into(), doctype.to_string().into()),
+                ("dn".into(), name.to_string().into()),
+            ],
+        )
+        .await
+        .unwrap_or_default();
+
+    let followers: Vec<Value> = site.db
+        .run(
+            "RETURN fn::get_followers($dt, $dn)",
+            vec![
+                ("dt".into(), doctype.to_string().into()),
+                ("dn".into(), name.to_string().into()),
+            ],
+        )
+        .await
+        .unwrap_or_default();
+    let is_followed = followers.iter().any(|f| {
+        f.get("user").and_then(Value::as_str).map(|u| u == user).unwrap_or(false)
+    });
+
     let docinfo = json!({
         "doctype":         doctype,
         "name":            name,
         "attachments":     [],
-        "comments":        [],
+        "comments":        comments,
         "communications":  [],
         "automated_messages": [],
-        "assignments":     [],
-        "shared":          [],
+        "assignments":     assignments,
+        "shared":          shared,
         "views":           [],
         "energy_point_logs": [],
         "additional_timeline_content": [],
         "milestones":      [],
-        "versions":        [],
-        "is_document_followed": false,
-        "tags":            "",
+        "versions":        versions,
+        "is_document_followed": is_followed,
+        "tags":            tags_str,
         "document_email":  null,
         "share_logs":      [],
         "assignment_logs": [],
@@ -697,18 +783,11 @@ async fn handle_reportview_get_count(
     params: HashMap<String, Value>,
 ) -> Result<Value, SpotError> {
     let doctype = require_str(&params, "doctype")?;
-    let table = doctype_to_table(doctype);
     let filters = params.get("filters");
-    let (where_clause, bindings) = build_where(filters);
-    let surql = format!("SELECT count() FROM `{table}`{where_clause} GROUP ALL");
-    let mut q = site.db.query(&surql);
-    for (k, v) in bindings {
-        q = q.bind((k, v));
-    }
-    let mut resp = q.await.map_err(|e| SpotError::Db(e.to_string()))?;
-    let rows: Vec<Value> = resp.take(0).unwrap_or_default();
-    let n = rows.first().and_then(|obj| obj.get("count")).and_then(Value::as_u64).unwrap_or(0);
-    Ok(Value::Number(n.into()))
+    let count = spotledger_db::document::get_count(&site.db, doctype, filters)
+        .await
+        .map_err(SpotError::from)?;
+    Ok(Value::Number(count.into()))
 }
 
 // ── frappe.desk.form.save.savedocs ───────────────────────────────────────────
@@ -1003,7 +1082,7 @@ async fn handle_get_workspace_sidebar_items(
 }
 
 /// Shared helper — queries tabWorkspace and returns pages array.
-pub(crate) async fn query_workspace_pages(db: &Db) -> Value {
+pub(crate) async fn query_workspace_pages(db: &DbAdapter) -> Value {
     let fields = &[
         "name", "title", "label", "public", "icon", "module", "app",
         "type", "parent_page", "for_user", "sequence_id", "is_hidden",
@@ -1034,7 +1113,7 @@ pub(crate) async fn query_workspace_pages(db: &Db) -> Value {
 
 /// Build the `user` boot object expected at `frappe.boot.user` by the Desk JS.
 /// Shape mirrors `frappe.utils.user.UserPermissions.load_user()`.
-async fn build_boot_user(db: &Db, user: &str) -> Value {
+async fn build_boot_user(db: &DbAdapter, user: &str) -> Value {
     // Get all doctypes for can_* permission lists
     let all_doctypes: Vec<String> = match get_list(db, "DocType", Some(&["name"]), None, 5000, 0).await {
         Ok(rows) => rows.into_iter()
@@ -1155,7 +1234,6 @@ async fn handle_get_boot_info(
         "user_type":      &user_type,
         "is_system_user": is_system_user,
         "disable_async":  1,
-        "socketio_port":  null,
         "user_permissions": {},
         "desktop_icons":  [],
         "app_list":       [],
@@ -1484,7 +1562,7 @@ pub(crate) fn chrono_now() -> String {
 
 /// For every Link field in the document, resolve the title if the linked DocType
 /// has `show_title_field_in_link = 1`. Returns `{"LinkedDocType::value": "title", ...}`.
-async fn build_link_titles(db: &Db, doctype: &str, doc: &Document) -> Value {
+async fn build_link_titles(db: &DbAdapter, doctype: &str, doc: &Document) -> Value {
     let filter = json!({"parent": doctype, "parenttype": "DocType", "fieldtype": "Link"});
     let link_fields = match get_list(db, "DocField", Some(&["fieldname", "options"]), Some(&filter), 200, 0).await {
         Ok(rows) => rows,
@@ -1541,7 +1619,7 @@ async fn build_link_titles(db: &Db, doctype: &str, doc: &Document) -> Value {
 }
 
 /// Fetch User records and return Frappe user_info shape.
-pub(crate) async fn build_user_info(db: &Db, users: &[String]) -> Value {
+pub(crate) async fn build_user_info(db: &DbAdapter, users: &[String]) -> Value {
     if users.is_empty() {
         return json!({});
     }
@@ -1578,7 +1656,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Json as AxumJson},
 };
-use spotledger_types::response::ErrorResponse;
+use spotledger_core::response::ErrorResponse;
 
 fn axum_error_type(e: &SpotError) -> &'static str {
     match e {

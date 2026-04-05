@@ -14,9 +14,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
-use spotledger_db::connection::{connect, Db};
+use spotledger_db::connection::connect;
+use spotledger_db::DbAdapter;
 use spotledger_db::document::upsert_doc;
-use spotledger_types::config::SiteConfig;
+use spotledger_core::config::SiteConfig;
 
 use crate::cli::SeedDoctypesArgs;
 
@@ -56,10 +57,10 @@ pub async fn seed_doctypes(args: SeedDoctypesArgs) -> Result<()> {
     Ok(())
 }
 
-/// Inner implementation — takes an already-connected `Db` and the app root directory.
+/// Inner implementation — takes an already-connected `DbAdapter` and the app root directory.
 /// Returns `(seeded_count, error_count)`.
 pub async fn seed_doctypes_for_app(
-    db: &Db,
+    db: &DbAdapter,
     app_root: &Path,
     app_name: &str,
 ) -> Result<(usize, usize)> {
@@ -67,7 +68,7 @@ pub async fn seed_doctypes_for_app(
     // Add fields introduced in newer Frappe versions or missing from the first
     // bootstrap schema pass.  All statements are idempotent (IF NOT EXISTS).
     println!("Applying schema fixups …");
-    db.query(
+    db.execute(
         "DEFINE FIELD IF NOT EXISTS doctype      ON tabDocType TYPE none | string; \
          DEFINE FIELD IF NOT EXISTS quick_entry  ON tabDocType TYPE none | bool | int; \
          DEFINE FIELD IF NOT EXISTS grid_page_length ON tabDocType TYPE none | int; \
@@ -120,6 +121,7 @@ pub async fn seed_doctypes_for_app(
          DEFINE FIELD IF NOT EXISTS doctype ON tabPage      TYPE none | string; \
          DEFINE FIELD IF NOT EXISTS doctype ON tabReport    TYPE none | string; \
          DEFINE FIELD IF NOT EXISTS doctype ON tabWorkspace TYPE none | string;",
+        vec![],
     )
     .await
     .context("Applying schema fixups")?;

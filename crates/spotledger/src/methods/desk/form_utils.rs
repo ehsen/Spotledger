@@ -10,7 +10,7 @@
 use crate::state::SiteState;
 use serde_json::{json, Value};
 use spotledger_db::document::{doctype_to_table, get_list, insert_doc, upsert_doc};
-use spotledger_types::error::SpotError;
+use spotledger_core::error::SpotError;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -101,13 +101,17 @@ pub async fn handle_assign_to_remove(
         let table = doctype_to_table("ToDo");
         let _ = site
             .db
-            .query(format!(
-                "UPDATE `{table}` SET status = 'Cancelled' \
-                 WHERE reference_type = $dt AND reference_name = $n AND allocated_to = $u"
-            ))
-            .bind(("dt", doctype.clone()))
-            .bind(("n", name.clone()))
-            .bind(("u", assign_to))
+            .execute(
+                &format!(
+                    "UPDATE `{table}` SET status = 'Cancelled' \
+                     WHERE reference_type = $dt AND reference_name = $n AND allocated_to = $u"
+                ),
+                vec![
+                    ("dt".into(), doctype.clone().into()),
+                    ("n".into(),  name.clone().into()),
+                    ("u".into(),  assign_to.into()),
+                ],
+            )
             .await;
     }
 
@@ -148,13 +152,17 @@ pub async fn handle_assign_to_close(
         let table = doctype_to_table("ToDo");
         let _ = site
             .db
-            .query(format!(
-                "UPDATE `{table}` SET status = 'Closed' \
-                 WHERE reference_type = $dt AND reference_name = $n AND allocated_to = $u"
-            ))
-            .bind(("dt", doctype.clone()))
-            .bind(("n", name.clone()))
-            .bind(("u", assign_to))
+            .execute(
+                &format!(
+                    "UPDATE `{table}` SET status = 'Closed' \
+                     WHERE reference_type = $dt AND reference_name = $n AND allocated_to = $u"
+                ),
+                vec![
+                    ("dt".into(), doctype.clone().into()),
+                    ("n".into(),  name.clone().into()),
+                    ("u".into(),  assign_to.into()),
+                ],
+            )
             .await;
     }
 
@@ -296,14 +304,12 @@ pub async fn handle_get_next(
     let surql = format!(
         "SELECT name FROM `{table}` WHERE name {operator} $name ORDER BY name {order} LIMIT 1"
     );
-    let mut resp = site
+    let rows = site
         .db
-        .query(&surql)
-        .bind(("name", name))
+        .run(&surql, vec![("name".into(), name.into())])
         .await
-        .map_err(|e| SpotError::Db(e.to_string()))?;
+        .map_err(SpotError::from)?;
 
-    let rows: Vec<Value> = resp.take(0).unwrap_or_default();
     let next_name = rows
         .first()
         .and_then(|r| r.get("name"))
@@ -317,7 +323,7 @@ pub async fn handle_get_next(
 // Returns all documents that link to this document (for the LinkedWith panel).
 // Python: complex cross-table search; we return a simplified version.
 pub async fn handle_linked_with_get(
-    site: Arc<SiteState>,
+    _site: Arc<SiteState>,
     params: HashMap<String, Value>,
 ) -> Result<Value, SpotError> {
     let doctype = params
@@ -412,12 +418,16 @@ pub async fn handle_unfollow_document(
         let table = doctype_to_table("Document Follow");
         let _ = site
             .db
-            .query(format!(
-                "DELETE `{table}` WHERE user = $user AND ref_doctype = $dt AND ref_docname = $n"
-            ))
-            .bind(("user", user.to_owned()))
-            .bind(("dt", doctype))
-            .bind(("n", docname))
+            .execute(
+                &format!(
+                    "DELETE `{table}` WHERE user = $user AND ref_doctype = $dt AND ref_docname = $n"
+                ),
+                vec![
+                    ("user".into(), user.to_owned().into()),
+                    ("dt".into(),   doctype.into()),
+                    ("n".into(),    docname.into()),
+                ],
+            )
             .await;
     }
 
@@ -503,8 +513,10 @@ pub async fn handle_remove_attach(
         let table = doctype_to_table("File");
         let _ = site
             .db
-            .query(format!("DELETE `{table}` WHERE name = $name"))
-            .bind(("name", fid))
+            .execute(
+                &format!("DELETE `{table}` WHERE name = $name"),
+                vec![("name".into(), fid.into())],
+            )
             .await;
     }
     Ok(Value::Null)

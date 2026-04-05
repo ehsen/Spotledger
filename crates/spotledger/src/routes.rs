@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use spotledger_db::document::{get_doc, get_list, get_value};
 use spotledger_db::permissions::has_permission;
-use spotledger_types::response::{DocResponse, ErrorResponse, ListResponse, MethodResponse};
+use spotledger_core::response::{DocResponse, ErrorResponse, ListResponse, MethodResponse};
 
 use crate::methods::parse_form_params;
 use crate::middleware::CurrentUser;
@@ -71,7 +71,7 @@ pub async fn resource_get(
                 .into_response()
         }
         Err(e) => {
-            let spot_err: spotledger_types::error::SpotError = e.into();
+            let spot_err: spotledger_core::error::SpotError = e.into();
             let status =
                 StatusCode::from_u16(spot_err.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             let body = ErrorResponse::new(error_type(&spot_err), spot_err.to_string());
@@ -166,7 +166,7 @@ pub async fn resource_list(
                 .into_response()
         }
         Err(e) => {
-            let spot_err: spotledger_types::error::SpotError = e.into();
+            let spot_err: spotledger_core::error::SpotError = e.into();
             let status =
                 StatusCode::from_u16(spot_err.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             let body = ErrorResponse::new(error_type(&spot_err), spot_err.to_string());
@@ -202,7 +202,7 @@ pub async fn resource_get_value(
         Ok(Some(val)) => (StatusCode::OK, Json(json!({"message": val}))).into_response(),
         Ok(None) => (StatusCode::OK, Json(json!({"message": null}))).into_response(),
         Err(e) => {
-            let spot_err: spotledger_types::error::SpotError = e.into();
+            let spot_err: spotledger_core::error::SpotError = e.into();
             let status =
                 StatusCode::from_u16(spot_err.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             let body = ErrorResponse::new(error_type(&spot_err), spot_err.to_string());
@@ -311,11 +311,11 @@ pub async fn call_method(
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-fn error_type(e: &spotledger_types::error::SpotError) -> &'static str {
+fn error_type(e: &spotledger_core::error::SpotError) -> &'static str {
     match e {
-        spotledger_types::error::SpotError::NotFound { .. } => "DoesNotExistError",
-        spotledger_types::error::SpotError::PermissionDenied(_) => "PermissionError",
-        spotledger_types::error::SpotError::Validation(_) => "ValidationError",
+        spotledger_core::error::SpotError::NotFound { .. } => "DoesNotExistError",
+        spotledger_core::error::SpotError::PermissionDenied(_) => "PermissionError",
+        spotledger_core::error::SpotError::Validation(_) => "ValidationError",
         _ => "InternalError",
     }
 }

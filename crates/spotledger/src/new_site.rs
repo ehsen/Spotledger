@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anyhow::{bail, Context};
 use spotledger_db::connection::connect;
 use spotledger_db::auth::set_user_password;
-use spotledger_types::config::{AppsConfig, CacheConfig, DatabaseConfig, SiteConfig, SiteInfo};
+use spotledger_core::config::{AppsConfig, CacheConfig, DatabaseConfig, SiteConfig, SiteInfo};
 
 use crate::cli::NewSiteArgs;
 
@@ -86,7 +86,7 @@ pub async fn new_site(args: NewSiteArgs) -> anyhow::Result<()> {
 
     println!("Connected. Running bootstrap schema …");
 
-    db.query(&surql)
+    db.execute(&surql, vec![])
         .await
         .context("Executing framework_surrealdb.surql")?;
 

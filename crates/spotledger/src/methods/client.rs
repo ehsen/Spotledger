@@ -6,16 +6,16 @@ use crate::state::SiteState;
 use serde_json::Value;
 use spotledger_db::child_table::{extract_child_tables, save_children};
 use spotledger_db::document::{
-    cancel_doc, delete_doc, get_doc, get_list, get_value, insert_doc, set_field, submit_doc,
-    upsert_doc,
+    cancel_doc, delete_doc, get_count, get_doc, get_list, get_value, insert_doc, set_field,
+    submit_doc, upsert_doc,
 };
 use spotledger_db::hooks::{
     run_after_save_hooks, run_before_cancel_hooks, run_before_submit_hooks, run_on_cancel_hooks,
     run_on_submit_hooks, run_save_hooks,
 };
 use spotledger_db::naming::resolve_name;
-use spotledger_types::document::Document;
-use spotledger_types::error::SpotError;
+use spotledger_core::document::Document;
+use spotledger_core::error::SpotError;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -108,24 +108,15 @@ async fn handle_get_value(
     Ok(val.unwrap_or(Value::Null))
 }
 
-// ── frappe.client.get_count ───────────────────────────────────────────────────
+// -- frappe.client.get_count -------------------------------------------------
 
 async fn handle_get_count(
     site: Arc<SiteState>,
     params: HashMap<String, Value>,
 ) -> Result<Value, SpotError> {
     let doctype = require_str(&params, "doctype")?;
-    let table = spotledger_db::document::doctype_to_table(doctype);
     let filters = params.get("filters");
-    let (where_clause, bindings) = spotledger_db::document::build_where(filters);
-    let surql = format!("SELECT count() FROM `{table}`{where_clause} GROUP ALL");
-    let mut q = site.db.query(&surql);
-    for (k, v) in bindings {
-        q = q.bind((k, v));
-    }
-    let mut resp = q.await.map_err(|e| SpotError::Db(e.to_string()))?;
-    let rows: Vec<Value> = resp.take(0).unwrap_or_default();
-    let n = rows.first().and_then(|obj| obj.get("count")).and_then(Value::as_u64).unwrap_or(0);
+    let n = get_count(&site.db, doctype, filters).await.map_err(SpotError::from)?;
     Ok(Value::Number(n.into()))
 }
 
@@ -154,6 +145,7 @@ async fn handle_save(
         .to_owned();
 
     let is_new = raw_name.is_empty();
+    let user = params.get("__current_user").and_then(Value::as_str).unwrap_or("Administrator").to_owned();
 
     // Resolve name for new docs via naming series
     let name = if is_new {
@@ -176,6 +168,16 @@ async fn handle_save(
 
     // Run before-save hooks
     let doc = run_save_hooks(&site.hook_registry, doc, is_new).await?;
+
+    // Snapshot old doc before write (for version diff on updates)
+    let old_doc_snap: Option<Value> = if !is_new {
+        spotledger_db::document::get_doc(&site.db, &doctype, &name)
+            .await
+            .ok()
+            .map(|d| d.as_dict())
+    } else {
+        None
+    };
 
     // DB write
     let mut fields_val = doc.as_dict();
@@ -203,6 +205,38 @@ async fn handle_save(
 
     // Invalidate cache
     site.doc_cache.remove(&(doctype.clone(), name.clone())).await;
+
+    // B6: create version snapshot on update, log activity for both paths
+    let action = if is_new { "created" } else { "saved" };
+    let new_snap = saved.as_dict();
+    if !is_new {
+        if let Some(old) = old_doc_snap {
+            let _ = site.db
+                .execute(
+                    "RETURN fn::create_version($user, $dt, $dn, $old, $new)",
+                    vec![
+                        ("user".into(), user.clone().into()),
+                        ("dt".into(),   doctype.clone().into()),
+                        ("dn".into(),   name.clone().into()),
+                        ("old".into(),  old),
+                        ("new".into(),  new_snap),
+                    ],
+                )
+                .await;
+        }
+    }
+    let _ = site.db
+        .execute(
+            "RETURN fn::log_activity($user, $dt, $dn, $action, $data)",
+            vec![
+                ("user".into(),   user.clone().into()),
+                ("dt".into(),     doctype.clone().into()),
+                ("dn".into(),     name.clone().into()),
+                ("action".into(), action.into()),
+                ("data".into(),   Value::Null),
+            ],
+        )
+        .await;
 
     // Run after-save hooks
     let saved = run_after_save_hooks(&site.hook_registry, saved, is_new).await?;
@@ -261,6 +295,21 @@ async fn handle_insert(
     }
 
     site.doc_cache.remove(&(doctype.clone(), name.clone())).await;
+
+    // B6: log activity for insert path
+    let user = params.get("__current_user").and_then(Value::as_str).unwrap_or("Administrator").to_owned();
+    let _ = site.db
+        .execute(
+            "RETURN fn::log_activity($user, $dt, $dn, $action, $data)",
+            vec![
+                ("user".into(),   user.into()),
+                ("dt".into(),     doctype.clone().into()),
+                ("dn".into(),     name.clone().into()),
+                ("action".into(), "created".into()),
+                ("data".into(),   Value::Null),
+            ],
+        )
+        .await;
 
     let inserted = run_after_save_hooks(&site.hook_registry, inserted, true).await?;
     Ok(inserted.as_dict())

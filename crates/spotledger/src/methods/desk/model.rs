@@ -10,7 +10,7 @@
 use crate::state::SiteState;
 use serde_json::{json, Value};
 use spotledger_db::document::{get_doc, get_list, upsert_doc};
-use spotledger_types::error::SpotError;
+use spotledger_core::error::SpotError;
 use std::collections::HashMap;
 use std::sync::Arc;
 
