@@ -1,0 +1,20 @@
+[package]
+name        = "spotledger-core"
+description = "SpotledgerCore kernel — DocType trait, Document model, registry, typed schema, utils"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+
+[dependencies]
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+toml        = { workspace = true }
+thiserror   = { workspace = true }
+indexmap    = { workspace = true }
+async-trait = { workspace = true }
+chrono      = { workspace = true }
+inventory   = { workspace = true }
+dashmap     = { workspace = true }
+tracing     = { workspace = true }
