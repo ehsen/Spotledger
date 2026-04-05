@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use spotledger_db::document::{get_doc, get_list, get_value};
-use spotledger_db::permissions::has_permission;
+use spotledger_db::permissions::{has_permission, PermissionType};
 use spotledger_core::response::{DocResponse, ErrorResponse, ListResponse, MethodResponse};
 
 use crate::methods::parse_form_params;
@@ -38,7 +38,7 @@ pub async fn resource_get(
     Path((doctype, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
     // Permission check: require "read"
-    match has_permission(&site.db, current_user.name(), &doctype, "read").await {
+    match has_permission(&site.db, current_user.name(), &doctype, PermissionType::Read).await {
         Ok(true) => {}
         Ok(false) => {
             let body = ErrorResponse::new(
@@ -103,7 +103,7 @@ pub async fn resource_list(
     Query(params): Query<ListParams>,
 ) -> impl IntoResponse {
     // Permission check: require "read"
-    match has_permission(&site.db, current_user.name(), &doctype, "read").await {
+    match has_permission(&site.db, current_user.name(), &doctype, PermissionType::Read).await {
         Ok(true) => {}
         Ok(false) => {
             let body = ErrorResponse::new(
@@ -183,7 +183,7 @@ pub async fn resource_get_value(
     Path((doctype, name, fieldname)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
     // Permission check: require "read"
-    match has_permission(&site.db, current_user.name(), &doctype, "read").await {
+    match has_permission(&site.db, current_user.name(), &doctype, PermissionType::Read).await {
         Ok(true) => {}
         Ok(false) => {
             let body = ErrorResponse::new(
