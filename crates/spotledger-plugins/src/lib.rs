@@ -7,11 +7,20 @@
 //! crate.  The GL engine host function is routed through `spotledger-accounting`.
 //!
 //! ## Plugin lifecycle
-//! 1. Host calls `sl_plugin_init()` → plugin registers its DocTypes
-//! 2. Plugin calls `sl_register_doctype(meta_ptr, meta_len)` for each DocType
-//! 3. Plugin returns DocType metadata (DocTypeMeta serialised as MsgPack)
-//! 4. Host stores meta and exposes DocTypes via REST API
-//! 5. On document events, host calls plugin's exported handlers
-//! 6. Plugin calls `sl_make_gl_entries()` for accounting entries
+//! 1. Host calls `PluginRegistry::load_all()` → discovers .wasm files
+//! 2. Host calls `PluginRegistry::plugin_init(id)` → plugin exports sl_plugin_init()
+//! 3. Plugin calls host functions: sl_register_doctype, sl_make_gl_entries, etc.
+//! 4. On document events, host calls plugin's exported handlers
+//! 5. Plugin can call accounting engine via sl_make_gl_entries()
 
+pub mod abi;
+pub mod abi_accounting;
+pub mod context;
+pub mod extension;
 pub mod registry;
+pub mod versioning;
+
+pub use context::{PluginExecutionContext, set_execution_context, get_execution_context, clear_execution_context};
+pub use extension::ExtensionRegistry;
+pub use registry::{PluginId, PluginInfo, PluginRegistry};
+pub use versioning::{PluginManifest, VersioningResolver};

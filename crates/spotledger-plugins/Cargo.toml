@@ -14,5 +14,6 @@ serde                  = { workspace = true }
 serde_json             = { workspace = true }
 tracing                = { workspace = true }
 dashmap                = { workspace = true }
-# extism for WASM host — uncomment when Phase 2 begins
-# extism = "1"
+extism                 = "1.0"
+tokio                  = { workspace = true, features = ["fs", "io-util"] }
+anyhow                 = { workspace = true }
