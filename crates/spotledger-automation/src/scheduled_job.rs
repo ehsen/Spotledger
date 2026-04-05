@@ -1,0 +1,1 @@
+//! Scheduled Job DocType stub.

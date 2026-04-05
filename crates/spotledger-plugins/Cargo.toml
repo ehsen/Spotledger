@@ -1,0 +1,18 @@
+[package]
+name        = "spotledger-plugins"
+description = "SpotledgerCore — WASM plugin host (Tier 4 domain apps)"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+
+[dependencies]
+spotledger-core        = { workspace = true }
+spotledger-accounting  = { workspace = true }
+serde                  = { workspace = true }
+serde_json             = { workspace = true }
+tracing                = { workspace = true }
+dashmap                = { workspace = true }
+# extism for WASM host — uncomment when Phase 2 begins
+# extism = "1"

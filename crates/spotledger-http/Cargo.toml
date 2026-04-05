@@ -1,0 +1,23 @@
+[package]
+name        = "spotledger-http"
+description = "SpotledgerCore — Axum HTTP layer (router, middleware, method handlers, AppState)"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+
+[dependencies]
+spotledger-core        = { workspace = true }
+spotledger-db          = { workspace = true }
+spotledger-plugins     = { workspace = true }
+axum                   = { workspace = true }
+tokio                  = { workspace = true }
+tower                  = { workspace = true }
+tower-http             = { workspace = true }
+serde                  = { workspace = true }
+serde_json             = { workspace = true }
+tracing                = { workspace = true }
+dashmap                = { workspace = true }
+moka                   = { workspace = true }
+anyhow                 = { workspace = true }

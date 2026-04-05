@@ -1,0 +1,1 @@
+//! Webhook DocType stub.

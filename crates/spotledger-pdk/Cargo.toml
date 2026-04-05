@@ -1,0 +1,19 @@
+[package]
+name        = "spotledger-pdk"
+description = "SpotledgerCore — Plugin Developer Kit (guest-side WASM helpers)"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+
+# Guest crates compile to wasm32-wasip1 — do not add to workspace members
+# until a separate cargo config sets the target.
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+spotledger-core = { workspace = true }
+serde           = { workspace = true }
+serde_json      = { workspace = true }
