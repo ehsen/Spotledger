@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use anyhow::{bail, Context};
 use spotledger_db::connection::connect;
 use spotledger_db::auth::set_user_password;
+use spotledger_db::schema::ensure_all_schemas;
 use spotledger_core::config::{AppsConfig, CacheConfig, DatabaseConfig, SiteConfig, SiteInfo};
 
 use crate::cli::NewSiteArgs;
@@ -96,6 +97,13 @@ pub async fn new_site(args: NewSiteArgs) -> anyhow::Result<()> {
     set_user_password(&db, "Administrator", &args.admin_password)
         .await
         .context("Seeding Administrator password in __Auth")?;
+
+    // ── 7. Sync compiled DocType schemas ─────────────────────────────────────
+    println!("Syncing compiled DocType schemas …");
+    ensure_all_schemas(&db)
+        .await
+        .context("Running ensure_all_schemas")?;
+    println!("Schema sync complete.");
 
     println!("Site '{}' created successfully.", args.hostname);
     println!(
