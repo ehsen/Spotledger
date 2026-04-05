@@ -1,0 +1,2937 @@
+The whole thing is now nicely implemented. now shouldnt I implement the frappe project structure too, or rust has bit differnet norms, frappe project structure is bit clear,7:09 AMGreat question. Rust has its own norms and they're actually cleaner than Frappe's once you understand them. Let me compare directly:
+Frappe's Project Structure
+frappe-bench/
+├── apps/
+│   ├── frappe/              # framework
+│   │   └── frappe/
+│   │       ├── __init__.py
+│   │       ├── model/
+│   │       ├── desk/
+│   │       └── public/
+│   │
+│   └── erpnext/             # your app
+│       └── erpnext/
+│           ├── hooks.py         # app config
+│           ├── selling/         # module
+│           │   ├── __init__.py
+│           │   └── doctype/
+│           │       └── sales_order/
+│           │           ├── sales_order.py      # controller
+│           │           ├── sales_order.json    # schema
+│           │           ├── sales_order.js      # form controller
+│           │           └── test_sales_order.py
+│           └── buying/
+│               └── doctype/
+│                   └── purchase_order/
+The pain points:
+
+Every DocType is its own directory with 4+ files
+Schema is JSON, logic is Python, form is JS — split across files
+hooks.py is a catch-all config dump
+Module discovery is implicit via filesystem scanning
+
+
+Rust's Natural Structure
+Rust uses crates as the unit of reuse, not directory conventions. The workspace is the equivalent of frappe-bench.
+spotledger/                      # workspace root (= frappe-bench)
+├── Cargo.toml                   # workspace manifest
+├── Cargo.lock
+│
+├── crates/                      # framework layer (you don't touch this daily)
+│   ├── frappe-core/
+│   ├── frappe-db/
+│   ├── frappe-macros/
+│   └── frappe-http/
+│
+└── apps/                        # your actual apps (= frappe apps)
+    ├── spotledger-core/         # shared types across your apps
+    │   ├── Cargo.toml
+    │   └── src/
+    │       └── lib.rs
+    │
+    └── spotledger/              # main app (= erpnext)
+        ├── Cargo.toml
+        ├── src/
+        │   ├── main.rs          # startup, HTTP server
+        │   │
+        │   ├── selling/         # module (same as Frappe module)
+        │   │   ├── mod.rs
+        │   │   ├── sales_order.rs
+        │   │   ├── quotation.rs
+        │   │   └── sales_order_item.rs
+        │   │
+        │   ├── buying/
+        │   │   ├── mod.rs
+        │   │   ├── purchase_order.rs
+        │   │   └── purchase_order_item.rs
+        │   │
+        │   ├── stock/
+        │   │   ├── mod.rs
+        │   │   ├── stock_entry.rs
+        │   │   └── delivery_note.rs
+        │   │
+        │   ├── accounts/
+        │   │   ├── mod.rs
+        │   │   ├── sales_invoice.rs
+        │   │   └── payment_entry.rs
+        │   │
+        │   └── setup/
+        │       ├── mod.rs
+        │       ├── customer.rs
+        │       ├── supplier.rs
+        │       └── item.rs
+        │
+        └── tests/
+            ├── selling/
+            │   └── sales_order.rs
+            └── accounts/
+                └── sales_invoice.rs
+
+The Key Difference — One File Per DocType
+In Frappe, sales_order/ is a directory with 4 files. In Rust, it's one file. Everything lives together:
+rust// src/selling/sales_order.rs
+// Schema + Logic + Tests — all in one file
+// This is idiomatic Rust, not a compromise
+
+use frappe_core::{DocType, Document, impl_document};
+
+// ── Schema ────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct SalesOrder {
+    #[serde(flatten)]
+    pub doc: Document,
+
+    pub customer:    String,
+    pub grand_total: Decimal,
+
+    #[serde(default)]
+    pub items: Vec<SalesOrderItem>,
+}
+
+impl_document!(SalesOrder);
+
+// ── Hooks ─────────────────────────────────────────────────────────────────────
+
+#[async_trait]
+impl DocType for SalesOrder {
+    fn doctype_name() -> &'static str { "Sales Order" }
+    fn doc(&self)         -> &Document     { &self.doc }
+    fn doc_mut(&mut self) -> &mut Document { &mut self.doc }
+
+    async fn validate(&self) -> Result<()> {
+        ensure!(!self.items.is_empty(), "Items required");
+        Ok(())
+    }
+
+    async fn before_save(&mut self) -> Result<()> {
+        self.grand_total = self.items.iter().map(|i| i.amount).sum();
+        Ok(())
+    }
+}
+
+// ── API Methods ───────────────────────────────────────────────────────────────
+// Equivalent to frappe whitelisted methods
+
+pub async fn make_delivery_note(source_name: &str) -> Result<DeliveryNote> {
+    let so: SalesOrder = frappe::get_doc_typed(source_name).await?;
+    // ... mapping logic
+}
+
+// ── Registration ──────────────────────────────────────────────────────────────
+
+inventory::submit!(DocTypeEntry {
+    name:    "Sales Order",
+    factory: |doc| Box::new(
+        serde_json::from_value::<SalesOrder>(doc.to_value().unwrap()).unwrap_or_default()
+    ),
+});
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+// Idiomatic Rust — tests live IN the same file
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn validate_rejects_empty_items() {
+        let order = SalesOrder { customer: "CUST-001".into(), ..Default::default() };
+        assert!(order.validate().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn totals_calculated_on_save() {
+        let mut order = SalesOrder {
+            customer: "CUST-001".into(),
+            items: vec![
+                SalesOrderItem { qty: dec!(5), rate: dec!(100), ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        order.before_save().await.unwrap();
+        assert_eq!(order.grand_total, dec!(500));
+    }
+}
+
+The mod.rs — Module Registration
+Frappe uses hooks.py to wire things up. Rust uses mod.rs:
+rust// src/selling/mod.rs
+
+mod sales_order;
+mod sales_order_item;
+mod quotation;
+mod quotation_item;
+
+// Re-export the types app code needs
+pub use sales_order::SalesOrder;
+pub use sales_order_item::SalesOrderItem;
+pub use quotation::Quotation;
+
+// Frappe equivalent of hooks.py — but per module, not global
+pub fn register_api_routes(router: axum::Router) -> axum::Router {
+    router
+        .route("/api/method/make_delivery_note", post(sales_order::make_delivery_note))
+        .route("/api/method/make_sales_invoice", post(sales_order::make_sales_invoice))
+}
+
+main.rs — The hooks.py Equivalent
+rust// src/main.rs
+
+mod selling;
+mod buying;
+mod stock;
+mod accounts;
+mod setup;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // Init framework
+    frappe_core::init("ws://localhost:8000").await?;
+
+    // Build routes — each module registers its own
+    let app = axum::Router::new()
+        .merge(frappe_http::resource_routes())   // /api/resource/:doctype/:name
+        .merge(frappe_http::method_routes())     // /api/method/:path
+        |> selling::register_api_routes          // app-specific methods
+        |> buying::register_api_routes
+        |> accounts::register_api_routes;
+
+    axum::serve(
+        tokio::net::TcpListener::bind("0.0.0.0:8000").await?,
+        app,
+    ).await?;
+
+    Ok(())
+}
+
+Workspace Cargo.toml — The apps.txt Equivalent
+toml# Cargo.toml (workspace root)
+[workspace]
+resolver = "2"
+members  = [
+    "crates/frappe-core",
+    "crates/frappe-db",
+    "crates/frappe-macros",
+    "crates/frappe-http",
+    "apps/spotledger",
+]
+
+# Shared dependency versions — define once, use everywhere
+[workspace.dependencies]
+tokio        = { version = "1",   features = ["full"] }
+serde        = { version = "1",   features = ["derive"] }
+serde_json   = "1"
+async-trait  = "0.1"
+axum         = "0.7"
+thiserror    = "1"
+anyhow       = "1"
+tracing      = "0.1"
+chrono       = { version = "0.4", features = ["serde"] }
+rust_decimal = { version = "1",   features = ["serde-with-str"] }
+inventory    = "0.3"
+dashmap      = "5"
+surrealdb    = "2"
+Each crate's Cargo.toml then just does:
+toml[dependencies]
+tokio      = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+frappe-core = { path = "../../crates/frappe-core" }
+
+Side-by-Side Comparison
+Frappe                          Rust equivalent
+──────────────────────────────  ──────────────────────────────
+frappe-bench/                   workspace Cargo.toml
+apps/erpnext/                   apps/spotledger/
+erpnext/hooks.py                main.rs + module mod.rs files
+erpnext/selling/                src/selling/
+doctype/sales_order/            src/selling/sales_order.rs (1 file)
+sales_order.json                struct SalesOrder fields
+sales_order.py                  impl DocType for SalesOrder
+test_sales_order.py             #[cfg(test)] mod tests at bottom of file
+sales_order.js                  (frontend — separate repo or axum static)
+__init__.py                     mod.rs
+
+The Actual Win
+Frappe's sales_order/ directory has 4 files because Python can't co-locate schema, logic, and tests. Rust can. One file is not a compromise — it's better. When you change grand_total, the struct definition, the hook that calculates it, and the test that verifies it are all in the same file. No jumping between files.
+The structure mirrors Frappe's mental model exactly — modules, doctypes, API methods — just without the filesystem ceremony.//! Desk API method handlers.
+//!
+//! Organised into sub-modules by domain area. This file contains the core
+//! form/document/boot handlers and wires everything into the method registry.
+
+pub mod form_utils;
+pub mod listview;
+pub mod model;
+pub mod notifications;
+pub mod search;
+pub mod spastedBut my mod now looks like this, its huge.7:12 AMYeah that's the classic "one file did everything and grew to 800 lines" problem. The file has at least 6 distinct responsibilities jammed together.
+What's Actually in This File Right Now
+desk.rs (800+ lines)
+  ├── Method registration (register_desk_methods)  ~150 lines
+  ├── DocType loading (getdoctype, append_children)  ~80 lines
+  ├── Document loading (getdoc, get_docinfo)        ~120 lines
+  ├── Save/Cancel logic (savedocs, form_cancel)     ~180 lines
+  ├── Workspace/Sidebar/Boot                        ~200 lines
+  └── Helpers (build_user_info, build_link_titles)  ~80 lines
+Every one of those should be its own file.
+
+The Clean Split
+desk/
+  mod.rs              ← ONLY registration, re-exports, shared helpers
+  doctype_load.rs     ← getdoctype, append_doctype_children
+  doc_load.rs         ← getdoc, get_docinfo, get_communications
+  doc_save.rs         ← savedocs, handle_form_cancel, autoname logic
+  workspace.rs        ← sidebar, desktop, boot, workspaces
+  axum_handlers.rs    ← getdoctype_handler, getdoc_handler, getpage_handler
+  helpers.rs          ← build_user_info, build_link_titles, require_str, chrono_now
+
+mod.rs — Registration Only
+rust// desk/mod.rs
+
+pub mod doctype_load;
+pub mod doc_load;
+pub mod doc_save;
+pub mod workspace;
+pub mod axum_handlers;
+pub mod helpers;
+
+// Sub-modules that already exist
+pub mod form_utils;
+pub mod listview;
+pub mod model;
+pub mod notifications;
+pub mod search;
+pub mod stubs;
+
+use super::{BoxFuture, MethodRegistry};
+use crate::state::SiteState;
+use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+// Convenience re-export for axum_handlers
+pub use axum_handlers::{getdoc_handler, getdoctype_handler, getpage_handler};
+
+pub fn register_desk_methods(registry: &Arc<MethodRegistry>) {
+    macro_rules! reg {
+        ($path:expr, $mod:ident :: $fn:ident) => {
+            registry.register(
+                $path,
+                Arc::new(|site: Arc<SiteState>, params: HashMap<String, Value>| -> BoxFuture {
+                    Box::pin(async move { $mod::$fn(site, params).await })
+                }),
+            );
+        };
+    }
+
+    // ── DocType / Doc load ────────────────────────────────────────────────
+    reg!("frappe.desk.form.load.getdoctype",  doctype_load::handle_getdoctype);
+    reg!("frappe.desk.form.load.getdoc",      doc_load::handle_getdoc);
+    reg!("frappe.desk.form.load.get_docinfo", doc_load::handle_get_docinfo);
+    reg!("frappe.desk.form.load.get_communications", doc_load::handle_get_communications);
+    reg!("frappe.desk.form.load.get_user_info_for_viewers",
+         form_utils::handle_get_user_info_for_viewers);
+
+    // ── Save / Cancel ─────────────────────────────────────────────────────
+    reg!("frappe.desk.form.save.savedocs",   doc_save::handle_savedocs);
+    reg!("savedocs",                          doc_save::handle_savedocs);
+    reg!("frappe.desk.form.save.cancel",      doc_save::handle_form_cancel);
+    reg!("frappe.desk.form.save.discard",     stubs::handle_noop_ok);
+
+    // ── Workspace / Boot ──────────────────────────────────────────────────
+    reg!("frappe.desk.desk.get_desk_sidebar_items",         workspace::handle_get_sidebar_items);
+    reg!("frappe.desk.desktop.get_workspace_sidebar_items", workspace::handle_get_workspace_sidebar_items);
+    reg!("frappe.desk.desktop.get_desktop_page",            workspace::handle_get_desktop_page);
+    reg!("frappe.desk.desktop.get_desktop_page_data",       workspace::handle_get_desktop_page);
+    reg!("frappe.desk.desktop.get_installed_apps",          workspace::handle_get_installed_apps);
+    reg!("frappe.desk.desktop.update_onboarding_step",      stubs::handle_update_onboarding_step);
+    reg!("frappe.desk.desk_page.getpage",                   workspace::handle_get_desk_page);
+    reg!("frappe.desk.doctype.workspace.workspace.get_workspaces", workspace::handle_get_workspaces);
+    reg!("frappe.desk.doctype.workspace.workspace.new_page",       stubs::handle_noop_ok);
+    reg!("frappe.desk.doctype.workspace.workspace.save_page",      stubs::handle_noop_ok);
+    reg!("frappe.utils.boot.get_boot_info",                 workspace::handle_get_boot_info);
+
+    // ── Form utils ────────────────────────────────────────────────────────
+    reg!("frappe.desk.form.utils.add_comment",              form_utils::handle_add_comment);
+    reg!("frappe.desk.form.utils.update_comment",           form_utils::handle_update_comment);
+    reg!("frappe.desk.form.utils.get_next",                 form_utils::handle_get_next);
+    reg!("frappe.desk.form.utils.remove_attach",            form_utils::handle_remove_attach);
+
+    // ... rest of registrations unchanged, each pointing to correct module
+}
+The reg! macro now only has one form — $mod::$fn. The special case for same-file handlers is gone because every handler lives in a module.
+
+helpers.rs — Shared Utilities
+rust// desk/helpers.rs
+
+use serde_json::Value;
+use std::collections::HashMap;
+use crate::state::SiteState;
+use spotledger_db::{DbAdapter, document::{get_doc, get_list, get_value}};
+use spotledger_types::{document::Document, error::SpotError};
+use std::sync::Arc;
+
+pub fn require_str<'a>(
+    params: &'a HashMap<String, Value>,
+    key: &str,
+) -> Result<&'a str, SpotError> {
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| SpotError::Validation(format!("'{key}' is required")))
+}
+
+pub fn chrono_now() -> String {
+    chrono::Utc::now().format("%Y-%m-%d").to_string()
+}
+
+/// Resolve Link field titles for _link_titles in getdoc response.
+pub async fn build_link_titles(db: &DbAdapter, doctype: &str, doc: &Document) -> Value {
+    let filter = serde_json::json!({
+        "parent": doctype,
+        "parenttype": "DocType",
+        "fieldtype": "Link"
+    });
+    let link_fields = match get_list(db, "DocField", Some(&["fieldname", "options"]), Some(&filter), 200, 0).await {
+        Ok(r) => r,
+        Err(_) => return serde_json::json!({}),
+    };
+
+    let mut titles = serde_json::Map::new();
+
+    for field_row in &link_fields {
+        let Some(fieldname) = field_row.get("fieldname").and_then(Value::as_str) else { continue };
+        let Some(linked_dt) = field_row.get("options").and_then(Value::as_str) else { continue };
+        let Some(val) = doc.get_str(fieldname).filter(|s| !s.is_empty()) else { continue };
+
+        let Ok(dt_doc) = get_doc(db, "DocType", linked_dt).await else { continue };
+
+        let show = dt_doc.get_value("show_title_field_in_link")
+            .map(|v| match v {
+                Value::Bool(b) => b,
+                Value::Number(n) => n.as_i64().unwrap_or(0) != 0,
+                _ => false,
+            })
+            .unwrap_or(false);
+
+        if !show { continue; }
+
+        let Some(title_field) = dt_doc.get_str("title_field").filter(|s| !s.is_empty()) else { continue };
+
+        if let Ok(Some(title)) = get_value(db, linked_dt, val, title_field).await {
+            let title_str = match &title {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            titles.insert(format!("{linked_dt}::{val}"), Value::String(title_str));
+        }
+    }
+
+    Value::Object(titles)
+}
+
+/// Fetch User docs and return frappe user_info shape.
+pub async fn build_user_info(db: &DbAdapter, users: &[String]) -> Value {
+    if users.is_empty() { return serde_json::json!({}); }
+
+    let mut map = serde_json::Map::new();
+    for username in users {
+        if username.is_empty() { continue; }
+        let Ok(user_doc) = get_doc(db, "User", username).await else { continue };
+        map.insert(username.clone(), serde_json::json!({
+            "fullname":  user_doc.get_str("full_name").unwrap_or(username),
+            "image":     user_doc.get_str("user_image").unwrap_or(""),
+            "name":      username,
+            "email":     user_doc.get_str("email").unwrap_or(""),
+            "time_zone": user_doc.get_str("time_zone").unwrap_or(""),
+        }));
+    }
+    Value::Object(map)
+}
+Notice build_link_titles also got cleaned up — the nested if let ladder replaced with let Some(...) else { continue } which reads top to bottom with no nesting.
+
+doctype_load.rs
+rust// desk/doctype_load.rs
+
+use serde_json::{json, Value};
+use spotledger_db::{DbAdapter, document::{get_doc, get_list}};
+use spotledger_types::error::SpotError;
+use crate::state::SiteState;
+use super::helpers::require_str;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+pub async fn handle_getdoctype(
+    site: Arc<SiteState>,
+    params: HashMap<String, Value>,
+) -> Result<Value, SpotError> {
+    let doctype = require_str(&params, "doctype")?;
+    let mut dt_obj = get_doc(&site.db, "DocType", doctype)
+        .await
+        .map_err(SpotError::from)?
+        .as_dict();
+
+    append_doctype_children(&site.db, doctype, &mut dt_obj).await;
+
+    // Collect child doctype names
+    let child_names = extract_table_child_names(&dt_obj);
+
+    let mut docs = vec![dt_obj];
+    for child_name in child_names {
+        if let Ok(child_raw) = get_doc(&site.db, "DocType", &child_name).await {
+            let mut child_obj = child_raw.as_dict();
+            append_doctype_children(&site.db, &child_name, &mut child_obj).await;
+            docs.push(child_obj);
+        }
+    }
+
+    Ok(json!({ "docs": docs, "lang_modified": null }))
+}
+
+async fn append_doctype_children(db: &DbAdapter, dt_name: &str, doc_obj: &mut Value) {
+    let filter = json!({ "parent": dt_name, "parenttype": "DocType" });
+
+    let fields  = fetch_child_list(db, "DocField", &filter, 500).await;
+    let perms   = fetch_child_list(db, "DocPerm",  &filter, 100).await;
+    let states  = fetch_child_list(db, "DocState", &filter, 50).await;
+
+    let Value::Object(ref mut map) = doc_obj else { return };
+
+    map.insert("fields".into(),  Value::Array(fields));
+    map.insert("states".into(),  Value::Array(states));
+    map.insert("permissions".into(), if perms.is_empty() {
+        default_permissions()
+    } else {
+        Value::Array(perms)
+    });
+    map.entry("links".to_string()).or_insert(Value::Array(vec![]));
+    map.entry("actions".to_string()).or_insert(Value::Array(vec![]));
+}
+
+async fn fetch_child_list(db: &DbAdapter, doctype: &str, filter: &Value, limit: usize) -> Vec<Value> {
+    get_list(db, doctype, None, Some(filter), limit, 0)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|r| serde_json::to_value(r).ok())
+        .collect()
+}
+
+fn extract_table_child_names(dt_obj: &Value) -> Vec<String> {
+    let Value::Array(fields) = dt_obj.get("fields").unwrap_or(&Value::Array(vec![])) else {
+        return vec![];
+    };
+    fields.iter()
+        .filter(|f| matches!(
+            f.get("fieldtype").and_then(Value::as_str),
+            Some("Table") | Some("Table MultiSelect")
+        ))
+        .filter_map(|f| f.get("options").and_then(Value::as_str))
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn default_permissions() -> Value {
+    json!([
+        {
+            "role": "System Manager", "permlevel": 0,
+            "read": 1, "write": 1, "create": 1, "delete": 1,
+            "submit": 0, "cancel": 0, "amend": 0,
+            "report": 1, "export": 1, "import": 1,
+            "share": 1, "print": 1, "email": 1, "if_owner": 0
+        },
+        {
+            "role": "Administrator", "permlevel": 0,
+            "read": 1, "write": 1, "create": 1, "delete": 1,
+            "submit": 0, "cancel": 0, "amend": 0,
+            "report": 1, "export": 1, "import": 1,
+            "share": 1, "print": 1, "email": 1, "if_owner": 0
+        }
+    ])
+}
+fetch_child_list kills the triple copy-paste of the get_list → unwrap → map → collect pattern that appeared identically for fields, perms and states.
+
+doc_save.rs — The Biggest Cleanup
+The handle_savedocs function has two big problems: autoname logic is inlined and child row saving is inlined. Extract both:
+rust// desk/doc_save.rs
+
+use serde_json::{json, Value};
+use spotledger_types::error::SpotError;
+use spotledger_db::document::*;
+use crate::state::SiteState;
+use super::helpers::require_str;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+pub async fn handle_savedocs(
+    site: Arc<SiteState>,
+    params: HashMap<String, Value>,
+) -> Result<Value, SpotError> {
+    let doc_val = parse_doc_param(&params)?;
+    let action  = params.get("action").and_then(Value::as_str).unwrap_or("Save");
+    let user    = params.get("__current_user").and_then(Value::as_str).unwrap_or("Administrator");
+    let doctype = required_str_field(&doc_val, "doctype")?;
+
+    let is_new      = detect_is_new(&doc_val);
+    let local_name  = detect_local_name(&doc_val, is_new);
+    let saved_name  = resolve_name(&site.db, &doc_val, &doctype, is_new).await?;
+
+    let (parent_val, child_rows) = split_parent_and_children(&doc_val, &saved_name, user);
+
+    apply_action(&site, action, &doctype, &saved_name, &parent_val, is_new).await?;
+    save_child_rows(&site.db, &child_rows, &saved_name, &doctype).await;
+
+    let saved_doc   = get_doc(&site.db, &doctype, &saved_name).await
+        .map_err(|e| SpotError::Db(e.to_string()))?;
+    let perms       = get_doc_permissions(&site.db, user, &doctype).await
+        .map(|p| p.to_json())
+        .unwrap_or_else(|_| json!({"read": 1, "write": 1, "create": 1}));
+
+    let mut doc_dict = saved_doc.as_dict();
+    if let (Some(ln), Value::Object(ref mut map)) = (local_name, &mut doc_dict) {
+        map.insert("localname".into(), Value::String(ln));
+    }
+
+    Ok(json!({
+        "docs": [doc_dict],
+        "docinfo": minimal_docinfo(&doctype, &saved_name, perms),
+    }))
+}
+
+pub async fn handle_form_cancel(
+    site: Arc<SiteState>,
+    params: HashMap<String, Value>,
+) -> Result<Value, SpotError> {
+    let doctype = require_str(&params, "doctype")?.to_string();
+    let name    = require_str(&params, "name")?.to_string();
+
+    cancel_doc(&site.db, &doctype, &name).await
+        .map_err(|e| SpotError::Db(e.to_string()))?;
+    site.doc_cache.remove(&(doctype, name.clone())).await;
+
+    Ok(json!({ "docname": name }))
+}
+
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+fn parse_doc_param(params: &HashMap<String, Value>) -> Result<Value, SpotError> {
+    match params.get("doc") {
+        Some(Value::Object(o)) => Ok(Value::Object(o.clone())),
+        Some(Value::String(s)) => serde_json::from_str(s)
+            .map_err(|e| SpotError::Validation(format!("invalid doc JSON: {e}"))),
+        _ => Err(SpotError::Validation("doc param required".into())),
+    }
+}
+
+fn required_str_field<'a>(val: &'a Value, field: &str) -> Result<&'a str, SpotError> {
+    val.get(field)
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| SpotError::Validation(format!("'{field}' missing in doc")))
+}
+
+fn detect_is_new(doc: &Value) -> bool {
+    doc.get("__newname").and_then(Value::as_str).filter(|s| !s.is_empty()).is_none()
+    && (
+        doc.get("name").and_then(Value::as_str).map(|n| n.starts_with("new-")).unwrap_or(false)
+        || doc.get("name").and_then(Value::as_str).map(|n| n.is_empty()).unwrap_or(true)
+        || doc.get("__islocal").and_then(Value::as_i64).unwrap_or(0) == 1
+    )
+}
+
+fn detect_local_name(doc: &Value, is_new: bool) -> Option<String> {
+    if !is_new { return None; }
+    doc.get("name")
+        .and_then(Value::as_str)
+        .filter(|s| s.starts_with("new-"))
+        .map(str::to_string)
+}
+
+async fn resolve_name(
+    db: &spotledger_db::DbAdapter,
+    doc: &Value,
+    doctype: &str,
+    is_new: bool,
+) -> Result<String, SpotError> {
+    // Explicit user-supplied name
+    if let Some(n) = doc.get("__newname").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        return Ok(n.to_string());
+    }
+
+    if !is_new {
+        return doc.get("name")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| SpotError::Validation("name missing for existing doc".into()));
+    }
+
+    // Look up autoname strategy from DocType
+    let autoname = get_doc(db, "DocType", doctype).await
+        .ok()
+        .and_then(|dt| dt.get_str("autoname").map(str::to_string));
+
+    match autoname.as_deref() {
+        Some(an) if an.starts_with("field:") => {
+            let fieldname = &an["field:".len()..];
+            doc.get(fieldname)
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .ok_or_else(|| SpotError::Validation(
+                    format!("autoname field '{fieldname}' is empty or missing")
+                ))
+        }
+        _ => Ok(generate_random_name(doctype)),
+    }
+}
+
+fn generate_random_name(doctype: &str) -> String {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos();
+    format!("{}-{ts:08x}", doctype.to_lowercase().replace(' ', "-"))
+}
+
+fn split_parent_and_children(
+    doc: &Value,
+    saved_name: &str,
+    current_user: &str,
+) -> (Value, Vec<Value>) {
+    const SKIP: &[&str] = &[
+        "__islocal", "__unsaved", "__newname",
+        "__run_link_triggers", "__last_sync_on",
+        "__dirty", "__checked", "__doctype_fields",
+    ];
+
+    let Value::Object(map) = doc else { return (doc.clone(), vec![]) };
+
+    let mut parent = serde_json::Map::new();
+    let mut children = vec![];
+
+    for (k, v) in map {
+        if SKIP.contains(&k.as_str()) { continue; }
+        if let Value::Array(arr) = v {
+            children.extend(arr.iter().filter_map(|r| r.as_object().map(|_| r.clone())));
+            continue;
+        }
+        parent.insert(k.clone(), v.clone());
+    }
+
+    parent.insert("name".into(),        saved_name.into());
+    parent.entry("owner".into())        .or_insert_with(|| current_user.into());
+    parent.entry("modified_by".into())  .or_insert_with(|| current_user.into());
+    parent.entry("docstatus".into())    .or_insert(0.into());
+
+    (Value::Object(parent), children)
+}
+
+async fn apply_action(
+    site: &Arc<SiteState>,
+    action: &str,
+    doctype: &str,
+    name: &str,
+    fields: &Value,
+    is_new: bool,
+) -> Result<(), SpotError> {
+    match action {
+        "Save" | "Update" => {
+            if is_new {
+                insert_doc(&site.db, doctype, fields).await
+            } else {
+                site.doc_cache.remove(&(doctype.to_string(), name.to_string())).await;
+                upsert_doc(&site.db, doctype, name, fields).await
+            }
+            .map_err(|e| SpotError::Db(e.to_string()))
+        }
+        "Submit" => {
+            site.doc_cache.remove(&(doctype.to_string(), name.to_string())).await;
+            submit_doc(&site.db, doctype, name).await
+                .map_err(|e| SpotError::Db(e.to_string()))
+        }
+        "Cancel" => {
+            site.doc_cache.remove(&(doctype.to_string(), name.to_string())).await;
+            cancel_doc(&site.db, doctype, name).await
+                .map_err(|e| SpotError::Db(e.to_string()))
+        }
+        _ => Ok(()),
+    }
+}
+
+async fn save_child_rows(
+    db: &spotledger_db::DbAdapter,
+    children: &[Value],
+    parent_name: &str,
+    parent_doctype: &str,
+) {
+    for child in children {
+        let Some(obj) = child.as_object() else { continue };
+        let child_doctype = obj.get("doctype").and_then(Value::as_str).unwrap_or("");
+        if child_doctype.is_empty() { continue; }
+
+        let child_name = obj.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+        let is_new = child_name.is_empty()
+            || child_name.starts_with("new-")
+            || obj.get("__islocal").and_then(Value::as_i64).unwrap_or(0) == 1;
+
+        let mut row = child.clone();
+        if let Some(m) = row.as_object_mut() {
+            m.insert("parent".into(),     parent_name.into());
+            m.insert("parenttype".into(), parent_doctype.into());
+            m.remove("__islocal");
+            m.remove("__unsaved");
+            if is_new {
+                m.insert("name".into(), generate_random_name(child_doctype).into());
+            }
+        }
+
+        if is_new {
+            let _ = insert_doc(db, child_doctype, &row).await;
+        } else {
+            let _ = upsert_doc(db, child_doctype, &child_name, &row).await;
+        }
+    }
+}
+
+fn minimal_docinfo(doctype: &str, name: &str, perms: Value) -> Value {
+    json!({
+        "doctype": doctype, "name": name,
+        "attachments": [], "comments": [], "communications": [],
+        "automated_messages": [], "assignments": [], "shared": [],
+        "views": [], "additional_timeline_content": [], "milestones": [],
+        "versions": [], "is_document_followed": false, "tags": "",
+        "document_email": null, "share_logs": [], "assignment_logs": [],
+        "attachment_logs": [], "info_logs": [], "like_logs": [],
+        "workflow_logs": [], "permissions": perms, "user_info": {},
+    })
+}
+handle_savedocs went from 180 lines to ~30 lines. Each extracted function has one job and a name that explains it.
+
+Line Count After Split
+Before               After
+──────────────────   ──────────────────────────────
+desk.rs  ~800 lines  mod.rs           ~120 lines  (registration only)
+                     doctype_load.rs  ~80  lines
+                     doc_load.rs      ~120 lines
+                     doc_save.rs      ~160 lines
+                     workspace.rs     ~200 lines
+                     helpers.rs       ~80  lines
+                     axum_handlers.rs ~60  lines
+Same total lines. But now each file has one reason to change — doc_save.rs changes when save logic changes, workspace.rs changes when boot/sidebar changes. You never have to scroll past 200 lines to find what you need.but what about user created doctypes, in frappe thre are like json files, and versioned through git. how we will handle this, currently we are actually taking json, exactly like frappe7:15 AMGood question. You're already doing the right thing by taking JSON — that's exactly how Frappe works. The question is how to make it clean and versionable.
+How Frappe Actually Does It
+frappe-bench/apps/erpnext/
+  erpnext/
+    selling/
+      doctype/
+        sales_order/
+          sales_order.json     ← schema (git versioned)
+          sales_order.py       ← controller
+          sales_order.js       ← form controller
+The JSON is the source of truth. On bench migrate, Frappe reads every .json file and syncs it to the DB. The DB is just a runtime cache of what's in git.
+
+Your Options
+Option A — Keep JSON files, same as Frappe (recommended)
+your-app/
+  doctypes/
+    selling/
+      sales_order.json
+      customer.json
+    buying/
+      purchase_order.json
+    accounts/
+      sales_invoice.json
+On startup, your binary reads these files, diffs against DB, syncs changes. Git gives you versioning for free — exactly like Frappe.
+rust// migrations/mod.rs
+
+pub async fn sync_doctypes(db: &DbAdapter, doctypes_dir: &Path) -> Result<()> {
+    let json_files = glob(doctypes_dir, "**/*.json")?;
+
+    for path in json_files {
+        let json = fs::read_to_string(&path)?;
+        let meta: DocTypeMeta = serde_json::from_str(&json)?;
+        sync_one_doctype(db, &meta).await?;
+    }
+
+    Ok(())
+}
+
+async fn sync_one_doctype(db: &DbAdapter, meta: &DocTypeMeta) -> Result<()> {
+    // 1. Upsert the DocType record itself
+    upsert_doc(db, "DocType", &meta.name, &serde_json::to_value(meta)?).await?;
+
+    // 2. Delete old fields, insert fresh ones
+    delete_children(db, "DocField", &meta.name).await?;
+    for (idx, field) in meta.fields.iter().enumerate() {
+        let mut field_val = serde_json::to_value(field)?;
+        field_val["parent"]      = meta.name.clone().into();
+        field_val["parenttype"]  = "DocType".into();
+        field_val["parentfield"] = "fields".into();
+        field_val["idx"]         = idx.into();
+        insert_doc(db, "DocField", &field_val).await?;
+    }
+
+    // 3. DEFINE TABLE / DEFINE FIELD in SurrealDB
+    apply_schema(db, meta).await?;
+
+    tracing::info!("Synced DocType: {}", meta.name);
+    Ok(())
+}
+Startup sequence:
+rust// main.rs
+#[tokio::main]
+async fn main() -> Result<()> {
+    frappe_core::init("ws://localhost:8000").await?;
+
+    // Sync all JSON doctypes to DB on every startup
+    // Fast — only writes if changed (hash check)
+    migrations::sync_doctypes(&frappe().db, Path::new("./doctypes")).await?;
+
+    // Start HTTP server
+    serve().await
+}
+
+Option B — Embed JSON in Binary
+If you want a truly single-binary deployment with no external files:
+rust// Embed at compile time — zero runtime file IO
+static DOCTYPES: &[(&str, &str)] = &[
+    ("Sales Order",    include_str!("../doctypes/selling/sales_order.json")),
+    ("Customer",       include_str!("../doctypes/setup/customer.json")),
+    ("Sales Invoice",  include_str!("../doctypes/accounts/sales_invoice.json")),
+];
+
+pub async fn sync_doctypes(db: &DbAdapter) -> Result<()> {
+    for (name, json) in DOCTYPES {
+        let meta: DocTypeMeta = serde_json::from_str(json)?;
+        sync_one_doctype(db, &meta).await?;
+        tracing::info!("Synced embedded DocType: {name}");
+    }
+    Ok(())
+}
+Or even cleaner with the include_dir crate:
+rustuse include_dir::{include_dir, Dir};
+
+static DOCTYPES_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/doctypes");
+
+pub async fn sync_doctypes(db: &DbAdapter) -> Result<()> {
+    for file in DOCTYPES_DIR.find("**/*.json")? {
+        let json = file.contents_utf8().unwrap();
+        let meta: DocTypeMeta = serde_json::from_str(json)?;
+        sync_one_doctype(db, &meta).await?;
+    }
+    Ok(())
+}
+The JSON files still live in your repo and are git versioned. They just get baked into the binary at cargo build.
+
+Option C — User-Created Doctypes (Runtime, No JSON)
+For doctypes created via the UI at runtime — no JSON file, lives only in DB:
+rust// These never have a JSON file
+// They're created through the desk UI and stored in tabDocType directly
+// Your registry already handles this via DynamicDocument
+
+pub async fn create_custom_doctype(
+    db: &DbAdapter,
+    meta: &DocTypeMeta,
+) -> Result<()> {
+    // Save to DB
+    sync_one_doctype(db, meta).await?;
+
+    // Register in live registry — no restart needed
+    frappe().registry.register_dynamic(DynamicMeta {
+        name:   meta.name.clone(),
+        module: meta.module.clone(),
+    });
+
+    Ok(())
+}
+
+The Clean Two-Track System
+Source of truth:
+
+  Framework/App doctypes          Custom doctypes
+  ─────────────────────           ──────────────────────
+  JSON files in repo              Created via UI
+  Git versioned                   Stored only in DB
+  Synced to DB on startup         Live registered in registry
+  Compiled Rust structs exist     DynamicDocument handler
+  Full hook support               No hooks (or Rhai scripts)
+rust// Startup — handles both tracks
+pub async fn init(db_url: &str, doctypes_dir: Option<&Path>) -> Result<()> {
+    let db = Arc::new(DbAdapter::connect(db_url).await?);
+
+    // Track 1: sync JSON files → DB
+    if let Some(dir) = doctypes_dir {
+        migrations::sync_doctypes(&db, dir).await?;
+    }
+
+    // Track 2: load everything from DB into registry
+    // (includes both synced JSON doctypes AND user-created ones)
+    let registry = Arc::new(DocTypeRegistry::init(&db).await?);
+
+    FRAPPE.set(FrappeContext { db, registry })?;
+    Ok(())
+}
+
+The JSON Format
+Keep it identical to Frappe's — makes migration easier and tooling familiar:
+json{
+  "name": "Sales Order",
+  "module": "Selling",
+  "doctype": "DocType",
+  "issingle": 0,
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "naming_series:",
+  "title_field": "customer_name",
+  "fields": [
+    {
+      "fieldname": "customer",
+      "fieldtype": "Link",
+      "label": "Customer",
+      "options": "Customer",
+      "reqd": 1
+    },
+    {
+      "fieldname": "items",
+      "fieldtype": "Table",
+      "label": "Items",
+      "options": "Sales Order Item"
+    }
+  ],
+  "permissions": [
+    {
+      "role": "Sales User",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    }
+  ]
+}
+
+Smart Sync — Only Write What Changed
+Don't blindly re-sync everything on every startup. Use a hash:
+rustasync fn sync_one_doctype(db: &DbAdapter, meta: &DocTypeMeta) -> Result<()> {
+    let json    = serde_json::to_string(meta)?;
+    let hash    = format!("{:x}", md5::compute(&json));
+
+    // Check if already synced with same hash
+    let stored_hash = get_value(db, "DocType", &meta.name, "_sync_hash")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(str::to_string));
+
+    if stored_hash.as_deref() == Some(&hash) {
+        tracing::debug!("DocType {} unchanged, skipping sync", meta.name);
+        return Ok(());
+    }
+
+    // Hash changed or new — do the full sync
+    do_sync(db, meta).await?;
+
+    // Store new hash
+    set_field(db, "DocType", &meta.name, "_sync_hash", hash.into()).await?;
+    Ok(())
+}
+Startup goes from "sync 500 doctypes" to "check 500 hashes, sync 2 that changed". Essentially instant.
+
+Final Structure
+your-app/
+  src/
+    main.rs
+    migrations/
+      mod.rs          ← sync_doctypes, sync_one_doctype
+      schema.rs       ← apply SurrealDB DEFINE TABLE/FIELD
+  
+  doctypes/           ← git versioned JSON (Frappe compatible format)
+    selling/
+      sales_order.json
+      quotation.json
+    buying/
+      purchase_order.json
+    accounts/
+      sales_invoice.json
+    setup/
+      customer.json
+      item.json
+The mental model is identical to Frappe — JSON is source of truth, DB is the runtime cache, git gives you versioning and code review on schema changes. The only difference is your sync runs in Rust on startup instead of bench migrate in Python.dontn you think db approch is better, because versioning can be hadnled at db level, i dnt remeber when was the last time we actually used json versioning. what I think is for most of the doctypes i think we should define them properly in rust and use them (but one issue will be, how rust json will translate to rust idioms, i think it can be done, just like a class can encapsulate json scema, its straightforward. Frappe fields types can actually be types defined in system level, json will only be a representation of that, i think its a better appraoch. json document will also be checked against that7:20 AMExactly right. You've just described the correct architecture. Let me articulate what you're thinking:
+The Core Insight
+Current Frappe approach:
+  JSON file → parse at runtime → hope it's valid
+
+Your approach:
+  Rust type IS the schema → JSON is just a serialization of it
+  Compiler validates the schema, not a runtime parser
+The JSON isn't the source of truth. The Rust type is.
+
+FieldType as a Real Type System
+rust// This IS the schema definition language
+// No JSON needed to express this
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FieldType {
+    // Text
+    Data,
+    SmallText,
+    Text,
+    LongText,
+    Code,
+    Password,
+
+    // Numbers  
+    Int,
+    Float,
+    Currency,
+    Percent,
+
+    // Date/Time
+    Date,
+    Datetime,
+    Time,
+    Duration,
+
+    // Choice
+    Check,
+    Select(Vec<&'static str>),   // options are typed, not a "\n" string
+
+    // Relational
+    Link(&'static str),          // options = doctype name, compile-time known
+    DynamicLink,
+    Table(&'static str),         // child doctype name
+    TableMultiSelect(&'static str),
+
+    // Media
+    Attach,
+    AttachImage,
+
+    // Layout (no data)
+    Section(&'static str),       // label
+    Column,
+    Tab(&'static str),
+    Fold,
+    Heading(&'static str),
+    Html(&'static str),
+}
+Now a Select field cannot have invalid options. A Link field cannot point to a non-existent DocType — because the string is a &'static str checked at compile time.
+
+DocField as a Typed Struct
+rust#[derive(Debug, Clone)]
+pub struct DocField {
+    pub fieldname:    &'static str,
+    pub label:        &'static str,
+    pub fieldtype:    FieldType,
+
+    // Validation
+    pub reqd:         bool,
+    pub unique:       bool,
+    pub read_only:    bool,
+    pub hidden:       bool,
+    pub in_list_view: bool,
+    pub in_filter:    bool,
+
+    // Display
+    pub description:  Option<&'static str>,
+    pub default:      Option<&'static str>,
+    pub depends_on:   Option<&'static str>,
+    pub precision:    Option<u8>,
+}
+
+// Builder so field definitions read cleanly
+impl DocField {
+    pub fn new(fieldname: &'static str, label: &'static str, fieldtype: FieldType) -> Self {
+        Self {
+            fieldname, label, fieldtype,
+            reqd: false, unique: false, read_only: false,
+            hidden: false, in_list_view: false, in_filter: false,
+            description: None, default: None,
+            depends_on: None, precision: None,
+        }
+    }
+    pub fn reqd(mut self)         -> Self { self.reqd = true; self }
+    pub fn unique(mut self)       -> Self { self.unique = true; self }
+    pub fn read_only(mut self)    -> Self { self.read_only = true; self }
+    pub fn in_list_view(mut self) -> Self { self.in_list_view = true; self }
+    pub fn in_filter(mut self)    -> Self { self.in_filter = true; self }
+    pub fn default(mut self, v: &'static str) -> Self { self.default = Some(v); self }
+    pub fn description(mut self, v: &'static str) -> Self { self.description = Some(v); self }
+    pub fn depends_on(mut self, v: &'static str) -> Self { self.depends_on = Some(v); self }
+}
+
+DocTypeMeta — The Full Schema
+rust#[derive(Debug, Clone)]
+pub struct DocTypeMeta {
+    pub name:            &'static str,
+    pub module:          &'static str,
+    pub is_submittable:  bool,
+    pub is_single:       bool,
+    pub is_child_table:  bool,
+    pub track_changes:   bool,
+    pub title_field:     Option<&'static str>,
+    pub search_fields:   &'static [&'static str],
+    pub fields:          &'static [DocField],
+    pub permissions:     &'static [Permission],
+}
+All 'static — lives in .rodata, zero heap allocation, zero startup cost.
+
+A Concrete DocType Definition
+rust// selling/sales_order.rs
+
+use frappe_core::meta::*;
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct SalesOrder {
+    #[serde(flatten)]
+    pub doc: Document,
+
+    pub customer:      String,
+    pub customer_name: String,
+    pub posting_date:  Option<NaiveDate>,
+    pub delivery_date: Option<NaiveDate>,
+    pub status:        String,
+    pub grand_total:   Decimal,
+
+    #[serde(default)]
+    pub items: Vec<SalesOrderItem>,
+}
+
+impl DocType for SalesOrder {
+    fn doctype_name() -> &'static str { "Sales Order" }
+    fn doc(&self)         -> &Document     { &self.doc }
+    fn doc_mut(&mut self) -> &mut Document { &mut self.doc }
+
+    fn meta() -> &'static DocTypeMeta {
+        static META: DocTypeMeta = DocTypeMeta {
+            name:           "Sales Order",
+            module:         "Selling",
+            is_submittable: true,
+            is_single:      false,
+            is_child_table: false,
+            track_changes:  true,
+            title_field:    Some("customer_name"),
+            search_fields:  &["customer", "customer_name"],
+            fields: &[
+                DocField::new("customer", "Customer", FieldType::Link("Customer")).reqd(),
+                DocField::new("customer_name", "Customer Name", FieldType::Data).read_only(),
+                DocField::new("posting_date", "Date", FieldType::Date).reqd(),
+                DocField::new("delivery_date", "Delivery Date", FieldType::Date),
+                DocField::new("status", "Status", FieldType::Select(&[
+                    "Draft", "To Deliver", "To Invoice", "Completed", "Cancelled"
+                ])).read_only(),
+                DocField::new("items", "Items", FieldType::Table("Sales Order Item")).reqd(),
+                DocField::new("grand_total", "Grand Total", FieldType::Currency).read_only(),
+            ],
+            permissions: &[
+                Permission { role: "Sales User",    read: true, write: true, create: true, submit: false },
+                Permission { role: "Sales Manager", read: true, write: true, create: true, submit: true },
+            ],
+        };
+        &META
+    }
+}
+
+impl_document!(SalesOrder);
+This IS the JSON. The struct fields map 1:1 to what Frappe would put in sales_order.json. But now the compiler enforces it.
+
+JSON is Just a View
+The JSON your desk API currently consumes becomes a derived representation:
+rustimpl DocTypeMeta {
+    /// Serialize to Frappe-compatible JSON
+    /// Used by getdoctype API — desk still gets the JSON it expects
+    pub fn to_frappe_json(&self) -> Value {
+        json!({
+            "name":           self.name,
+            "module":         self.module,
+            "issingle":       self.is_single as u8,
+            "istable":        self.is_child_table as u8,
+            "is_submittable": self.is_submittable as u8,
+            "track_changes":  self.track_changes as u8,
+            "title_field":    self.title_field,
+            "fields": self.fields.iter().map(|f| f.to_frappe_json()).collect::<Vec<_>>(),
+            "permissions": self.permissions.iter().map(|p| p.to_frappe_json()).collect::<Vec<_>>(),
+        })
+    }
+}
+
+impl DocField {
+    pub fn to_frappe_json(&self) -> Value {
+        json!({
+            "fieldname":    self.fieldname,
+            "label":        self.label,
+            "fieldtype":    self.fieldtype.to_frappe_str(),
+            "options":      self.fieldtype.to_frappe_options(),
+            "reqd":         self.reqd as u8,
+            "unique":       self.unique as u8,
+            "read_only":    self.read_only as u8,
+            "in_list_view": self.in_list_view as u8,
+            "in_filter":    self.in_filter as u8,
+            "default":      self.default,
+            "description":  self.description,
+            "depends_on":   self.depends_on,
+        })
+    }
+}
+
+impl FieldType {
+    pub fn to_frappe_str(&self) -> &'static str {
+        match self {
+            Self::Data          => "Data",
+            Self::Int           => "Int",
+            Self::Float         => "Float",
+            Self::Currency      => "Currency",
+            Self::Date          => "Date",
+            Self::Datetime      => "Datetime",
+            Self::Check         => "Check",
+            Self::Select(_)     => "Select",
+            Self::Link(_)       => "Link",
+            Self::Table(_)      => "Table",
+            Self::Attach        => "Attach",
+            // ...
+        }
+    }
+
+    pub fn to_frappe_options(&self) -> Option<String> {
+        match self {
+            Self::Select(opts)          => Some(opts.join("\n")),
+            Self::Link(dt)              => Some(dt.to_string()),
+            Self::Table(dt)             => Some(dt.to_string()),
+            Self::TableMultiSelect(dt)  => Some(dt.to_string()),
+            _                           => None,
+        }
+    }
+}
+Your handle_getdoctype then becomes:
+rustpub async fn handle_getdoctype(
+    site: Arc<SiteState>,
+    params: HashMap<String, Value>,
+) -> Result<Value, SpotError> {
+    let doctype = require_str(&params, "doctype")?;
+
+    // Try compiled meta first — instant, no DB
+    if let Some(meta) = frappe().registry.get_compiled_meta(doctype) {
+        let mut dt_obj = meta.to_frappe_json();
+        // Add child doctype meta too
+        let child_docs = extract_child_metas(meta);
+        return Ok(json!({
+            "docs": [dt_obj].into_iter().chain(child_docs).collect::<Vec<_>>(),
+            "lang_modified": null,
+        }));
+    }
+
+    // Fall back to DB for dynamic/user-created doctypes
+    let mut dt_obj = get_doc(&site.db, "DocType", doctype)
+        .await?.as_dict();
+    append_doctype_children(&site.db, doctype, &mut dt_obj).await;
+
+    Ok(json!({ "docs": [dt_obj], "lang_modified": null }))
+}
+Compiled doctypes never touch the DB for schema — it's all in the binary.
+
+DB Versioning — Better Than Git for JSON
+You're right that DB versioning is cleaner for most workflows. For the dynamic/user-created doctypes, store a version history directly:
+rust// tabDocTypeVersion — automatic on every DocType save
+pub struct DocTypeVersion {
+    pub name:       String,    // auto
+    pub doctype:    String,    // "Sales Order"
+    pub version:    u32,
+    pub changed_by: String,
+    pub changed_at: DateTime<Utc>,
+    pub snapshot:   Value,     // full DocTypeMeta as JSON
+    pub diff:       Value,     // what changed
+}
+When a user modifies a DocType via the desk UI:
+rustasync fn save_doctype_with_history(
+    db: &DbAdapter,
+    meta: &Value,
+    user: &str,
+) -> Result<()> {
+    let name = meta.get("name").and_then(Value::as_str).unwrap_or("");
+
+    // Get current version number
+    let current_version = get_value(db, "DocType", name, "_version")
+        .await?.and_then(|v| v.as_u64()).unwrap_or(0);
+
+    // Save version snapshot before overwriting
+    let version_doc = json!({
+        "doctype":    "DocType Version",
+        "doctype_name": name,
+        "version":    current_version,
+        "changed_by": user,
+        "snapshot":   meta,
+    });
+    insert_doc(db, "DocType Version", &version_doc).await?;
+
+    // Save the new meta
+    upsert_doc(db, "DocType", name, meta).await?;
+    set_field(db, "DocType", name, "_version", (current_version + 1).into()).await?;
+
+    Ok(())
+}
+Rollback is trivial:
+rustpub async fn rollback_doctype(db: &DbAdapter, doctype: &str, to_version: u32) -> Result<()> {
+    let filter = json!({ "doctype_name": doctype, "version": to_version });
+    let rows   = get_list(db, "DocType Version", None, Some(&filter), 1, 0).await?;
+    let snapshot = rows.first()
+        .and_then(|r| r.get("snapshot"))
+        .cloned()
+        .ok_or_else(|| anyhow!("Version {to_version} not found"))?;
+
+    upsert_doc(db, "DocType", doctype, &snapshot).await?;
+    Ok(())
+}
+
+The Complete Mental Model
+Compiled DocTypes (Rust structs)      Dynamic DocTypes (DB only)
+─────────────────────────────────     ──────────────────────────
+Schema = Rust types                   Schema = tabDocType records
+Validated at compile time             Validated at save time
+meta() returns &'static DocTypeMeta   Loaded from DB into registry
+JSON is derived (to_frappe_json())    JSON is stored directly
+Versioned via git/cargo               Versioned via tabDocTypeVersion
+No DB hit for schema                  DB hit once at startup
+Hooks = impl DocType                  Hooks = Rhai scripts (later)
+The JSON your desk currently ingests keeps working — it's just now generated from types for compiled doctypes, and stored in DB for dynamic ones. No files anywhere. The compiler IS your schema validator for the important ones, and DB versioning handles the rest.great, now for core framework the approach is totally fine, but what about erpnext and other apps, where we are either using Pytno vi aPyO3 or TypeScript via V8, how rust constructs will be enforced in those scripting, because majority of th elogic if not done in db will be simply grpah traversals7:23 AMReally sharp observation. Let me think through this properly.
+The Reality of ERPNext Logic
+Most ERPNext business logic is NOT complex algorithms. It's:
+python# 90% of ERPNext hooks look like this
+def validate(self):
+    self.grand_total = sum(item.amount for item in self.items)
+    
+    for item in self.items:
+        item.amount = item.qty * item.rate
+    
+def on_submit(self):
+    self.db_set("status", "Submitted")
+    make_gl_entries(self)  # ← this is the real work
+
+def make_gl_entries(doc):
+    # Just graph traversal:
+    # Sales Invoice → GL Entry (Debit Receivable, Credit Revenue)
+    # Purchase Invoice → GL Entry (Debit Expense, Credit Payable)
+You're right — it's graph traversals. Ledger entries, stock movements, linked document creation. The "logic" is mostly reading linked docs and writing new ones.
+
+The Core Problem with PyO3/V8
+Rust type system          Python/TS scripting
+─────────────────         ──────────────────────────
+DocField is typed         dict["fieldname"] — anything goes
+Link("Customer")          just a string, no validation
+FieldType::Currency       float or string or None
+Vec<SalesOrderItem>       list of dicts, maybe empty, maybe wrong shape
+The moment you cross the boundary into Python/TS, your type guarantees evaporate. You're back to Frappe's world.
+
+What You Actually Need
+The insight is: the scripting layer doesn't need Rust types. It needs Rust guarantees.
+There are three real options:
+Option A — Rhai (Embedded Rust scripting)
+Rhai is a scripting language designed to embed in Rust. Types cross the boundary cleanly:
+rust// Register your Rust types with Rhai once
+let mut engine = Engine::new();
+
+engine.register_type::<Document>()
+    .register_get("name",      |d: &mut Document| d.name.clone())
+    .register_get("docstatus", |d: &mut Document| d.docstatus as i64)
+    .register_fn("get",        |d: &mut Document, f: &str| d.get_str(f).to_string())
+    .register_fn("set",        |d: &mut Document, f: &str, v: &str| d.set(f, v));
+
+engine.register_fn("get_doc", |doctype: &str, name: &str| {
+    // calls your frappe::get_doc
+});
+
+engine.register_fn("frappe_throw", |msg: &str| {
+    // returns ValidationError
+});
+Then ERPNext hooks look like:
+javascript// sales_order.rhai — looks like JS, runs in Rust, has Rust types
+
+fn validate() {
+    if doc.items.len() == 0 {
+        frappe_throw("Items required");
+    }
+    
+    for item in doc.items {
+        item.amount = item.qty * item.rate;
+    }
+    
+    doc.grand_total = doc.items.reduce(|sum, i| sum + i.amount, 0.0);
+}
+
+fn on_submit() {
+    make_gl_entries(doc);
+}
+
+fn make_gl_entries(doc) {
+    let je = new_doc("Journal Entry");
+    je.set("posting_date", doc.posting_date);
+    
+    // Debit receivable
+    je.append("accounts", #{
+        "account": get_receivable_account(doc.company),
+        "debit_in_account_currency": doc.grand_total,
+    });
+    
+    // Credit revenue  
+    je.append("accounts", #{
+        "account": get_revenue_account(doc.company),
+        "credit_in_account_currency": doc.grand_total,
+    });
+    
+    frappe::save(je);
+}
+Pros: runs in same process, no serialization, Rust types accessible, fast
+Cons: Rhai is not Python/TS — existing ERPNext devs need to learn it
+
+Option B — Python via PyO3 with a typed bridge
+Don't expose raw dicts to Python. Expose a typed API:
+rust// The PyO3 bridge — Python sees this, not your internal types
+
+#[pyclass]
+pub struct PyDocument {
+    inner: Arc<Mutex<Document>>,
+}
+
+#[pymethods]
+impl PyDocument {
+    fn get(&self, fieldname: &str) -> PyResult<PyObject> {
+        let doc = self.inner.lock().unwrap();
+        // Returns typed Python objects, not raw JSON
+        match doc.get(fieldname) {
+            Some(Value::String(s))  => Ok(s.clone().into_py(py)),
+            Some(Value::Number(n))  => Ok(n.as_f64().unwrap_or(0.0).into_py(py)),
+            Some(Value::Bool(b))    => Ok(b.into_py(py)),
+            _                       => Ok(py.None()),
+        }
+    }
+
+    fn set(&self, fieldname: &str, value: &PyAny) -> PyResult<()> {
+        // Validate against DocField type BEFORE setting
+        let doc    = self.inner.lock().unwrap();
+        let meta   = frappe().registry.get_meta(&doc.doctype)?;
+        let field  = meta.get_field(fieldname)
+            .ok_or_else(|| PyValueError::new_err(format!("Unknown field: {fieldname}")))?;
+
+        // Type coercion with validation
+        let val = field.fieldtype.coerce_python_value(value)?;
+        drop(doc);
+        self.inner.lock().unwrap().set(fieldname, val);
+        Ok(())
+    }
+
+    // Graph traversal helpers Python actually needs
+    fn get_linked_docs(&self, link_field: &str) -> PyResult<Vec<PyDocument>> {
+        // Rust does the traversal, returns typed docs
+    }
+
+    fn make_gl_entry(&self, account: &str, debit: f64, credit: f64) -> PyResult<()> {
+        // Rust enforces GL entry structure
+    }
+}
+Python hooks then look like:
+python# sales_invoice.py — Python, but guardrails enforced by Rust
+
+def validate(doc):
+    for item in doc.items:
+        item.amount = item.qty * item.rate  # Rust validates qty/rate are numbers
+    
+    doc.grand_total = sum(i.amount for i in doc.items)
+
+def make_gl_entries(doc):
+    # Can't pass wrong types — Rust bridge rejects them
+    doc.make_gl_entry(
+        account=get_receivable_account(doc.company),
+        debit=doc.grand_total,
+        credit=0
+    )
+
+Option C — The Graph Traversal API (Your Real Insight)
+You said it yourself — majority of logic is graph traversals. So define those traversals as first-class Rust operations:
+rust// frappe_graph/mod.rs
+// This is the real insight — make graph operations typed and fast
+
+pub struct DocGraph<'a> {
+    db:  &'a DbAdapter,
+    doc: &'a Document,
+}
+
+impl<'a> DocGraph<'a> {
+    /// Follow a Link field to its target document
+    pub async fn follow<T: DocType + DeserializeOwned>(
+        &self,
+        link_field: &str,
+    ) -> Result<T> {
+        let name = self.doc.get_str(link_field)
+            .ok_or_else(|| anyhow!("Field {link_field} is empty"))?;
+        frappe::get_doc_typed::<T>(name).await
+    }
+
+    /// Get all documents that link TO this document
+    pub async fn linked_from<T: DocType + DeserializeOwned>(
+        &self,
+        link_field: &str,
+    ) -> Result<Vec<T>> {
+        frappe::get_list(T::doctype_name())
+            .filter(link_field, "=", &self.doc.name)
+            .run_typed::<T>()
+            .await
+    }
+
+    /// Create a mapped document (like frappe.model.mapper)
+    pub async fn make_mapped<S, T>(&self, mapping: &DocMapping<S, T>) -> Result<T>
+    where
+        S: DocType,
+        T: DocType + Default,
+    {
+        mapping.apply(self.doc).await
+    }
+}
+
+// Used in hooks:
+impl SalesInvoice {
+    async fn make_gl_entries(&self) -> Result<()> {
+        let graph = DocGraph::new(&frappe().db, &self.doc);
+
+        // Follow links — typed
+        let customer: Customer = graph.follow("customer").await?;
+        let company:  Company  = graph.follow("company").await?;
+
+        // Create GL entries — typed, validated
+        let mut je = frappe::new_doc_typed::<JournalEntry>();
+        je.posting_date = self.posting_date;
+        je.company      = self.company.clone();
+
+        je.accounts.push(GlEntry {
+            account: company.default_receivable_account.clone(),
+            debit_in_account_currency: self.grand_total,
+            ..Default::default()
+        });
+
+        je.accounts.push(GlEntry {
+            account: company.default_income_account.clone(),
+            credit_in_account_currency: self.grand_total,
+            ..Default::default()
+        });
+
+        frappe::save(&mut je).await
+    }
+}
+
+The Honest Answer
+Here's the real decision matrix:
+Logic type                    Best approach
+──────────────────────────    ──────────────────────────────────
+Core framework doctypes       Rust structs — full type safety
+ERPNext core logic            Rust structs — same, worth the effort
+                              GL entries, stock, payroll = graph traversals
+                              these are STABLE, change rarely
+                              define them properly in Rust once
+
+App customizations            Rhai scripts — close to JS, runs in Rust
+(customer-specific logic)     no serialization overhead
+                              Rust types accessible
+
+Complex reporting             Python via PyO3 with typed bridge
+(pandas, numpy, etc)          or just SQL queries returned as JSON
+
+External integrations         TypeScript/Python services
+(Shopify, payment gateways)   communicate via HTTP, not hooks
+
+What I'd Actually Do
+frappe-core/        Rust — document engine, DB, permissions
+frappe-graph/       Rust — typed graph traversal API
+                           follow(), linked_from(), make_mapped()
+
+erpnext-core/       Rust — GL entries, stock movements, naming
+                           the 20% of logic that's called 80% of the time
+                           Sales Invoice → GL Entry is always the same
+                           define it once in Rust, never touch it again
+
+erpnext-hooks/      Rhai scripts — customizable per deployment
+                           validate(), before_save() overrides
+                           runs in Rust process, no serialization
+
+custom-apps/        Python via PyO3 OR Rhai
+                    depending on whether they need Python ecosystem
+The key realization is: ERPNext's core accounting and stock logic changes maybe once a year. Define make_gl_entries, make_stock_ledger_entry, make_payment_entry properly in Rust once. They're pure graph traversals — read linked docs, create new docs. Rust is perfect for this.
+The scripting layer is only for the per-deployment customization layer — the stuff that genuinely differs between customers. And for that, Rhai gives you 90% of JavaScript ergonomics with zero serialization overhead and full access to your Rust types.So you think I totally drop Python, Type Script and focus purely on rhai scripts, are rhai script compiled too, or i simply store them in db and run it on demand7:25 AMYes, drop Python and TypeScript entirely. Here's the honest case for it:
+Why Rhai is Enough
+What ERPNext customizations actually are:
+  ✅ Field validation           → 5 lines of Rhai
+  ✅ Calculate totals           → 3 lines of Rhai  
+  ✅ Set field on submit        → 1 line of Rhai
+  ✅ Fetch linked doc value     → 2 lines of Rhai
+  ✅ Conditional mandatory      → 4 lines of Rhai
+  ✅ Custom naming              → 3 lines of Rhai
+
+What actually needs Python ecosystem:
+  ❌ pandas/numpy for reporting → just use SQL + SurrealDB aggregations
+  ❌ ML/AI                      → separate service, call via HTTP
+  ❌ Complex PDF                → Rust has better PDF libs anyway
+  ❌ External API SDKs          → reqwest in Rust, or HTTP from Rhai
+95% of ERPNext customization code would fit in Rhai trivially.
+
+Are Rhai Scripts Compiled?
+Yes — and this is where it gets interesting:
+rust// Rhai has THREE execution modes:
+
+// Mode 1 — Parse + run every time (slow, for dev)
+engine.eval::<()>(script_source)?;
+
+// Mode 2 — Compile to AST once, run many times (fast)
+let ast: AST = engine.compile(script_source)?;
+engine.run_ast(&ast)?;   // AST reused, no reparse
+
+// Mode 3 — Compile to AST + optimize (fastest)
+let ast = engine.compile_with_scope(&scope, script_source)?;
+// Rhai's optimizer does constant folding, dead code elimination
+The AST is the compiled form. Not machine code like Rust, but close to bytecode — no parsing on execution, expressions pre-evaluated where possible.
+
+The Clean Architecture
+Store scripts in DB, compile to AST on load, cache the AST:
+rust// frappe_rhai/engine.rs
+
+pub struct ScriptEngine {
+    engine: Engine,
+    // AST cache — compiled once, reused forever
+    cache:  DashMap<String, Arc<AST>>,
+}
+
+impl ScriptEngine {
+    pub fn new() -> Self {
+        let mut engine = Engine::new();
+        register_frappe_api(&mut engine);  // expose frappe::get_doc etc
+        Self { engine, cache: DashMap::new() }
+    }
+
+    /// Load script from DB, compile, cache
+    pub async fn load(&self, doctype: &str, hook: &str, db: &DbAdapter) -> Result<()> {
+        let key    = format!("{doctype}::{hook}");
+        let source = fetch_script(db, doctype, hook).await?;
+        let ast    = self.engine.compile(&source)
+            .map_err(|e| anyhow!("Script compile error in {key}: {e}"))?;
+        self.cache.insert(key, Arc::new(ast));
+        Ok(())
+    }
+
+    /// Run cached AST — no recompile
+    pub async fn run_hook(
+        &self,
+        doctype: &str,
+        hook: &str,
+        doc: &mut Document,
+    ) -> Result<()> {
+        let key = format!("{doctype}::{hook}");
+        let Some(ast) = self.cache.get(&key) else {
+            return Ok(());  // no script for this hook — fine
+        };
+
+        let mut scope = Scope::new();
+        scope.push("doc", PyDoc::from(doc));  // doc is accessible in script
+
+        self.engine.run_ast_with_scope(&mut scope, &ast)?;
+
+        // Write any mutations back
+        if let Some(mutated) = scope.get_value::<PyDoc>("doc") {
+            mutated.apply_to(doc);
+        }
+
+        Ok(())
+    }
+
+    /// Hot reload — recompile one script without restart
+    pub async fn reload(&self, doctype: &str, hook: &str, db: &DbAdapter) -> Result<()> {
+        self.cache.remove(&format!("{doctype}::{hook}"));
+        self.load(doctype, hook, db).await
+    }
+}
+
+Script Storage in DB
+rust// tabServerScript — same concept as Frappe's Server Script doctype
+
+pub struct ServerScript {
+    pub name:        String,   // "Sales Order-validate"
+    pub doctype_event: String, // "Sales Order"
+    pub hook:        String,   // "validate" | "before_save" | "on_submit"
+    pub script:      String,   // Rhai source code
+    pub enabled:     bool,
+    pub compiled_at: Option<DateTime<Utc>>,
+}
+
+Startup — Compile Everything Once
+rust// main.rs
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    frappe_core::init("ws://localhost:8000").await?;
+
+    // Compile all scripts from DB at startup
+    // If any script has a syntax error — fail loud, don't start
+    let engine = Arc::new(ScriptEngine::new());
+    engine.load_all(&frappe().db).await?;
+
+    SCRIPT_ENGINE.set(engine)?;
+
+    tracing::info!("All scripts compiled and cached");
+    serve().await
+}
+
+impl ScriptEngine {
+    pub async fn load_all(&self, db: &DbAdapter) -> Result<()> {
+        let scripts = get_list(db, "Server Script",
+            Some(&["name", "doctype_event", "hook", "script"]),
+            Some(&json!({"enabled": 1})),
+            10_000, 0,
+        ).await?;
+
+        let mut errors = vec![];
+
+        for row in &scripts {
+            let doctype = row.get_str("doctype_event");
+            let hook    = row.get_str("hook");
+            let source  = row.get_str("script");
+            let key     = format!("{doctype}::{hook}");
+
+            match self.engine.compile(source) {
+                Ok(ast) => { self.cache.insert(key, Arc::new(ast)); }
+                Err(e)  => errors.push(format!("{key}: {e}")),
+            }
+        }
+
+        if !errors.is_empty() {
+            // Fail at startup — better than silent wrong behavior
+            anyhow::bail!("Script compile errors:\n{}", errors.join("\n"));
+        }
+
+        tracing::info!("Compiled {} scripts", self.cache.len());
+        Ok(())
+    }
+}
+
+The Frappe API Inside Rhai
+This is what makes it ergonomic. Register once, available in all scripts:
+rustfn register_frappe_api(engine: &mut Engine) {
+    // frappe.get_doc(doctype, name) → doc
+    engine.register_fn("get_doc", |doctype: &str, name: &str| {
+        block_on(frappe::get_doc(doctype, name))
+            .map(RhaiDoc::from)
+            .map_err(|e| e.to_string().into())
+    });
+
+    // frappe.get_value(doctype, name, field) → value
+    engine.register_fn("get_value", |doctype: &str, name: &str, field: &str| {
+        block_on(frappe::get_value(doctype, name, field))
+            .unwrap_or(None)
+    });
+
+    // frappe.get_list(doctype) → builder
+    engine.register_fn("get_list", |doctype: &str| {
+        RhaiListBuilder::new(doctype)
+    });
+
+    // frappe.throw(msg) — validation error
+    engine.register_fn("throw", |msg: &str| -> Result<(), Box<EvalAltResult>> {
+        Err(format!("ValidationError: {msg}").into())
+    });
+
+    // frappe.db.set_value
+    engine.register_fn("db_set", |doctype: &str, name: &str, field: &str, val: Dynamic| {
+        block_on(frappe::set_value(doctype, name, field, dynamic_to_value(val)))
+    });
+
+    // doc methods
+    engine.register_type::<RhaiDoc>()
+        .register_get_set("name",
+            |d: &mut RhaiDoc| d.get_str("name"),
+            |d: &mut RhaiDoc, v: String| d.set("name", v))
+        .register_fn("get",    |d: &mut RhaiDoc, f: &str| d.get(f))
+        .register_fn("set",    |d: &mut RhaiDoc, f: &str, v: Dynamic| d.set_dynamic(f, v))
+        .register_fn("save",   |d: &mut RhaiDoc| block_on(d.save()))
+        .register_fn("submit", |d: &mut RhaiDoc| block_on(d.submit()))
+        .register_fn("append", |d: &mut RhaiDoc, table: &str, row: Map| d.append(table, row));
+}
+
+What Scripts Look Like
+Clean, readable, minimal:
+javascript// Server Script: "Sales Order::validate"
+
+if doc.items.len() == 0 {
+    throw("Items cannot be empty");
+}
+
+for item in doc.items {
+    item.amount = item.qty * item.rate;
+}
+
+doc.grand_total = doc.items
+    .reduce(|sum, i| sum + i.amount, 0.0);
+
+// Fetch linked value
+let credit_limit = get_value("Customer", doc.customer, "credit_limit");
+if doc.grand_total > credit_limit {
+    throw(`Order total exceeds credit limit of ${credit_limit}`);
+}
+javascript// Server Script: "Sales Invoice::on_submit"
+
+// GL Entry creation — graph traversal, clean
+let je = new_doc("Journal Entry");
+je.company      = doc.company;
+je.posting_date = doc.posting_date;
+
+je.append("accounts", #{
+    account:                      get_receivable_account(doc.company),
+    debit_in_account_currency:    doc.grand_total,
+    party_type:                   "Customer",
+    party:                        doc.customer,
+});
+
+je.append("accounts", #{
+    account:                      get_income_account(doc.company),
+    credit_in_account_currency:   doc.grand_total,
+});
+
+je.save();
+je.submit();
+
+db_set("Sales Invoice", doc.name, "journal_entry", je.name);
+
+Hot Reload When Script is Saved
+When a user edits a Server Script via the desk:
+rust// In your savedocs handler, after saving a Server Script:
+if doctype == "Server Script" {
+    let doctype_event = doc.get_str("doctype_event");
+    let hook          = doc.get_str("hook");
+
+    match script_engine().reload(doctype_event, hook, &site.db).await {
+        Ok(_)  => tracing::info!("Reloaded {doctype_event}::{hook}"),
+        Err(e) => return Err(SpotError::Validation(
+            format!("Script compile error: {e}")
+        )),
+    }
+}
+Script saved with a syntax error → compile fails → error returned to desk UI → user fixes it. Never silently broken.
+
+Hook Dispatch in the Framework
+rust// frappe_core/lib.rs
+
+pub async fn save(doc: &mut dyn DocType) -> Result<()> {
+    // 1. Compiled Rust hook
+    doc.validate().await?;
+    doc.before_save().await?;
+
+    // 2. Rhai script hook (if exists)
+    script_engine().run_hook(doc.doc().doctype.as_str(), "validate",    doc.doc_mut()).await?;
+    script_engine().run_hook(doc.doc().doctype.as_str(), "before_save", doc.doc_mut()).await?;
+
+    // 3. Persist
+    persist(doc).await?;
+
+    // 4. After hooks
+    doc.after_save().await?;
+    script_engine().run_hook(doc.doc().doctype.as_str(), "after_save", doc.doc_mut()).await?;
+
+    Ok(())
+}
+Rust hooks run first — framework guarantees. Rhai hooks run after — customization layer. Clean separation.
+
+Summary
+Python/TypeScript              Rhai
+──────────────────             ──────────────────────────────
+External process / runtime     Embedded in your binary
+Serialization on every call    Direct Rust type access
+~2-5ms overhead per call       ~0.1ms — same process
+Separate deployment            Single binary
+Type guarantees lost           Rust validates inputs/outputs
+Full ecosystem                 Enough for ERP customization
+Execution model:
+  Startup:   load all scripts from DB → compile to AST → cache
+  Runtime:   run_hook() → lookup AST in cache → execute
+  Edit:      save script → recompile → update cache → zero restart
+  Error:     compile error → returned to UI immediately
+Rhai gives you the dynamic customization layer Frappe needs without leaving Rust. The binary stays single, deployment stays simple, and type safety holds right up to the script boundary where you explicitly choose to relax it.I was thking i keep the TypeScript Option Alive, because the issue is even Python is not possible, I think Python without types is difficult to swallow7:27 AMSmart. Keep TypeScript alive as an option. Here's why it actually makes sense alongside Rhai:
+The Real Division of Labour
+Rhai                          TypeScript (Deno core)
+────────────────────          ──────────────────────────────
+Simple hooks                  Complex business logic
+validate, before_save         Multi-step workflows
+Field calculations            External API integrations
+Naming logic                  Complex reporting logic
+Quick conditionals            Data transformation pipelines
+Runs in Rust process          Separate lightweight runtime
+~0.1ms overhead               ~2-5ms overhead
+No npm ecosystem              Full npm ecosystem
+The key insight — don't use V8 for everything. Use it only when you genuinely need it.
+
+Why TypeScript Over Python
+You're right that untyped Python is painful. TypeScript gives you:
+typescript// This is actually enforceable
+interface SalesOrder {
+    name: string
+    customer: string
+    grand_total: number
+    items: SalesOrderItem[]
+    docstatus: 0 | 1 | 2
+}
+
+// vs Python
+def validate(self):
+    # self is what exactly? who knows
+    # grand_total is float? Decimal? None? string "100.00"?
+TypeScript + Deno is genuinely the right call over Python for this.
+
+The Architecture
+┌─────────────────────────────────────────────────────┐
+│                  Rust Core                          │
+│                                                     │
+│  Document engine, DB, permissions, HTTP             │
+│  Compiled DocType hooks (impl DocType)              │
+│                                                     │
+│  ┌──────────────┐      ┌─────────────────────────┐  │
+│  │  Rhai Engine │      │   Deno (TypeScript)     │  │
+│  │              │      │                         │  │
+│  │  Simple hooks│      │  Complex logic          │  │
+│  │  In-process  │      │  npm ecosystem          │  │
+│  │  ~0.1ms      │      │  ~2-5ms                 │  │
+│  └──────────────┘      └─────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
+
+Deno Integration — Clean Bridge
+Use deno_core crate — this is exactly what Deno itself uses:
+toml[dependencies]
+deno_core = "0.290"
+rhai      = "1.17"
+rust// frappe_ts/runtime.rs
+
+use deno_core::{JsRuntime, RuntimeOptions, op2, extension};
+
+pub struct TsRuntime {
+    runtime: JsRuntime,
+}
+
+// Define ops — Rust functions callable from TypeScript
+#[op2(async)]
+async fn op_get_doc(
+    #[string] doctype: String,
+    #[string] name: String,
+) -> Result<serde_json::Value, deno_core::error::AnyError> {
+    let doc = frappe::get_doc(&doctype, &name).await?;
+    Ok(doc.doc().to_value()?)
+}
+
+#[op2(async)]
+async fn op_get_list(
+    #[serde] query: GetListQuery,
+) -> Result<Vec<serde_json::Value>, deno_core::error::AnyError> {
+    let rows = frappe::get_list(&query.doctype)
+        .filters_from_value(&query.filters)
+        .limit(query.limit.unwrap_or(20))
+        .run()
+        .await?;
+    Ok(rows)
+}
+
+#[op2(async)]
+async fn op_save_doc(
+    #[serde] doc: serde_json::Value,
+) -> Result<serde_json::Value, deno_core::error::AnyError> {
+    let doctype = doc["doctype"].as_str().unwrap_or("");
+    let mut document = Document::from_value(doc)?;
+    frappe_db::crud::upsert_doc(&frappe().db, doctype, &document.name, &document.to_value()?).await?;
+    Ok(document.to_value()?)
+}
+
+#[op2]
+fn op_frappe_throw(#[string] message: String) -> Result<(), deno_core::error::AnyError> {
+    Err(anyhow::anyhow!("ValidationError: {message}").into())
+}
+
+extension!(
+    frappe_ext,
+    ops = [op_get_doc, op_get_list, op_save_doc, op_frappe_throw],
+    esm_entry_point = "ext:frappe_ext/frappe.js",
+    esm = ["src/frappe.js"],  // the TS-side API wrapper
+);
+
+The TypeScript API Wrapper
+This is what TypeScript scripts actually import:
+typescript// src/frappe.js — compiled from frappe.ts
+// This ships inside your Rust binary via include_str!
+
+const { ops } = Deno.core;
+
+export const frappe = {
+    async getDoc<T extends Document>(doctype: string, name: string): Promise<T> {
+        return await ops.op_get_doc(doctype, name) as T;
+    },
+
+    async getList<T>(query: GetListOptions): Promise<T[]> {
+        return await ops.op_get_list(query) as T[];
+    },
+
+    async save(doc: Document): Promise<Document> {
+        return await ops.op_save_doc(doc) as Document;
+    },
+
+    throw(message: string): never {
+        ops.op_frappe_throw(message);
+        throw new Error(message); // TypeScript flow control
+    },
+
+    db: {
+        async getValue(doctype: string, name: string, field: string) {
+            return await ops.op_get_value(doctype, name, field);
+        },
+        async setValue(doctype: string, name: string, field: string, value: unknown) {
+            return await ops.op_set_value(doctype, name, field, value);
+        },
+    }
+};
+
+// Types that mirror your Rust structs exactly
+export interface Document {
+    name:        string
+    doctype:     string
+    docstatus:   0 | 1 | 2
+    owner:       string
+    creation:    string
+    modified:    string
+    [key: string]: unknown
+}
+
+export interface GetListOptions {
+    doctype:  string
+    fields?:  string[]
+    filters?: Record<string, unknown>
+    limit?:   number
+    start?:   number
+}
+
+Script Storage — Unified
+Both Rhai and TypeScript scripts live in the same table:
+rustpub struct ServerScript {
+    pub name:          String,
+    pub doctype_event: String,       // "Sales Invoice"
+    pub hook:          String,       // "on_submit"
+    pub script_type:   ScriptType,   // Rhai | TypeScript
+    pub script:        String,       // source code
+    pub enabled:       bool,
+}
+
+pub enum ScriptType {
+    Rhai,
+    TypeScript,
+}
+
+Script Dispatch — Rust Decides Which Runtime
+rust// frappe_core/hooks.rs
+
+pub async fn run_hook(
+    doctype: &str,
+    hook: &str,
+    doc: &mut Document,
+) -> Result<()> {
+    let script = match get_script(doctype, hook).await? {
+        Some(s) => s,
+        None    => return Ok(()),   // no script, fine
+    };
+
+    match script.script_type {
+        ScriptType::Rhai       => rhai_engine().run_hook(doc, &script.script).await,
+        ScriptType::TypeScript => ts_runtime().run_hook(doc, &script.script).await,
+    }
+}
+
+TypeScript Script — What Devs Actually Write
+typescript// Server Script: "Sales Invoice::on_submit"
+// script_type: TypeScript
+
+import { frappe } from "frappe:core";
+import type { SalesInvoice, JournalEntry } from "frappe:types";
+
+const doc = await frappe.getDoc<SalesInvoice>("Sales Invoice", Deno.args[0]);
+
+async function makeGlEntries(invoice: SalesInvoice): Promise<void> {
+    const je: Partial<JournalEntry> = {
+        doctype:      "Journal Entry",
+        company:      invoice.company,
+        posting_date: invoice.posting_date,
+        accounts: [
+            {
+                account:                   await getReceivableAccount(invoice.company),
+                debit_in_account_currency: invoice.grand_total,
+                party_type:               "Customer",
+                party:                     invoice.customer,
+            },
+            {
+                account:                    await getIncomeAccount(invoice.company),
+                credit_in_account_currency: invoice.grand_total,
+            }
+        ]
+    };
+
+    const saved = await frappe.save(je as JournalEntry);
+    await frappe.db.setValue("Sales Invoice", invoice.name, "journal_entry", saved.name);
+}
+
+await makeGlEntries(doc);
+Strongly typed. npm-compatible. Async-native. No Python anywhere.
+
+Auto-generated Types from DocTypeMeta
+Your Rust DocTypeMeta generates TypeScript types automatically:
+rustimpl DocTypeMeta {
+    pub fn to_typescript_interface(&self) -> String {
+        let fields: Vec<String> = self.fields.iter()
+            .filter(|f| !f.fieldtype.is_layout())
+            .map(|f| {
+                let ts_type = f.fieldtype.to_typescript_type();
+                let optional = if f.reqd { "" } else { "?" };
+                format!("    {}{}: {}", f.fieldname, optional, ts_type)
+            })
+            .collect();
+
+        format!(
+            "export interface {} extends Document {{\n{}\n}}",
+            self.name.replace(' ', ""),
+            fields.join("\n")
+        )
+    }
+}
+
+impl FieldType {
+    pub fn to_typescript_type(&self) -> &'static str {
+        match self {
+            Self::Data | Self::SmallText | Self::Text |
+            Self::LongText | Self::Link(_) | Self::Select(_) => "string",
+            Self::Int | Self::Float |
+            Self::Currency | Self::Percent             => "number",
+            Self::Check                                => "0 | 1",
+            Self::Date | Self::Datetime                => "string",
+            Self::Table(_) | Self::TableMultiSelect(_) => "unknown[]",
+            _                                          => "unknown",
+        }
+    }
+}
+At startup, generate frappe_types.d.ts:
+typescript// Auto-generated from Rust DocTypeMeta — do not edit
+
+export interface SalesOrder extends Document {
+    customer:      string
+    customer_name: string
+    posting_date:  string
+    delivery_date?: string
+    grand_total:   number
+    status:        string
+    items:         SalesOrderItem[]
+}
+
+export interface Customer extends Document {
+    customer_name:  string
+    customer_group: string
+    territory:      string
+    credit_limit?:  number
+}
+TypeScript scripts import these and get full intellisense, type checking, autocomplete — all driven by your Rust type system.
+
+Final Decision Matrix
+Use Rhai when:                    Use TypeScript when:
+──────────────────────            ──────────────────────────────
+validate() hooks                  Complex multi-doc workflows
+before_save calculations          External HTTP calls (payment gw)
+Simple conditionals               npm library needed
+Naming series                     Complex data transformations
+< 20 lines of logic               Team prefers TS over Rhai
+Performance critical path         Async-heavy logic
+
+What You Ship
+Single Rust binary containing:
+  ├── frappe-core          (Rust)
+  ├── frappe-db            (Rust)
+  ├── Rhai engine          (embedded, ~500KB)
+  ├── deno_core            (embedded, ~8MB)
+  ├── frappe.js            (TS API wrapper, compiled, ~20KB)
+  └── frappe_types.d.ts    (generated, for IDE support)
+
+Runtime scripts stored in DB:
+  ├── Simple hooks    → Rhai
+  └── Complex logic   → TypeScript
+Total binary: ~25MB. Zero external runtimes. TypeScript works out of the box. Rhai for the simple stuff. Rust for the framework. Clean separation, single deployment.I was thking why not drop the V8 too and keep everything in rust, the problem though is in erpnext, custom modules are developed seperately, sometimes how that will be included in framework, there are erp system purely made in C#, everythign is compiled, but I dont wat to recompile core everything else should be their own doctype and stuff defined and developed seperately.7:35 AMThis is the right instinct. You want plugin architecture — core compiled once, custom modules loaded separately without recompiling core.
+Rust has a clean answer for this.
+
+The Core Problem
+Recompile everything         ❌ defeats the purpose
+V8/Rhai scripting            ❌ you just decided against it
+Dynamic loading (.so/.dll)   ✅ but ABI stability is hard in Rust
+WASM plugins                 ✅ stable ABI, sandboxed, fast, portable
+WASM is the answer. This is exactly how Zed editor, Shopify, Cloudflare Workers, and Extism-based systems handle plugins.
+
+The Mental Model
+┌─────────────────────────────────────────────────────┐
+│              frappe-core (compiled once)            │
+│                                                     │
+│  Document engine, DB, permissions, HTTP             │
+│  Plugin host — loads .wasm modules                  │
+│  Exposes stable ABI to plugins                      │
+└──────────┬──────────────────────────────────────────┘
+           │  stable plugin API
+    ┌──────┴──────────────────────────────────┐
+    │              │               │          │
+    ▼              ▼               ▼          ▼
+erpnext.wasm  hrms.wasm    crm.wasm    custom.wasm
+  Selling       Payroll      Leads      Your client's
+  Buying        Leave        Pipeline   custom module
+  Accounts      Claims       Reports
+  Stock
+Each .wasm file:
+
+Compiled independently
+Deployed by dropping file in a folder
+No core recompile ever
+Sandboxed — a buggy plugin can't crash core
+
+
+The Plugin API — Stable ABI via Extism
+extism is the cleanest Rust plugin system. It uses WASM with a stable host/guest boundary:
+toml# frappe-core/Cargo.toml
+[dependencies]
+extism = "1.0"          # host side — loads .wasm plugins
+toml# erpnext/Cargo.toml  (the plugin)
+[dependencies]
+extism-pdk = "1.0"      # guest side — compiled to .wasm
+
+Host Side — Core Loads Plugins
+rust// frappe_core/plugins/mod.rs
+
+use extism::{Plugin, Manifest, Wasm, host_fn, UserData};
+
+pub struct PluginRegistry {
+    plugins: DashMap<String, Arc<Mutex<Plugin>>>,
+}
+
+impl PluginRegistry {
+    /// Load all .wasm files from plugins directory
+    pub async fn load_all(plugins_dir: &Path) -> Result<Self> {
+        let registry = Self { plugins: DashMap::new() };
+
+        for entry in fs::read_dir(plugins_dir)? {
+            let path = entry?.path();
+            if path.extension() != Some("wasm".as_ref()) { continue; }
+
+            let name = path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            let manifest = Manifest::new([Wasm::file(&path)]);
+            let plugin   = Plugin::new(&manifest, [frappe_host_functions()], true)?;
+
+            registry.plugins.insert(name.clone(), Arc::new(Mutex::new(plugin)));
+            tracing::info!("Loaded plugin: {name}");
+        }
+
+        Ok(registry)
+    }
+
+    /// Call a hook on all plugins that handle it
+    pub async fn dispatch_hook(
+        &self,
+        doctype: &str,
+        hook: &str,
+        doc: &mut Document,
+    ) -> Result<()> {
+        let fn_name = format!("{}__{}", doctype.replace(' ', "_"), hook);
+
+        for entry in &self.plugins {
+            let mut plugin = entry.value().lock().unwrap();
+
+            // Plugin only called if it exports this function
+            if !plugin.function_exists(&fn_name) { continue; }
+
+            let input  = serde_json::to_vec(doc)?;
+            let output = plugin.call::<&[u8], &[u8]>(&fn_name, &input)?;
+            let updated: Document = serde_json::from_slice(output)?;
+            *doc = updated;
+        }
+
+        Ok(())
+    }
+
+    /// Register doctypes from all plugins
+    pub async fn register_doctypes(&self, registry: &DocTypeRegistry) -> Result<()> {
+        for entry in &self.plugins {
+            let mut plugin = entry.value().lock().unwrap();
+            if !plugin.function_exists("register_doctypes") { continue; }
+
+            let output   = plugin.call::<(), &[u8]>("register_doctypes", ())?;
+            let metas: Vec<DocTypeMeta> = serde_json::from_slice(output)?;
+
+            for meta in metas {
+                registry.register_dynamic(meta.into());
+                tracing::info!("Registered doctype: {} from plugin {}", meta.name, entry.key());
+            }
+        }
+        Ok(())
+    }
+}
+
+Host Functions — What Plugins Can Call
+This is the stable API plugins depend on. Never break this.
+rust// The contract between core and plugins
+// This is your stable ABI surface
+
+use extism::host_fn;
+
+host_fn!(pub frappe_get_doc(doctype: String, name: String) -> Vec<u8> {
+    let doc = block_on(frappe::get_doc(&doctype, &name))?;
+    Ok(serde_json::to_vec(&doc.doc().to_value()?)?)
+});
+
+host_fn!(pub frappe_get_list(query_json: Vec<u8>) -> Vec<u8> {
+    let query: GetListQuery = serde_json::from_slice(&query_json)?;
+    let rows  = block_on(
+        frappe::get_list(&query.doctype)
+            .apply_query(&query)
+            .run()
+    )?;
+    Ok(serde_json::to_vec(&rows)?)
+});
+
+host_fn!(pub frappe_save_doc(doc_json: Vec<u8>) -> Vec<u8> {
+    let val: Value = serde_json::from_slice(&doc_json)?;
+    let mut doc    = Document::from_value(val)?;
+    block_on(frappe_db::crud::upsert_doc(
+        &frappe().db, &doc.doctype, &doc.name, &doc.to_value()?
+    ))?;
+    Ok(serde_json::to_vec(&doc.to_value()?)?)
+});
+
+host_fn!(pub frappe_throw(message: String) -> () {
+    Err(FrappeError::Validation(message).into())
+});
+
+host_fn!(pub frappe_get_value(doctype: String, name: String, field: String) -> Vec<u8> {
+    let val = block_on(frappe::get_value(&doctype, &name, &field))?;
+    Ok(serde_json::to_vec(&val)?)
+});
+
+pub fn frappe_host_functions() -> impl IntoIterator<Item = extism::Function> {
+    [
+        frappe_get_doc,
+        frappe_get_list,
+        frappe_save_doc,
+        frappe_throw,
+        frappe_get_value,
+    ]
+}
+
+Guest Side — Writing an ERPNext Plugin
+This is what the ERPNext team writes. Compiled to .wasm, dropped into the plugins folder:
+rust// erpnext/src/lib.rs
+// cargo build --target wasm32-unknown-unknown → erpnext.wasm
+
+use extism_pdk::*;
+use serde::{Deserialize, Serialize};
+
+// ── Register DocTypes ─────────────────────────────────────────────────────────
+
+#[plugin_fn]
+pub fn register_doctypes() -> FnResult<Json<Vec<DocTypeMeta>>> {
+    Ok(Json(vec![
+        sales_order::meta(),
+        sales_invoice::meta(),
+        customer::meta(),
+        item::meta(),
+    ]))
+}
+
+// ── Hooks — named exactly: {DocType}__{hook} ──────────────────────────────────
+
+#[plugin_fn]
+pub fn Sales_Order__validate(Json(mut doc): Json<Document>) -> FnResult<Json<Document>> {
+    if doc.items.is_empty() {
+        frappe_throw("Items cannot be empty")?;
+    }
+    for item in &mut doc.items {
+        item.amount = item.qty * item.rate;
+    }
+    doc.grand_total = doc.items.iter().map(|i| i.amount).sum();
+    Ok(Json(doc))
+}
+
+#[plugin_fn]
+pub fn Sales_Invoice__on_submit(Json(doc): Json<Document>) -> FnResult<Json<Document>> {
+    make_gl_entries(&doc)?;
+    Ok(Json(doc))
+}
+
+// ── Business Logic ────────────────────────────────────────────────────────────
+
+fn make_gl_entries(invoice: &Document) -> FnResult<()> {
+    let company: Value = frappe_get_doc("Company", &invoice.company)?;
+
+    let mut je = new_document("Journal Entry");
+    je.set("company",      &invoice.company);
+    je.set("posting_date", &invoice.posting_date);
+
+    je.append("accounts", json!({
+        "account":                   company["default_receivable_account"],
+        "debit_in_account_currency": invoice.grand_total,
+        "party_type":                "Customer",
+        "party":                     &invoice.customer,
+    }));
+
+    je.append("accounts", json!({
+        "account":                    company["default_income_account"],
+        "credit_in_account_currency": invoice.grand_total,
+    }));
+
+    frappe_save(&je)?;
+    frappe_db_set("Sales Invoice", &invoice.name, "journal_entry", &je.name)?;
+    Ok(())
+}
+
+// ── DocType Metadata ──────────────────────────────────────────────────────────
+
+mod sales_order {
+    pub fn meta() -> DocTypeMeta {
+        DocTypeMeta {
+            name:           "Sales Order",
+            module:         "Selling",
+            is_submittable: true,
+            fields: vec![
+                DocField::new("customer",    "Customer",     FieldType::Link("Customer")).reqd(),
+                DocField::new("items",       "Items",        FieldType::Table("Sales Order Item")).reqd(),
+                DocField::new("grand_total", "Grand Total",  FieldType::Currency).read_only(),
+            ],
+            ..Default::default()
+        }
+    }
+}
+
+Plugin PDK — Guest Side Helpers
+A small crate that wraps the host function calls:
+rust// frappe-pdk/src/lib.rs
+// erpnext depends on this, not on frappe-core directly
+
+pub fn frappe_get_doc(doctype: &str, name: &str) -> FnResult<Value> {
+    let result = extism_pdk::host::call(
+        "frappe_get_doc",
+        Json((doctype, name))
+    )?;
+    Ok(result.0)
+}
+
+pub fn frappe_save(doc: &Document) -> FnResult<Document> {
+    let result = extism_pdk::host::call("frappe_save_doc", Json(doc))?;
+    Ok(result.0)
+}
+
+pub fn frappe_throw(msg: &str) -> FnResult<()> {
+    extism_pdk::host::call("frappe_throw", msg)?;
+    Ok(())
+}
+
+pub fn frappe_get_list(query: GetListQuery) -> FnResult<Vec<Value>> {
+    let result = extism_pdk::host::call("frappe_get_list", Json(query))?;
+    Ok(result.0)
+}
+
+Deployment
+/opt/frappe-rs/
+  frappe-rs              ← core binary (never changes)
+  plugins/
+    erpnext.wasm         ← drop new version, restart
+    hrms.wasm
+    crm.wasm
+    acme-custom.wasm     ← client's custom module
+  config/
+    frappe.toml
+Updating ERPNext:
+bash# No recompile of core
+cp erpnext-v2.1.wasm /opt/frappe-rs/plugins/erpnext.wasm
+systemctl restart frappe-rs
+# Done. Core untouched.
+
+The Complete Picture
+frappe-core  (Rust, compiled once)
+  ├── Document engine
+  ├── DB adapter
+  ├── HTTP layer
+  ├── Plugin host (extism)
+  └── Stable host ABI ──────────────────────┐
+                                             │ stable forever
+frappe-pdk   (Rust crate, guests depend on) │
+  └── frappe_get_doc()                       │
+  └── frappe_save()           ←─────────────┘
+  └── frappe_throw()
+
+erpnext      (Rust → .wasm, independent)
+  ├── register_doctypes()
+  ├── Sales_Order__validate()
+  ├── Sales_Invoice__on_submit()
+  └── make_gl_entries()        ← pure Rust, full type safety
+
+hrms.wasm    crm.wasm    custom.wasm
+  independent, deployed separately, never touch core
+
+What You Get
+vs Frappe Python approach:
+  ✅ No Python runtime
+  ✅ No pip dependencies
+  ✅ Type safe across plugin boundary (serde JSON)
+  ✅ Core compiled once, never touched again
+  ✅ Plugins hot-swappable (drop .wasm, restart)
+  ✅ Sandboxed — buggy plugin can't corrupt core memory
+  ✅ Single binary + .wasm files = complete deployment
+  ✅ Plugin authors write normal Rust, target wasm32
+
+vs V8/Deno approach:
+  ✅ No JS runtime embedded
+  ✅ Full Rust type system in plugins
+  ✅ ~5x faster than V8 for typical hook logic
+  ✅ Same language top to bottom
+
+vs dynamic .so loading:
+  ✅ Stable ABI — Rust has no stable ABI natively
+  ✅ WASM ABI is stable across Rust versions
+  ✅ Sandboxed — .so can corrupt host memory
+This is the architecture. Core compiled once. Plugins are .wasm files written in Rust. Drop in folder, restart, done. No Python, no TypeScript, no V8, no Rhai — just Rust all the way down, with WASM as the clean plugin boundary.so if i need a field change it will prompt a wasm module recompile right, ( I think in a world where fast is appreciated, i think but slowdown approach is fine, its not slow down too since AI is doing it, it can do this on the fly), realted question is how WASM modules will introduce their migrations which they will7:41 AMExactly right on both counts. AI-assisted recompile makes the "recompile on field change" non-issue. And migrations from WASM modules is a genuinely interesting problem. Let me think through both properly.
+Recompile — Non-Issue in AI World
+Traditional world:
+  Change a field → edit JSON → bench migrate → done (30 seconds)
+  Change a field in Rust → edit struct → recompile → 2-5 minutes
+  
+AI world:
+  "Add credit_limit field to Customer"
+  → AI edits customer.rs (struct + meta) in 3 seconds
+  → cargo build --package erpnext releases in background
+  → new erpnext.wasm dropped in plugins/
+  → restart
+  Total: ~60 seconds, zero human effort
+The compile time is irrelevant when AI does it. The output is better — type safe, validated, no drift between schema and code.
+
+Migrations — The Real Question
+This is the interesting part. Each WASM module needs to:
+1. Define its own schema (DEFINE TABLE/FIELD in SurrealDB)
+2. Run data migrations when it updates
+3. Not conflict with other modules
+4. Know what version it's currently at
+The Migration Trait — Guest Side
+Every plugin implements this:
+rust// frappe-pdk/src/migrations.rs
+// Every plugin must export these
+
+#[plugin_fn]
+pub fn migrations() -> FnResult<Json<Vec<Migration>>> {
+    Ok(Json(vec![
+        Migration {
+            version:     1,
+            description: "Create Sales Order and related tables",
+            up:          include_str!("migrations/001_initial.surql"),
+            down:        Some(include_str!("migrations/001_initial_down.surql")),
+        },
+        Migration {
+            version:     2,
+            description: "Add delivery_date to Sales Order",
+            up:          include_str!("migrations/002_add_delivery_date.surql"),
+            down:        Some(include_str!("migrations/002_add_delivery_date_down.surql")),
+        },
+        Migration {
+            version:     3,
+            description: "Rename gross_total to grand_total",
+            up:          include_str!("migrations/003_rename_total.surql"),
+            down:        None,  // irreversible
+        },
+    ]))
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Migration {
+    pub version:     u32,
+    pub description: &'static str,
+    pub up:          &'static str,   // SurrealQL
+    pub down:        Option<&'static str>,
+}
+The SQL is embedded in the WASM binary — no external files needed.
+
+Migration Files — Pure SurrealQL
+sql-- erpnext/src/migrations/001_initial.surql
+
+DEFINE TABLE tabSalesOrder SCHEMAFULL;
+DEFINE FIELD name          ON tabSalesOrder TYPE string;
+DEFINE FIELD customer      ON tabSalesOrder TYPE string;
+DEFINE FIELD posting_date  ON tabSalesOrder TYPE datetime;
+DEFINE FIELD grand_total   ON tabSalesOrder TYPE decimal;
+DEFINE FIELD docstatus     ON tabSalesOrder TYPE int DEFAULT 0;
+DEFINE FIELD status        ON tabSalesOrder TYPE string DEFAULT "Draft";
+DEFINE INDEX idx_customer  ON tabSalesOrder FIELDS customer;
+
+DEFINE TABLE tabSalesOrderItem SCHEMAFULL;
+DEFINE FIELD name        ON tabSalesOrderItem TYPE string;
+DEFINE FIELD parent      ON tabSalesOrderItem TYPE string;
+DEFINE FIELD item_code   ON tabSalesOrderItem TYPE string;
+DEFINE FIELD qty         ON tabSalesOrderItem TYPE decimal;
+DEFINE FIELD rate        ON tabSalesOrderItem TYPE decimal;
+DEFINE FIELD amount      ON tabSalesOrderItem TYPE decimal;
+DEFINE INDEX idx_parent  ON tabSalesOrderItem FIELDS parent;
+sql-- erpnext/src/migrations/002_add_delivery_date.surql
+DEFINE FIELD delivery_date ON tabSalesOrder TYPE option<datetime>;
+sql-- erpnext/src/migrations/003_rename_total.surql
+-- SurrealDB doesn't have RENAME COLUMN yet, so:
+UPDATE tabSalesOrder SET grand_total = gross_total WHERE gross_total != NONE;
+REMOVE FIELD gross_total ON tabSalesOrder;
+DEFINE FIELD grand_total ON tabSalesOrder TYPE decimal;
+
+Migration Runner — Core Side
+Core runs migrations for every plugin on startup:
+rust// frappe_core/migrations/runner.rs
+
+pub struct MigrationRunner<'a> {
+    db:      &'a DbAdapter,
+    plugins: &'a PluginRegistry,
+}
+
+impl<'a> MigrationRunner<'a> {
+    pub async fn run_all(&self) -> Result<()> {
+        // Ensure migration tracking table exists
+        self.ensure_migration_table().await?;
+
+        for (plugin_name, plugin) in &self.plugins.plugins {
+            self.run_plugin_migrations(plugin_name, plugin).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn run_plugin_migrations(
+        &self,
+        plugin_name: &str,
+        plugin: &Mutex<Plugin>,
+    ) -> Result<()> {
+        // Ask plugin for its migrations
+        let migrations: Vec<Migration> = {
+            let mut p = plugin.lock().unwrap();
+            if !p.function_exists("migrations") {
+                return Ok(());  // plugin has no migrations, skip
+            }
+            let output = p.call::<(), Json<Vec<Migration>>>("migrations", ())?;
+            output.0
+        };
+
+        // What version is this plugin currently at?
+        let current_version = self.get_current_version(plugin_name).await?;
+        let pending: Vec<_> = migrations.iter()
+            .filter(|m| m.version > current_version)
+            .collect();
+
+        if pending.is_empty() {
+            tracing::debug!("Plugin {plugin_name}: no migrations needed (v{current_version})");
+            return Ok(());
+        }
+
+        tracing::info!(
+            "Plugin {plugin_name}: running {} migrations (v{} → v{})",
+            pending.len(),
+            current_version,
+            pending.last().unwrap().version,
+        );
+
+        // Run each pending migration in order
+        for migration in pending {
+            tracing::info!(
+                "  [{plugin_name}] v{}: {}",
+                migration.version,
+                migration.description
+            );
+
+            // Execute the SurrealQL
+            self.db.execute_raw(migration.up).await
+                .map_err(|e| anyhow!(
+                    "Migration failed [{plugin_name} v{}]: {e}\nSQL:\n{}",
+                    migration.version,
+                    migration.up
+                ))?;
+
+            // Record success
+            self.record_migration(plugin_name, migration).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn ensure_migration_table(&self) -> Result<()> {
+        self.db.execute_raw("
+            DEFINE TABLE IF NOT EXISTS _frappe_migrations SCHEMAFULL;
+            DEFINE FIELD plugin      ON _frappe_migrations TYPE string;
+            DEFINE FIELD version     ON _frappe_migrations TYPE int;
+            DEFINE FIELD description ON _frappe_migrations TYPE string;
+            DEFINE FIELD applied_at  ON _frappe_migrations TYPE datetime;
+            DEFINE INDEX idx_plugin_version
+                ON _frappe_migrations FIELDS plugin, version UNIQUE;
+        ").await
+    }
+
+    async fn get_current_version(&self, plugin_name: &str) -> Result<u32> {
+        let rows = self.db.run(
+            "SELECT version FROM _frappe_migrations
+             WHERE plugin = $plugin
+             ORDER BY version DESC
+             LIMIT 1",
+            vec![("plugin".into(), plugin_name.into())],
+        ).await?;
+
+        Ok(rows.first()
+            .and_then(|r| r.get("version"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32)
+            .unwrap_or(0))
+    }
+
+    async fn record_migration(
+        &self,
+        plugin_name: &str,
+        migration: &Migration,
+    ) -> Result<()> {
+        self.db.execute(
+            "CREATE _frappe_migrations SET
+             plugin      = $plugin,
+             version     = $version,
+             description = $description,
+             applied_at  = time::now()",
+            vec![
+                ("plugin".into(),      plugin_name.into()),
+                ("version".into(),     migration.version.into()),
+                ("description".into(), migration.description.into()),
+            ],
+        ).await
+    }
+}
+
+Startup Sequence — Full Picture
+rust// main.rs
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let db = Arc::new(DbAdapter::connect(&config.db_url).await?);
+
+    // 1. Load plugins
+    let plugins = Arc::new(
+        PluginRegistry::load_all(Path::new("./plugins")).await?
+    );
+
+    // 2. Run migrations for all plugins
+    // Fails loud if any migration errors — don't start broken
+    MigrationRunner { db: &db, plugins: &plugins }
+        .run_all()
+        .await
+        .context("Migration failed — fix the error and restart")?;
+
+    // 3. Register doctypes from plugins into registry
+    let registry = Arc::new(DocTypeRegistry::init(&db).await?);
+    plugins.register_doctypes(&registry).await?;
+
+    // 4. Init frappe context
+    frappe_core::init_with(db, registry, plugins).await?;
+
+    // 5. Serve
+    tracing::info!("All migrations applied. Starting server.");
+    serve().await
+}
+
+What Happens When You Update a Plugin
+erpnext v1.0 → v2.0: added delivery_date field
+
+1. cargo build --package erpnext  (AI does this)
+   → new erpnext.wasm contains migration v2
+
+2. cp erpnext-v2.wasm plugins/erpnext.wasm
+
+3. systemctl restart frappe-rs
+
+4. On startup:
+   PluginRegistry loads erpnext.wasm
+   MigrationRunner asks: what's current version? → 1
+   MigrationRunner asks plugin: what migrations exist? → [v1, v2]
+   Runs v2: DEFINE FIELD delivery_date ON tabSalesOrder...
+   Records v2 applied
+   Server starts
+
+Total downtime: ~2 seconds (restart)
+Zero manual SQL. Zero bench migrate. Zero Python.
+
+Rollback
+rustimpl MigrationRunner<'_> {
+    pub async fn rollback_plugin(&self, plugin_name: &str, to_version: u32) -> Result<()> {
+        let current = self.get_current_version(plugin_name).await?;
+
+        // Get migrations to undo in reverse order
+        let migrations = self.get_plugin_migrations(plugin_name).await?;
+        let to_undo: Vec<_> = migrations.iter()
+            .filter(|m| m.version > to_version && m.version <= current)
+            .rev()  // reverse order for rollback
+            .collect();
+
+        for migration in to_undo {
+            match migration.down {
+                Some(sql) => {
+                    tracing::info!("Rolling back [{plugin_name}] v{}", migration.version);
+                    self.db.execute_raw(sql).await?;
+                    self.remove_migration_record(plugin_name, migration.version).await?;
+                }
+                None => return Err(anyhow!(
+                    "Migration v{} has no rollback SQL — cannot proceed",
+                    migration.version
+                )),
+            }
+        }
+        Ok(())
+    }
+}
+
+The Full Picture
+plugins/
+  erpnext.wasm
+    exports:
+      migrations()           → Vec<Migration> with embedded SurrealQL
+      register_doctypes()    → Vec<DocTypeMeta>
+      Sales_Order__validate()
+      Sales_Invoice__on_submit()
+      ...
+
+  hrms.wasm
+    exports:
+      migrations()           → its own migrations, namespaced
+      register_doctypes()    → Leave, Payroll, Employee
+      Employee__validate()
+      ...
+
+Core on startup:
+  for each .wasm:
+    1. run pending migrations   (schema changes)
+    2. register doctypes        (UI/API schema)
+    3. register hooks           (business logic)
+
+Key Design Decisions
+Migration SQL embedded in .wasm    → no external files, self-contained plugin
+_frappe_migrations tracks by plugin → plugins don't interfere with each other
+Startup fails if migration fails   → never run on broken schema
+down SQL optional                  → irreversible migrations are fine, just say so
+AI compiles on field change        → recompile cost = irrelevant
+The migration system is actually cleaner than Frappe's — each plugin owns its migrations, they're versioned with the code in git, embedded in the binary, and run automatically. No bench migrate, no manual SQL, no drift between code and schema.
