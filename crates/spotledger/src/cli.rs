@@ -1,6 +1,9 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+// Re-export server types from spotledger-http
+pub use spotledger_http::server::{RunMode, ServeArgs};
+
 /// Spotledger — Frappe-compatible framework backed by SurrealDB
 #[derive(Debug, Parser)]
 #[command(name = "spotledger", version, about)]
@@ -19,21 +22,6 @@ pub enum Commands {
     SeedDoctypes(SeedDoctypesArgs),
     /// Install a Frappe app: DocTypes + Module Defs + fixture records + Patch Log
     InstallApp(InstallAppArgs),
-}
-
-#[derive(Debug, clap::Args, Clone)]
-pub struct ServeArgs {
-    /// Run mode: dev or prod
-    #[arg(long, default_value = "dev", env = "SPOTLEDGER_MODE")]
-    pub mode: RunMode,
-
-    /// Override bind address (e.g. 0.0.0.0:8000)
-    #[arg(long, env = "SPOTLEDGER_BIND")]
-    pub bind: Option<String>,
-
-    /// Path to the bench root (default: current directory)
-    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
-    pub bench: PathBuf,
 }
 
 #[derive(Debug, clap::Args, Clone)]
@@ -64,12 +52,6 @@ pub struct NewSiteArgs {
     /// Administrator password set during site creation (required to log in)
     #[arg(long, env = "SPOTLEDGER_ADMIN_PASSWORD")]
     pub admin_password: String,
-}
-
-#[derive(Debug, Clone, clap::ValueEnum)]
-pub enum RunMode {
-    Dev,
-    Prod,
 }
 
 #[derive(Debug, clap::Args, Clone)]

@@ -13,7 +13,6 @@ use tower_http::{
 };
 use tracing_subscriber::EnvFilter;
 
-use crate::cli::{RunMode, ServeArgs};
 use crate::middleware::site_middleware;
 use crate::methods::{get_logged_user_handler, getdoc_handler, getdoctype_handler, getpage_handler, login_handler, logout_handler};
 use crate::routes::{call_method, ping, resource_get, resource_get_value, resource_list};
@@ -21,6 +20,33 @@ use crate::state::{AppState, SiteState};
 use spotledger_db::connection::connect;
 
 use spotledger_core::config::SiteConfig;
+
+// ── Configuration types ───────────────────────────────────────────────────────
+
+/// Run mode: determines logging level and bind behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum RunMode {
+    Dev,
+    Prod,
+}
+
+/// Server startup arguments.
+#[derive(Debug, clap::Args, Clone)]
+pub struct ServeArgs {
+    /// Run mode: dev or prod
+    #[arg(long, default_value = "dev", env = "SPOTLEDGER_MODE")]
+    pub mode: RunMode,
+
+    /// Override bind address (e.g. 0.0.0.0:8000)
+    #[arg(long, env = "SPOTLEDGER_BIND")]
+    pub bind: Option<String>,
+
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: std::path::PathBuf,
+}
+
+// ── Server entry point ────────────────────────────────────────────────────────
 
 pub async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     // ── logging ──────────────────────────────────────────────────────────────

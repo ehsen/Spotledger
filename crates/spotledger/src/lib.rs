@@ -1,10 +1,9 @@
 #![recursion_limit = "512"]
+
 pub mod cli;
-pub mod methods;
-pub mod middleware;
 pub mod new_site;
-pub mod routes;
 pub mod install_app;
 pub mod seed_doctypes;
-pub mod server;
-pub mod state;
+
+// Re-export HTTP layer from spotledger-http
+pub use spotledger_http::{serve, server};

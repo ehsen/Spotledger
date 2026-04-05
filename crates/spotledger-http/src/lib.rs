@@ -1,12 +1,22 @@
 //! SpotledgerCore — Axum HTTP layer.
 //!
-//! This crate will contain:
+//! Provides the complete HTTP server stack:
 //! - `AppState` / `SiteState` (shared Axum state)
-//! - Axum router setup (`build_router`)
-//! - Middleware (`site_middleware`, auth)  
-//! - Route handlers (`/api/resource/`, `/api/method/`, `/api/get-doc/`)
-//! - Method registry (built-in and app-installed handlers)
+//! - Axum router and middleware
+//! - Route handlers (`/api/resource/`, `/api/method/`, auth)
+//! - Method registry (built-in Tier 1 + app-installed handlers)
+//! - Server startup and site loading
 //!
-//! Phase 0 stub — code extracted from `spotledger` binary in Phase 1.
+//! Extracted from spotledger binary in Phase 1.
 
-// Phase 1 will add: pub mod middleware; pub mod routes; pub mod state; pub mod methods;
+pub mod middleware;
+pub mod methods;
+pub mod routes;
+pub mod server;
+pub mod state;
+
+// Re-export commonly used types
+pub use middleware::{site_middleware, CurrentUser};
+pub use server::serve;
+pub use state::{AppState, SiteState};
+pub use methods::{MethodRegistry, build_registry};

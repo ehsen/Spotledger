@@ -12,8 +12,9 @@ name = "spotledger"
 path = "src/main.rs"
 
 [dependencies]
-spotledger-core = { workspace = true }
-spotledger-db   = { workspace = true }
+spotledger-core  = { workspace = true }
+spotledger-db    = { workspace = true }
+spotledger-http  = { workspace = true }
 
 axum         = { workspace = true }
 tokio        = { workspace = true }
