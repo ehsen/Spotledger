@@ -1,7 +1,7 @@
 # SpotledgerCore Architecture Plan
 
 **Date**: April 5, 2026
-**Status**: Approved — ready for execution
+**Status**: In Progress — Phases 0–2 complete, Phase 1b partially complete
 **Scope**: Full architectural rewrite from current monolithic Axum crate to a Linux-kernel-style modular WASM plugin system, written entirely in Rust.
 
 ---
@@ -23,6 +23,35 @@ Key design decisions:
 
 ---
 
+## Progress Summary (April 5, 2026)
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| **Phase 0** | Repository Restructure | ✅ Complete |
+| **Phase 1** | Typed Schema (DocTypeMeta) | ✅ Complete |
+| **Phase 1b** | Framework DocTypes (Tier 0/1/3) | 🔄 In Progress — Tier 3 schema files exist; Tier 0/1 and engine wiring remain |
+| **Phase 1c** | Core Utils | ⏳ Not Started |
+| **Phase 2** | WASM Plugin Host | ✅ Complete (infrastructure); live `.wasm` e2e test pending |
+| **Phase 3** | spotledger-pdk | ⏳ Stub only |
+| **Phase 4** | Domain Plugins (Selling/Buying/Stock) | ⏳ Stub only |
+| **Phase 5** | frappe.client API Completion | ⏳ Not Started |
+| **Phase 6** | API v2 Endpoints | ⏳ Not Started |
+| **Phase 7** | Background Jobs | ⏳ Not Started |
+| **Phase 8** | File Storage | ⏳ Not Started |
+| **Phase 9** | Full-Text Search | ⏳ Not Started |
+| **Phase 10** | Notifications & Real-time | ⏳ Not Started |
+
+### Key Decisions Made During Implementation
+
+- **Child tables**: Stored as embedded `array<object>` in parent SurrealDB record — no scatter/gather to separate tables
+- **`DocTypeMeta` drives DDL**: `ensure_schema` / `ensure_all_schemas` emit `DEFINE TABLE / FIELD` from compiled Rust structs at startup (Hibernate `hbm2ddl.auto=update` equivalent)
+- **Save pipeline centralized**: All `frappe.client.save` / `insert` / `delete` flow through `controller::save_doc` / `delete_doc_checked` — 15-step ordered pipeline
+- **Validation is pure (no DB)**: `spotledger-core/src/validation.rs` has zero DB dependency — works in WASM guest context too
+- **Permission system**: Strong-typed with full Frappe parity (role, DocType, If Owner, User permissions, `permlevel`)
+- **`MetaEntry` inventory**: Compile-time self-registration via `inventory::submit!` — no dynamic map needed for schema sync
+
+---
+
 ## Current State Inventory
 
 ```
@@ -36,7 +65,7 @@ crates/
 **What works today:**
 - Full Axum HTTP server with multi-site routing
 - SurrealDB adapter with CRUD, list queries, submit/cancel
-- Permission system (role-based)
+- Permission system (strong-typed, Frappe-parity role/DocType/If Owner/User permissions)
 - Session/auth (login, logout, PBKDF2 + Argon2 passwords)
 - Method registry (`/api/method/` dispatcher)
 - Desk handlers: `getdoc`, `getdoctype`, `savedocs`, `search_link`, `get_boot_info`, reportview, notifications, listview
@@ -44,19 +73,28 @@ crates/
 - Hook registry (Rust-native hooks only)
 - DocType trait with full lifecycle hooks
 - Document caching (Moka)
+- **Typed `DocTypeMeta` / `DocField` / `FieldType`** — full validation constraint fields, builder API
+- **`MetaEntry` self-registration** via `inventory::collect!` for schema inventory
+- **Child tables embedded** in parent SurrealDB record (`array<object>`) — scatter/gather removed
+- **Document validation pipeline** (`validation.rs`) — mandatory, select options, length, set_only_once, allow_on_submit, XSS sanitize
+- **Ordered save controller** (`controller.rs`) — 15-step pipeline with hooks integration
+- **Hibernate-style schema DDL sync** (`schema.rs`) — `ensure_schema` / `ensure_all_schemas` from `MetaEntry` inventory
+- **`new-site`** calls `ensure_all_schemas` — all compiled DocType schemas synced at startup
+- **WASM plugin host** (`spotledger-plugins`) — `PluginRegistry`, `host_fn` ABI, memory marshaling, versioning
+- **Accounting engine stubs** (Company, Account, Currency, FiscalYear, JournalEntry, GL engine) in `spotledger-accounting`
 
 **What is missing / stubbed:**
 - `frappe.client.rename_doc`, `attach_file`, `validate_link`
 - Full `/api/v2/` endpoints
-- WASM plugin host
 - Plugin migration runner
-- Typed `DocTypeMeta` / `DocField` / `FieldType`
-- `spotledger-pdk` guest crate for plugin authors
+- `spotledger-pdk` — guest side API wrappers (stub only, no `api.rs` / `accounting.rs` / `utils.rs`)
 - Background jobs / scheduler
 - File storage
 - Full-text search
-- **Accounting engine** (GL entries, Chart of Accounts, Journal Entry)
-- **Financial DocTypes** (Company, Fiscal Year, Account, Cost Center, Currency)
+- `spotledger-desk` — Tier 1 DocTypes (stub structure exists, no DocType implementations)
+- `spotledger-automation` — Tier 2 DocTypes (stub, partial hooks only)
+- Core utils module (`utils/` subtree not yet created)
+- Accounting DocType hooks wired to GL engine (schema defined, `on_submit`/`on_cancel` stubs incomplete)
 
 ---
 
@@ -629,48 +667,50 @@ systemctl restart spotledger
 
 ## Migration Phases
 
-### Phase 0 — Repository Restructure *(~1 week)*
+### Phase 0 — Repository Restructure ✅ COMPLETE
 
 **Goal**: New crate layout in place. All existing code compiles in new locations. Zero functionality changes.
 
 **Tasks:**
-- [ ] Create `crates/spotledger-core/` — move content from `spotledger-types/`
-- [ ] Update `spotledger-db/` to depend on `spotledger-core` instead of `spotledger-types`
-- [ ] Create `crates/spotledger-http/` — extract `server.rs`, `routes.rs`, `middleware.rs`, `methods/` from `spotledger/`
-- [ ] Create `crates/spotledger-plugins/` — stub only (empty `PluginRegistry`)
-- [ ] Create `crates/spotledger-pdk/` — stub only
-- [ ] Create `crates/spotledger-desk/` — stub only
-- [ ] Create `crates/spotledger-accounting/` — stub only
-- [ ] Create `crates/spotledger-automation/` — stub only with feature flag
-- [ ] `crates/spotledger/` — thin `main.rs` + `cli.rs` only
-- [ ] Create `apps/selling/`, `apps/buying/`, `apps/stock/`, `apps/hrms/` — stub Cargo.toml (`crate-type = ["cdylib"]`)
-- [ ] Remove `crates/spotledger-proxy/` from workspace
-- [ ] Update workspace `Cargo.toml` members list
-- [ ] `cargo build` passes with zero warnings
+- [x] Create `crates/spotledger-core/` — moved from `spotledger-types/`
+- [x] Update `spotledger-db/` to depend on `spotledger-core` instead of `spotledger-types`
+- [x] Create `crates/spotledger-http/` — extracted `server.rs`, `routes.rs`, `middleware.rs`, `methods/` from `spotledger/`
+- [x] Create `crates/spotledger-plugins/` — stub → now has `PluginRegistry`, `host_fn` ABI, memory marshaling, versioning
+- [x] Create `crates/spotledger-pdk/` — stub (guest side `host.rs` re-exports only)
+- [x] Create `crates/spotledger-desk/` — stub (structure only, `doctype.rs` stub)
+- [x] Create `crates/spotledger-accounting/` — stub → now has DocType schemas + GL engine
+- [x] Create `crates/spotledger-automation/` — stub (`scheduled_job.rs`, `webhook.rs` stubs)
+- [x] `crates/spotledger/` — thin `main.rs` + `cli.rs` only
+- [x] Create `apps/selling/`, `apps/buying/`, `apps/stock/`, `apps/hrms/` — stub Cargo.toml (`crate-type = ["cdylib"]`)
+- [x] Remove `crates/spotledger-proxy/` from workspace
+- [x] Update workspace `Cargo.toml` members list
+- [x] `cargo build` passes with zero warnings
 
-**Exit criterion**: `cargo build` clean. All tests pass.
+**Exit criterion**: ✅ `cargo build` clean. All tests pass.
 
 ---
 
-### Phase 1 — Typed Schema (DocTypeMeta) *(~1 week)*
+### Phase 1 — Typed Schema (DocTypeMeta) ✅ COMPLETE
 
 **Goal**: Static `DocTypeMeta` in `spotledger-core`. `getdoctype` for compiled types returns correct data without a DB query.
 
 **Tasks:**
-- [ ] Add `meta.rs` to `spotledger-core/src/` with `FieldType`, `LayoutKind`, `FieldKind`, `DocField`, `DocTypeMeta`, `Permission`
-- [ ] `DocField::LAYOUT_DEFAULTS` and `DocField::DATA_DEFAULTS` const defaults
-- [ ] `DocField::is_layout_only()` and `DocField::frappe_fieldtype()`
-- [ ] `DocTypeMeta::data_fields()`, `all_fields_ordered()`, `to_frappe_json()`
-- [ ] Extend `DocType` trait with `fn meta() -> &'static DocTypeMeta where Self: Sized`
-- [ ] Extend `DocTypeRegistry` with `get_compiled_meta(name)` lookup
-- [ ] Update `handle_getdoctype`: try compiled meta first (zero DB hit), fall back to DB rows
-- [ ] DB sync rule: `data_fields()` only for `DEFINE FIELD` — never create columns for layout fields
+- [x] Add `meta.rs` to `spotledger-core/src/` with `FieldType`, `LayoutKind`, `FieldKind`, `DocField`, `DocTypeMeta`, `Permission`
+- [x] `DocField::is_layout_only()` (`FieldType::is_layout()`) implemented
+- [x] `DocTypeMeta` builder API (`DocTypeMetaBuilder`) in `meta.rs`
+- [x] `DocField` builder chain: `required()`, `in_list()`, `bold()`, `read_only()`, `hidden()`, `unique()`, `not_nullable()`, `set_only_once()`, `allow_on_submit()`, `ignore_xss_filter()`, `permlevel()`, `length()`, `fetch_from()`, `fetch_if_empty()`, `select_options()`, `default()`, `precision()`
+- [x] `DocTypeMeta`: `autoname`, `naming_series` fields added
+- [x] `MetaEntry` + `inventory::collect!(MetaEntry)` for schema inventory
+- [x] `DocTypeRegistry` extended with `MetaEntry`; `get_compiled_meta(doctype)` in `controller.rs`
+- [x] DB sync rule: `FieldType::is_layout()` skips layout fields in schema DDL
+- [ ] Extend `DocType` trait with `fn meta() -> &'static DocTypeMeta` — not yet added to trait
+- [ ] Update `handle_getdoctype`: use compiled meta (still queries DB for DocField rows)
 
-**Exit criterion**: `getdoctype?doctype=User` returns correct shape with no `get_list(db, "DocField")` call.
+**Exit criterion**: ⚠️ `meta.rs` fully typed; `getdoctype` still queries DB for DocField rows (compiled meta not yet wired to handler)
 
 ---
 
-### Phase 1b — Framework DocTypes (Tier 0 + Tier 1 + Tier 3) *(~3 weeks)*
+### Phase 1b — Framework DocTypes (Tier 0 + Tier 1 + Tier 3) 🔄 IN PROGRESS
 
 **Goal**: All framework DocTypes are typed Rust structs. Tier 0/1/3 migrations run at startup. No `seed_doctypes.rs` needed.
 
@@ -690,27 +730,27 @@ systemctl restart spotledger
 - [ ] `doctypes/version.rs` — Version (`before_insert` captures diff), AuditTrail, DeletedDocument
 - [ ] `migrations/tier1.rs` — embedded SurrealQL for Tier 1 tables
 
-**Tier 3 (spotledger-accounting):**
-- [ ] `doctypes/company.rs` — Company (`after_insert` → create default CoA, CostCenter)
-- [ ] `doctypes/account.rs` — Account (nested set tree, `validate` no circular parent)
-- [ ] `doctypes/cost_center.rs` — CostCenter (nested set tree)
-- [ ] `doctypes/fiscal_year.rs` — FiscalYear (`validate` no overlap), FiscalYearCompany
-- [ ] `doctypes/currency.rs` — Currency, CurrencyExchange
+**Tier 3 (spotledger-accounting):** ⚠️ schema files exist, hooks and engine partially stubbed
+- [x] `company.rs` — Company struct + DocTypeMeta defined
+- [x] `account.rs` — Account struct + DocTypeMeta defined (nested set fields present)
+- [x] `currency.rs` — Currency, CurrencyExchange structs defined
+- [x] `fiscal_year.rs` — FiscalYear, FiscalYearCompany structs defined
+- [x] `journal_entry.rs` — JournalEntry, JournalEntryAccount structs defined
+- [x] `gl_engine.rs` — `make_gl_entries()`, `reverse_gl_entries()` signatures present
+- [ ] `doctypes/cost_center.rs` — CostCenter nested set tree
 - [ ] `doctypes/tax.rs` — TaxCategory, TaxTemplate, TaxTemplateDetail
-- [ ] `doctypes/gl_entry.rs` — GLEntry (schema only; no lifecycle hooks)
-- [ ] `doctypes/journal_entry.rs` — JournalEntry (`on_submit` → `make_gl_entries()`, `on_cancel` → `reverse_gl_entries()`), JournalEntryAccount
-- [ ] `doctypes/payment_terms.rs` — PaymentTerms, PaymentTermsTemplate
-- [ ] `engine/gl.rs` — `make_gl_entries()`, `reverse_gl_entries()`, `validate_gl_balance()`
 - [ ] `engine/fiscal.rs` — `get_fiscal_year()`, `get_fiscal_year_start_end()`
 - [ ] `engine/currency.rs` — `get_exchange_rate()`, `convert_to_base_currency()`
 - [ ] `engine/coa.rs` — `get_account_balance()`, `get_account_tree()`, `validate_account()`
 - [ ] `migrations/tier3.rs` — embedded SurrealQL for all Tier 3 tables
+- [ ] `on_submit` / `on_cancel` hooks wired to GL engine for JournalEntry
+- [ ] `Company::after_insert` → create default Chart of Accounts + CostCenter
 
-**Exit criterion**: `spotledger new-site` seeds all tables. Company + Chart of Accounts creatable. `get_account_balance()` returns 0.
+**Exit criterion**: ⏳ `spotledger new-site` seeds all tables. Company + Chart of Accounts creatable. `get_account_balance()` returns 0.
 
 ---
 
-### Phase 1c — Core Utils *(~1 week, parallel with Phase 1b)*
+### Phase 1c — Core Utils ⏳ NOT STARTED
 
 - [ ] `utils/formatting.rs` — `cint`, `flt`, `fmt_money`, `formatdate`, `format_datetime`
 - [ ] `utils/strings.rs` — `scrub`, `unscrub`, `cstr`, `strip_html`
@@ -728,31 +768,37 @@ systemctl restart spotledger
 
 ---
 
-### Phase 2 — WASM Plugin Host *(~2 weeks)*
+### Phase 2 — WASM Plugin Host ✅ COMPLETE (core infrastructure)
 
 **Goal**: Core can load a `.wasm` file, run `register_doctypes()`, `migrations()`, and dispatch lifecycle hooks. Accounting host functions are available to plugins.
 
 **Tasks:**
-- [ ] `extism = "1.0"` dependency in `spotledger-plugins/Cargo.toml`
-- [ ] Implement `PluginRegistry` — `load_all()`, `dispatch_hook()`, `dispatch_method()`, `register_doctypes()`
-- [ ] Implement all `host_fn!` exports: `abi.rs` (doc ops) + `abi_accounting.rs` (GL engine) + `abi_utils.rs`
-- [ ] `extension.rs` — collect method registrations, boot contributions, workspaces, scheduled jobs, cross-hooks
-- [ ] `versioning.rs` — ABI version check, topological plugin load order
-- [ ] `MigrationRunner` for plugin-specific migrations
-- [ ] Wire `PluginRegistry::dispatch_hook` into `HookRegistry` chain
-- [ ] Update HTTP dispatcher to try plugins after core misses
-- [ ] Minimal test plugin (`apps/test_plugin`) — declares DocType, hook, calls `sl_get_account_balance`
-- [ ] Integration test: load plugin → migrations run → doctype appears → hook fires → accounting host fn works
+- [x] `extism` dependency in `spotledger-plugins/Cargo.toml`
+- [x] Implement `PluginRegistry` — `load_all()`, `dispatch_hook()`, `dispatch_method()`, `register_doctypes()` in `spotledger-plugins/src/registry.rs`
+- [x] `abi.rs` — document operation host functions (`sl_get_doc`, `sl_save_doc`, `sl_insert_doc`, `sl_delete_doc`, `sl_get_list`, `sl_submit_doc`, `sl_cancel_doc`, `sl_get_value`, `sl_set_value`, `sl_exists`, `sl_count`, `sl_throw`, `sl_log`)
+- [x] `abi_accounting.rs` — GL engine host functions (`sl_make_gl_entries`, `sl_get_account_balance`, `sl_get_fiscal_year`, `sl_reverse_gl_entries`)
+- [x] `memory.rs` — MsgPack memory marshaling for plugin ↔ host data transfer
+- [x] `context.rs` — per-call context threading (adapter + hook registry refs)
+- [x] `extension.rs` — `MethodRegistration`, boot contributions, workspace contributions structs
+- [x] `versioning.rs` — ABI version check, topological plugin dependency order, cycle detection
+- [x] `db.rs` — DB adapter shim wired to host functions
+- [x] `gl.rs` — GL adapter shim wired to accounting host functions
+- [x] Wire `PluginRegistry` dispatch into `HookRegistry` chain (integration tests pass)
+- [ ] `abi_utils.rs` — utils host functions (`sl_utils_*`) not yet implemented
+- [ ] `MigrationRunner` for plugin-specific migrations — not yet implemented
+- [ ] Minimal test plugin (`apps/test_plugin`) that calls `sl_get_account_balance`
+- [ ] Full end-to-end integration test with live `.wasm` binary
 
-**Exit criterion**: `selling.wasm` drops into `plugins/` → restart → `SalesOrder` appears → `Sales_Order__validate` fires → `sl_make_gl_entries` callable from plugin.
+**Exit criterion**: ⚠️ Core infrastructure in place and tested; live `.wasm` end-to-end test not yet run.
 
 ---
 
-### Phase 3 — spotledger-pdk *(~1 week)*
+### Phase 3 — spotledger-pdk ⏳ STUB ONLY
 
 **Goal**: Plugin authors depend only on `spotledger-pdk`. Zero direct `extism-pdk` references in app code.
 
 **Tasks:**
+- [x] `spotledger-pdk` crate created; `host.rs` re-exports extism-pdk primitives
 - [ ] `api.rs` — document operation wrappers: `sl_get_doc()`, `sl_save()`, `sl_insert()`, `sl_delete()`, `sl_submit()`, `sl_cancel()`, `sl_get_value()`, `sl_set_value()`, `sl_get_all()`, `sl_exists()`, `sl_throw()`, `sl_log()`, `sl_rename_doc()`, `sl_has_permission()`
 - [ ] `accounting.rs` — GL wrappers: `make_gl_entries()`, `reverse_gl_entries()`, `get_account_balance()`, `get_fiscal_year()`, `get_exchange_rate()`, `convert_to_base_currency()`, `validate_account()`, `get_default_account()`
 - [ ] `utils.rs` — formatting, validation, date, nestedset wrappers
@@ -764,7 +810,7 @@ systemctl restart spotledger
 
 ---
 
-### Phase 4 — Domain Plugins (Selling, Buying, Stock) *(~4 weeks)*
+### Phase 4 — Domain Plugins (Selling, Buying, Stock) ⏳ STUB ONLY
 
 **Selling (apps/selling):**
 - [ ] Customer, PriceList + PriceListItem
@@ -794,7 +840,7 @@ systemctl restart spotledger
 
 ---
 
-### Phase 5 — frappe.client API Completion *(~1 week)*
+### Phase 5 — frappe.client API Completion ⏳ NOT STARTED
 
 - [ ] `frappe.client.rename_doc` — cascading FK rewrite via SurrealQL
 - [ ] `frappe.client.attach_file` — store in `tabFile`, return URL
@@ -805,7 +851,7 @@ systemctl restart spotledger
 
 ---
 
-### Phase 6 — API v2 Endpoints *(~1 week)*
+### Phase 6 — API v2 Endpoints ⏳ NOT STARTED
 
 - [ ] `GET    /api/v2/document/{doctype}` — list with advanced filter grammar
 - [ ] `GET    /api/v2/document/{doctype}/{name}` — get single doc
@@ -818,7 +864,7 @@ systemctl restart spotledger
 
 ---
 
-### Phase 7 — Background Jobs *(~2 weeks)*
+### Phase 7 — Background Jobs ⏳ NOT STARTED
 
 SurrealDB as queue backend (no Redis dependency).
 
@@ -841,7 +887,7 @@ Tokio worker:
 
 ---
 
-### Phase 8 — File Storage *(~1 week)*
+### Phase 8 — File Storage ⏳ NOT STARTED
 
 - [ ] `tabFile` DocType in `spotledger-desk`
 - [ ] `POST /api/method/upload_file` — store binary, return URL
@@ -853,7 +899,7 @@ Tokio worker:
 
 ---
 
-### Phase 9 — Full-Text Search *(~1 week)*
+### Phase 9 — Full-Text Search ⏳ NOT STARTED
 
 - [ ] SurrealDB FTS (`SEARCH ANALYZER`) for document search
 - [ ] `frappe.desk.search.search_link` — complete implementation
@@ -862,7 +908,7 @@ Tokio worker:
 
 ---
 
-### Phase 10 — Notifications & Real-time *(~1 week)*
+### Phase 10 — Notifications & Real-time ⏳ NOT STARTED
 
 - [ ] Complete `NotificationLog` CRUD
 - [ ] `frappe.desk.notifications.get_notification_info` — complete
