@@ -2,6 +2,9 @@
 
 use crate::meta::{DocField, DocTypeMeta, FieldType, Permission};
 use crate::registry::MetaEntry;
+use crate::document::Document;
+use crate::error::CoreError;
+use crate::utils::validation::validate_email_address;
 
 // ── User ──────────────────────────────────────────────────────────────────────
 
@@ -81,6 +84,58 @@ inventory::submit!(MetaEntry {
     name: "User",
     meta: user_meta,
 });
+
+/// Validate a User document before save.
+///
+/// Currently checks:
+/// - `email` field is present and is a valid email address.
+///
+/// # Errors
+/// Returns [`CoreError::Validation`] when the email is missing or invalid.
+pub fn validate_user(doc: &Document) -> Result<(), CoreError> {
+    let email = doc
+        .fields
+        .get("email")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if !validate_email_address(email) {
+        return Err(CoreError::Validation(format!(
+            "User: '{}' is not a valid email address",
+            email
+        )));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::document::Document;
+
+    #[test]
+    fn valid_email_passes() {
+        let mut doc = Document::new("User");
+        doc.fields.insert("email".into(), serde_json::json!("user@example.com"));
+        assert!(validate_user(&doc).is_ok());
+    }
+
+    #[test]
+    fn invalid_email_fails() {
+        let mut doc = Document::new("User");
+        doc.fields.insert("email".into(), serde_json::json!("not-an-email"));
+        assert!(validate_user(&doc).is_err());
+    }
+
+    #[test]
+    fn missing_email_fails() {
+        let doc = Document::new("User");
+        assert!(validate_user(&doc).is_err());
+    }
+}
+
+
 
 // ── Role ──────────────────────────────────────────────────────────────────────
 
