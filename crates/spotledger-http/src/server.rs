@@ -18,6 +18,8 @@ use crate::methods::{get_logged_user_handler, getdoc_handler, getdoctype_handler
 use crate::routes::{call_method, ping, resource_get, resource_get_value, resource_list};
 use crate::state::{AppState, SiteState};
 use spotledger_db::connection::connect;
+use spotledger_db::migrations::{current_batch, run_pending_migrations};
+use spotledger_db::schema::ensure_all_schemas;
 
 use spotledger_core::config::SiteConfig;
 
@@ -136,6 +138,68 @@ pub async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Build the Axum router without binding a socket.
+///
+/// Intended for use in integration tests.  The caller must populate
+/// `app_state` with at least one site before calling this function.
+pub fn build_app(app_state: AppState) -> axum::Router {
+    use axum::routing::{get, post};
+
+    let api_routes = axum::Router::new()
+        .route("/api/resource/{doctype}", get(resource_list))
+        .route("/api/resource/{doctype}/{name}", get(resource_get))
+        .route(
+            "/api/resource/{doctype}/{name}/{fieldname}",
+            get(resource_get_value),
+        )
+        .route("/api/method/login",  post(login_handler))
+        .route("/api/method/logout", post(logout_handler))
+        .route(
+            "/api/method/frappe.auth.get_logged_user",
+            get(get_logged_user_handler).post(get_logged_user_handler),
+        )
+        .route(
+            "/api/method/frappe.desk.form.load.getdoctype",
+            get(getdoctype_handler).post(getdoctype_handler),
+        )
+        .route(
+            "/api/method/frappe.desk.form.load.getdoc",
+            get(getdoc_handler).post(getdoc_handler),
+        )
+        .route(
+            "/api/method/frappe.desk.desk_page.getpage",
+            get(getpage_handler).post(getpage_handler),
+        )
+        .route("/api/method/{*path}", get(call_method).post(call_method));
+
+    let app = axum::Router::new()
+        .merge(api_routes)
+        .layer(axum::middleware::from_fn_with_state(
+            app_state.clone(),
+            site_middleware,
+        ))
+        .layer(CorsLayer::permissive())
+        .with_state(app_state);
+
+    axum::Router::new()
+        .route("/api/ping", get(ping))
+        .merge(app)
+}
+
+/// Register a site directly into an [`AppState`] from a config + adapter.
+///
+/// Convenience for integration tests that construct state without touching disk.
+pub async fn register_site_from_config(
+    app_state: &AppState,
+    cfg: spotledger_core::config::SiteConfig,
+) -> anyhow::Result<()> {
+    let hostname = cfg.site.name.clone();
+    let db = connect(&cfg.database).await?;
+    let site_state = SiteState::new(cfg, db);
+    app_state.register(hostname, site_state);
+    Ok(())
+}
+
 async fn load_sites(state: &AppState, sites_dir: &Path) -> anyhow::Result<()> {
     if !sites_dir.exists() {
         return Ok(());
@@ -158,6 +222,19 @@ async fn load_sites(state: &AppState, sites_dir: &Path) -> anyhow::Result<()> {
                 tracing::info!(site = %hostname, "Loading site");
                 match connect(&cfg.database).await {
                     Ok(db) => {
+                        // Auto-sync: apply any new DEFINE TABLE / DEFINE FIELD statements
+                        // from compiled inventory before accepting requests.  All DDL uses
+                        // IF NOT EXISTS so this is safe and fast on an already-current site.
+                        if let Err(e) = ensure_all_schemas(&db).await {
+                            tracing::error!(site = %hostname, error = %e, "Schema sync failed at startup");
+                        } else {
+                            tracing::info!(site = %hostname, "Schema sync complete");
+                        }
+                        match run_pending_migrations(&db, current_batch()).await {
+                            Ok(0)  => tracing::debug!(site = %hostname, "No pending migrations"),
+                            Ok(n)  => tracing::info!(site = %hostname, count = n, "Migrations applied"),
+                            Err(e) => tracing::error!(site = %hostname, error = %e, "Migration failed at startup"),
+                        }
                         let site_state = SiteState::new(cfg, db);
                         state.register(hostname.clone(), site_state);
                         tracing::info!(site = %hostname, "Site ready");

@@ -17,6 +17,6 @@ pub mod state;
 
 // Re-export commonly used types
 pub use middleware::{site_middleware, CurrentUser};
-pub use server::serve;
+pub use server::{serve, build_app, register_site_from_config};
 pub use state::{AppState, SiteState};
 pub use methods::{MethodRegistry, build_registry};

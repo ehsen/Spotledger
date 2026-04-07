@@ -60,21 +60,29 @@ pub async fn login_handler(
     // 1. Look up user (by name or email)
     let user_info = match lookup_user(&site.db, &usr).await {
         Ok(u) => u,
-        Err(_) => return auth_error("Incorrect User or Password").into_response(),
+        Err(e) => {
+            tracing::debug!(usr = %usr, err = %e, "login: user not found");
+            return auth_error("Incorrect User or Password").into_response();
+        }
     };
 
     if !user_info.enabled {
+        tracing::debug!(usr = %usr, "login: user disabled");
         return auth_error("User disabled or missing").into_response();
     }
 
     // 2. Get password hash from __Auth
     let hash = match get_password_hash(&site.db, &user_info.name).await {
         Ok(h) => h,
-        Err(_) => return auth_error("Incorrect User or Password").into_response(),
+        Err(e) => {
+            tracing::debug!(usr = %usr, err = %e, "login: password hash not found");
+            return auth_error("Incorrect User or Password").into_response();
+        }
     };
 
     // 3. Verify password (pbkdf2-sha256 or argon2)
     if !verify_password(&hash, &pwd) {
+        tracing::debug!(usr = %usr, hash_prefix = %&hash[..20.min(hash.len())], "login: password mismatch");
         return auth_error("Incorrect User or Password").into_response();
     }
 
