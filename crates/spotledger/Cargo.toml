@@ -37,3 +37,8 @@ reqwest      = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }
 http-body-util = { workspace = true }
+reqwest = { workspace = true }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"

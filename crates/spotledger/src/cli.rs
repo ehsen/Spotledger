@@ -18,10 +18,16 @@ pub enum Commands {
     Serve(ServeArgs),
     /// Create a new site: write config + bootstrap SurrealDB schema
     NewSite(NewSiteArgs),
+    /// Apply pending DDL schema sync and data migrations to an existing site
+    Migrate(MigrateArgs),
     /// Seed all Frappe DocType definitions into an existing site's SurrealDB
     SeedDoctypes(SeedDoctypesArgs),
     /// Install a Frappe app: DocTypes + Module Defs + fixture records + Patch Log
     InstallApp(InstallAppArgs),
+    /// Write full generated SurrealQL to generated/schema.surql (no DB required)
+    Emit(EmitArgs),
+    /// Remove orphaned tabDocField/tabDocPerm rows for deleted DocTypes
+    Cleanup(CleanupArgs),
 }
 
 #[derive(Debug, clap::Args, Clone)]
@@ -54,6 +60,21 @@ pub struct NewSiteArgs {
     pub admin_password: String,
 }
 
+/// Arguments for the `migrate` subcommand.
+#[derive(Debug, clap::Args, Clone)]
+pub struct MigrateArgs {
+    /// Hostname of the site to migrate (must already exist via new-site)
+    pub site: String,
+
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: PathBuf,
+
+    /// Only print which migrations would run; do not apply any changes
+    #[arg(long, default_value_t = false)]
+    pub dry_run: bool,
+}
+
 #[derive(Debug, clap::Args, Clone)]
 pub struct SeedDoctypesArgs {
     /// Hostname of the site to seed (must already exist via new-site)
@@ -75,4 +96,25 @@ pub struct InstallAppArgs {
     /// Path to the bench root (default: current directory)
     #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
     pub bench: PathBuf,
+}
+
+#[derive(Debug, clap::Args, Clone)]
+pub struct EmitArgs {
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: PathBuf,
+}
+
+#[derive(Debug, clap::Args, Clone)]
+pub struct CleanupArgs {
+    /// Hostname of the site to clean up
+    pub site: String,
+
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: PathBuf,
+
+    /// Actually delete orphaned rows (default: dry run, only prints what would be removed)
+    #[arg(long, default_value_t = false)]
+    pub apply: bool,
 }
