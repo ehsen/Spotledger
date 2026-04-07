@@ -28,6 +28,8 @@ pub enum Commands {
     Emit(EmitArgs),
     /// Remove orphaned tabDocField/tabDocPerm rows for deleted DocTypes
     Cleanup(CleanupArgs),
+    /// Generate Rust DocType source from a Frappe-compatible JSON file
+    Generate(GenerateArgs),
 }
 
 #[derive(Debug, clap::Args, Clone)]
@@ -117,4 +119,15 @@ pub struct CleanupArgs {
     /// Actually delete orphaned rows (default: dry run, only prints what would be removed)
     #[arg(long, default_value_t = false)]
     pub apply: bool,
+}
+
+#[derive(Debug, clap::Args, Clone)]
+pub struct GenerateArgs {
+    /// Path to the Frappe-compatible DocType JSON file
+    #[arg(long, short)]
+    pub from: PathBuf,
+
+    /// Output file path for the generated Rust source (default: print to stdout)
+    #[arg(long, short)]
+    pub out: Option<PathBuf>,
 }

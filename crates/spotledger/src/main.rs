@@ -13,5 +13,6 @@ async fn main() -> anyhow::Result<()> {
         Commands::InstallApp(args)   => spotledger::install_app::install_app(args).await,
         Commands::Emit(args)         => spotledger::emit::emit(args).await,
         Commands::Cleanup(args)      => spotledger::cleanup::cleanup(args).await,
+        Commands::Generate(args)     => spotledger::generate::generate(args).await,
     }
 }

@@ -3,6 +3,7 @@
 pub mod cli;
 pub mod cleanup;
 pub mod emit;
+pub mod generate;
 pub mod install_app;
 pub mod migrate;
 pub mod new_site;
