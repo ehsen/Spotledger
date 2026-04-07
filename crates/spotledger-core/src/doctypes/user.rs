@@ -75,7 +75,7 @@ pub fn user_meta() -> DocTypeMeta {
         search_fields: vec!["email".into(), "first_name".into(), "last_name".into()],
         sort_field: Some("full_name".into()),
         sort_order: Some("asc".into()),
-        autoname: Some("email".into()),
+        autoname: Some("field:email".into()),
         naming_series: None,
     }
 }
