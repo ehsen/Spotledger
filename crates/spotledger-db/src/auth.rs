@@ -209,21 +209,20 @@ pub async fn set_user_password(
     password: &str,
 ) -> Result<(), DbError> {
     let hash = hash_password(password);
+    // Use a literal record ID `__Auth:<user>:password` so UPSERT always
+    // creates-or-replaces regardless of whether the __Auth table is empty.
+    let sql = format!(
+        "UPSERT `__Auth`:`{user}:password` SET \
+           doctype = 'User', \
+           name = '{user}', \
+           fieldname = 'password', \
+           password = $hash, \
+           encrypted = false"
+    );
     adapter
-        .execute(
-            "UPSERT __Auth SET \
-               doctype = 'User', \
-               name = $user, \
-               fieldname = 'password', \
-               password = $hash, \
-               encrypted = false \
-             WHERE doctype = 'User' AND name = $user AND fieldname = 'password'",
-            vec![
-                ("user".into(), user.to_owned().into()),
-                ("hash".into(), hash.into()),
-            ],
-        )
+        .run(&sql, vec![("hash".into(), hash.into())])
         .await
+        .map(|_| ())
 }
 
 // ── Session management ────────────────────────────────────────────────────────

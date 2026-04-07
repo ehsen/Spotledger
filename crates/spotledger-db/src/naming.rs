@@ -117,10 +117,12 @@ pub async fn resolve_name(
         }
     }
 
-    // 3. Inspect tabDocType.autoname
+    // 3. Inspect tabDocumentNamingRule — the admin-editable naming config for
+    //    this DocType.  Seeded from compiled DocTypeMeta.autoname on new-site
+    //    but freely editable afterwards without recompiling.
     let rows = adapter
         .run(
-            "SELECT autoname FROM tabDocType WHERE name = $dt LIMIT 1",
+            "SELECT autoname FROM tabDocumentNamingRule WHERE document_type = $dt LIMIT 1",
             vec![("dt".into(), doctype.into())],
         )
         .await?;
