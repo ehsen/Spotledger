@@ -1,11 +1,12 @@
 # Getting Started with Spotledger
 
 Spotledger is a Frappe-compatible ERP framework written in Rust, backed by
-SurrealDB.  This guide walks you through three topics:
+SurrealDB.  This guide walks you through four topics:
 
 1. [Running your first site](#1-running-your-first-site)
 2. [Creating a new DocType in Rust code](#2-creating-a-new-doctype)
-3. [Reference: how the system works end-to-end](#3-architecture-reference)
+3. [Importing a DocType from a Frappe JSON file](#3-importing-a-frappe-json-doctype)
+4. [Reference: how the system works end-to-end](#4-architecture-reference)
 
 ---
 
@@ -261,7 +262,109 @@ curl http://127.0.0.1:8000/api/resource/Item/WIDGET-001 \
 
 ---
 
-## 3. Architecture Reference
+## 3. Importing a Frappe JSON DocType
+
+If you already have a Frappe/ERPNext instance (or a clone of the Frappe
+repository), you can import any DocType JSON directly — no hand-writing
+required.
+
+### 3.1 Export from Frappe (or use the repo)
+
+Every DocType in a Frappe app is stored as a JSON file next to the Python
+module, e.g.:
+
+```
+frappe/
+  frappe/
+    geo/
+      doctype/
+        currency/
+          currency.json   ← this is the file
+        country/
+          country.json
+```
+
+You can also export from a running Frappe instance:
+`Desk → DocType → <name> → Menu → Export`.
+
+### 3.2 Generate the Rust source
+
+```powershell
+# Print to stdout first to review
+cargo run -- generate --from apps/frappe/frappe/geo/doctype/currency/currency.json
+
+# Write directly to a file
+cargo run -- generate \
+    --from apps/frappe/frappe/geo/doctype/currency/currency.json \
+    --out  crates/spotledger-geo/src/currency.rs
+```
+
+The command reads the JSON and emits a complete `.rs` file:
+
+```rust
+// generated — edit freely
+pub fn currency_meta() -> DocTypeMeta {
+    DocTypeMeta {
+        name: "Currency".into(),
+        module: "Geo".into(),
+        fields: vec![
+            DocField::new("currency_name", "Currency Name", FieldType::Data)
+                .required()
+                .unique(),
+            DocField::new("symbol", "Symbol", FieldType::Data)
+                .in_list(),
+            // …
+        ],
+        autoname: Some("field:currency_name".into()),
+        // …
+    }
+}
+inventory::submit!(MetaEntry { name: "Currency", meta: currency_meta });
+```
+
+### 3.3 What gets mapped
+
+| Frappe JSON key | Rust output |
+|---|---|
+| `autoname` | `DocTypeMeta::autoname` |
+| `is_single` / `is_child_table` / `is_submittable` | structural flags |
+| `fields[].fieldtype` | `FieldType::*` variant (30+ types mapped) |
+| `fields[].reqd` | `.required()` |
+| `fields[].unique` | `.unique()` |
+| `fields[].in_list_view` | `.in_list()` |
+| `fields[].in_standard_filter` | `.in_standard_filter()` |
+| `fields[].default` | `.default_value("…")` |
+| `fields[].options` | `.options("…")` (Link target or Select choices) |
+| `fields[].description` | `.description("…")` |
+| `permissions[].role` + flags | `Permission::full` / `read_only` / custom struct |
+| `field_order` array | field declaration order in `vec![]` |
+
+Frappe booleans stored as `0`/`1` integers are handled automatically.
+
+### 3.4 Wire the file into a crate
+
+1. Create the crate if it doesn't exist (copy `crates/spotledger-geo/Cargo.toml`
+   as a template).
+2. Add `pub mod currency;` to `src/lib.rs`.
+3. Add the crate to the workspace `Cargo.toml` `[workspace] members` list.
+4. Add it as a dependency of the main binary in `crates/spotledger/Cargo.toml`.
+5. Rebuild and run `migrate` (or `new-site` for a fresh environment).
+
+**The `spotledger-geo` crate** (Currency + Country) ships with the framework
+and shows the complete example:
+
+```
+crates/spotledger-geo/
+  Cargo.toml
+  src/
+    lib.rs
+    currency.rs   ← generated from frappe/geo/doctype/currency/currency.json
+    country.rs    ← generated from frappe/geo/doctype/country/country.json
+```
+
+---
+
+## 4. Architecture Reference
 
 ### Metadata tiers
 

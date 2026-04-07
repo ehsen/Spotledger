@@ -225,13 +225,13 @@ fn render(dt: &FrappeDocType) -> anyhow::Result<String> {
     out.push_str(&format!("        name: \"{name}\".into(),\n", name = dt.name));
     out.push_str(&format!("        module: \"{module}\".into(),\n", module = dt.module));
 
-    // Structural flags — only emit non-default values
+    // Structural flags
     out.push_str(&format!(
         "        is_single:      {},\n\
-                 is_tree:        {},\n\
-                 is_child:       {},\n\
-                 is_submittable: {},\n\
-                 track_changes:  {},\n",
+         \x20\x20\x20\x20\x20\x20\x20\x20is_tree:        {},\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20is_child:       {},\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20is_submittable: {},\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20track_changes:  {},\n",
         dt.is_single,
         dt.is_tree,
         dt.is_child_table,

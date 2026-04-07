@@ -3,6 +3,7 @@ members = [
     "crates/spotledger-core",
     "crates/spotledger-db",
     "crates/spotledger-desk",
+    "crates/spotledger-geo",
     "crates/spotledger-accounting",
     "crates/spotledger-automation",
     "crates/spotledger-http",
@@ -89,6 +90,7 @@ once_cell = "1"
 spotledger-core        = { path = "crates/spotledger-core" }
 spotledger-db          = { path = "crates/spotledger-db" }
 spotledger-desk        = { path = "crates/spotledger-desk" }
+spotledger-geo         = { path = "crates/spotledger-geo" }
 spotledger-accounting  = { path = "crates/spotledger-accounting" }
 spotledger-automation  = { path = "crates/spotledger-automation" }
 spotledger-http        = { path = "crates/spotledger-http" }
