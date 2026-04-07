@@ -1,10 +1,12 @@
 pub mod adapter;
 pub mod auth;
+pub mod bootstrap;
 pub mod connection;
 pub mod controller;
 pub mod document;
 pub mod error;
 pub mod hooks;
+pub mod migrations;
 pub mod naming;
 pub mod permissions;
 pub mod query;
