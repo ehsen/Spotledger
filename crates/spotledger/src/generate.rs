@@ -431,6 +431,10 @@ fn map_fieldtype(s: &str) -> anyhow::Result<&'static str> {
         "Duration"                      => "Int",
         "Phone"                         => "Data",
         "Autocomplete"                  => "Data",
+        "Text Editor"                   => "LongText",  // Rich-text editor — stored as long text
+        "Markdown Editor"               => "LongText",
+        "Icon"                          => "Data",
+        "Image"                         => "AttachImage",
         other => bail!("Unrecognised Frappe fieldtype: '{other}'"),
     })
 }
