@@ -17,3 +17,4 @@ async-trait     = { workspace = true }
 inventory       = { workspace = true }
 chrono          = { workspace = true }
 rust_decimal    = { version = "1", features = ["serde"] }
+thiserror       = { workspace = true }

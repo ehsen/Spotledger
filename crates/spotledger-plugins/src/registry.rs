@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
+use crate::host_fns::build_host_functions;
+use crate::abi_utils::build_utils_host_functions;
 use crate::versioning::{VersioningResolver, PluginManifest, HOST_ABI_VERSION};
 
 /// Identifies a loaded WASM plugin (app name: "selling", "buying", etc.)
@@ -38,6 +40,12 @@ pub struct PluginRegistry {
     plugins_dir: PathBuf,
     // Versioning resolver for compatibility checks and load ordering
     versioning: Arc<std::sync::Mutex<VersioningResolver>>,
+    /// Maps DocType name → plugin_id for all plugin-provided DocTypes.
+    ///
+    /// Populated by `register_capabilities()` when a plugin loads.
+    /// Used at validation time to determine whether a Link field's target
+    /// DocType is available (`provided_by` dormancy check).
+    provided_doctypes: DashMap<String, String>,
 }
 
 impl PluginRegistry {
@@ -47,6 +55,7 @@ impl PluginRegistry {
             metadata: DashMap::new(),
             plugins_dir: plugins_dir.into(),
             versioning: Arc::new(std::sync::Mutex::new(VersioningResolver::new())),
+            provided_doctypes: DashMap::new(),
         }
     }
 
@@ -85,15 +94,17 @@ impl PluginRegistry {
     }
 
     /// Load a single .wasm file as a plugin.
-    async fn load_plugin(&self, plugin_id: &str, path: &Path) -> anyhow::Result<()> {
+    pub async fn load_plugin(&self, plugin_id: &str, path: &Path) -> anyhow::Result<()> {
         let wasm_bytes = tokio::fs::read(path).await?;
 
         // For hash, use a simple approach (MD5 would need a crate; use file size for now)
         let manifest_hash = format!("{:x}", wasm_bytes.len());
 
-        // Create extism plugin with host function bindings
-        // Host functions defined with #[host_fn] macro are automatically available
-        let plugin = Plugin::new(&wasm_bytes, [], true)?;
+        // Register all SpotledgerCore host functions with this plugin instance.
+        // Plugins import these under the `extism:host/user` WASM namespace.
+        let mut host_fns = build_host_functions();
+        host_fns.extend(build_utils_host_functions());
+        let plugin = Plugin::new(&wasm_bytes, host_fns, true)?;
 
         // Create minimal manifest for Phase 2
         // Phase 2.5: read manifest from plugin's custom section or metadata
@@ -103,6 +114,8 @@ impl PluginRegistry {
             name: plugin_id.to_owned(),
             version: "1.0".to_owned(),
             dependencies: vec![],
+            provides_doctypes: vec![],
+            party_types: vec![],
         };
 
         // Validate ABI version
@@ -178,6 +191,50 @@ impl PluginRegistry {
         self.metadata
             .get(&PluginId(plugin_id.to_owned()))
             .map(|r| r.clone())
+    }
+
+    // ── Capability registration ───────────────────────────────────────────
+
+    /// Register a plugin's capability declarations into the in-memory index.
+    ///
+    /// Called by the plugin host after `load_plugin()` succeeds (or after
+    /// the plugin's exported manifest function is parsed in Phase 3).
+    ///
+    /// This method only updates the **in-memory** `provided_doctypes` map.
+    /// The `party_types` entries must be persisted to the DB separately by the
+    /// caller (via `INSERT OR IGNORE INTO party_type …`).
+    pub fn register_capabilities(&self, manifest: &PluginManifest) {
+        let plugin_id = manifest.id.0.clone();
+        for doctype in &manifest.provides_doctypes {
+            info!(
+                plugin = %plugin_id,
+                doctype = %doctype,
+                "Registered plugin-provided DocType"
+            );
+            self.provided_doctypes.insert(doctype.clone(), plugin_id.clone());
+        }
+        // party_types declare doctypes too — register them as well so Link
+        // field dormancy checks work for the party doctype itself.
+        for pt in &manifest.party_types {
+            self.provided_doctypes
+                .entry(pt.doctype_name.clone())
+                .or_insert_with(|| plugin_id.clone());
+        }
+    }
+
+    /// Returns `true` if a plugin that provides `doctype` is currently loaded.
+    ///
+    /// Used by Link-field validation: if a `DocField` has
+    /// `provided_by = Some("selling")` and `provides_doctype("Customer")` is
+    /// false, existence validation is skipped (field is dormant — plugin not
+    /// installed).
+    pub fn provides_doctype(&self, doctype: &str) -> bool {
+        self.provided_doctypes.contains_key(doctype)
+    }
+
+    /// Returns the plugin_id that provides `doctype`, if any.
+    pub fn provider_of(&self, doctype: &str) -> Option<String> {
+        self.provided_doctypes.get(doctype).map(|r| r.clone())
     }
 }
 

@@ -32,6 +32,41 @@ pub struct PluginManifest {
     pub name: String,
     pub version: String,
     pub dependencies: Vec<PluginDependency>,
+
+    // ── Capability declarations ───────────────────────────────────────────
+    /// All DocType names this plugin provides.
+    ///
+    /// Used by Link-field validation routing: if a `DocField` has
+    /// `provided_by = Some("selling")` and `"selling"` is not in the loaded
+    /// registry, that field's existence check is skipped (field is dormant).
+    pub provides_doctypes: Vec<String>,
+
+    /// Party types this plugin registers into the `PartyType` kernel table.
+    ///
+    /// The plugin host calls `PluginRegistry::register_capabilities()` after
+    /// loading, which does `INSERT OR IGNORE` for each entry here.
+    pub party_types: Vec<PartyTypeDecl>,
+}
+
+/// Declaration of a party type that a plugin contributes to the kernel registry.
+///
+/// Example — the `selling` plugin declares:
+/// ```ignore
+/// PartyTypeDecl {
+///     name:         "Customer".into(),
+///     doctype_name: "Customer".into(),
+///     account_type: "Receivable".into(),
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct PartyTypeDecl {
+    /// The party type name (PK in `PartyType` table, e.g. `"Customer"`).
+    pub name: String,
+    /// The DocType whose records are looked up for existence validation.
+    /// Usually identical to `name` but may differ.
+    pub doctype_name: String,
+    /// `"Receivable"` or `"Payable"` — determines which side of AR/AP this sits on.
+    pub account_type: String,
 }
 
 impl PluginManifest {
@@ -155,6 +190,8 @@ mod tests {
             name: "Selling".into(),
             version: "1.0".into(),
             dependencies: vec![],
+            provides_doctypes: vec![],
+            party_types: vec![],
         };
         assert!(manifest.is_compatible());
 
@@ -164,6 +201,8 @@ mod tests {
             name: "Future".into(),
             version: "1.0".into(),
             dependencies: vec![],
+            provides_doctypes: vec![],
+            party_types: vec![],
         };
         assert!(!future_manifest.is_compatible());
     }
@@ -179,6 +218,8 @@ mod tests {
             name: "Selling".into(),
             version: "1.0".into(),
             dependencies: vec![],
+            provides_doctypes: vec![],
+            party_types: vec![],
         });
 
         // buying depends on selling
@@ -191,6 +232,8 @@ mod tests {
                 id: PluginId("selling".into()),
                 min_abi_version: 1,
             }],
+            provides_doctypes: vec![],
+            party_types: vec![],
         });
 
         let order = resolver.resolve_load_order().unwrap();
@@ -212,6 +255,8 @@ mod tests {
                 id: PluginId("b".into()),
                 min_abi_version: 1,
             }],
+            provides_doctypes: vec![],
+            party_types: vec![],
         });
 
         resolver.register(PluginManifest {
@@ -223,6 +268,8 @@ mod tests {
                 id: PluginId("a".into()),
                 min_abi_version: 1,
             }],
+            provides_doctypes: vec![],
+            party_types: vec![],
         });
 
         let result = resolver.resolve_load_order();
