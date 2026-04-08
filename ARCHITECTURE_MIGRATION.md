@@ -34,6 +34,7 @@ Key design decisions:
 | **Phase 2** | WASM Plugin Host | ✅ Complete — all host fns registered, live WAT e2e test passing |
 | **Phase 2b** | Plugin Capability Declaration & Party Resolution | ✅ Complete — `PluginManifest` capabilities, `PluginRegistry::register_capabilities()`, `PartyTypeDecl` |
 | **Phase 3** | spotledger-pdk | ✅ Complete — `api.rs`, `accounting.rs` guest-side wrappers, dual wasm32/host compilation |
+| **Phase 3b** | Boot Info & UI Integration | ✅ Complete — see §Boot Info below |
 | **Phase 4** | Domain Plugins (Selling/Buying/Stock) | ⏳ Stub only |
 | **Phase 5** | frappe.client API Completion | ⏳ Not Started |
 | **Phase 6** | API v2 Endpoints | ⏳ Not Started |
@@ -50,6 +51,205 @@ Key design decisions:
 - **Validation is pure (no DB)**: `spotledger-core/src/validation.rs` has zero DB dependency — works in WASM guest context too
 - **Permission system**: Strong-typed with full Frappe parity (role, DocType, If Owner, User permissions, `permlevel`)
 - **`MetaEntry` inventory**: Compile-time self-registration via `inventory::submit!` — no dynamic map needed for schema sync
+- **No Workspaces** — Spotledger UI uses a module-driven sidebar, not Frappe's workspace/link system. Navigation is driven entirely by `ModuleDef` records and `DocType.show_in_menu = 1`. Workspaces code remains in the backend for compatibility but is not consumed by the Spotledger UI.
+
+---
+
+## Phase 3b — Boot Info & UI Integration
+
+> **Completed April 2026.**
+
+### Overview
+
+The Spotledger UI (React/TypeScript, `Spotledger-ui/`) connects to the Axum backend through a small set of well-defined contracts. This phase makes the boot info endpoint production-ready and wires the UI's sidebar to real data.
+
+### New DocTypes (spotledger-core, Tier 0)
+
+#### `ModuleDef`
+
+Controls what appears in the sidebar navigation. Each installed app inserts one or more records here.
+
+| Field              | Type  | Default | Purpose                                           |
+|--------------------|-------|---------|---------------------------------------------------|
+| `module_name`      | Data  | —       | Primary key / unique identifier                   |
+| `app_name`         | Data  | —       | App that owns this module (e.g. `"spotledger"`)   |
+| `label`            | Data  | —       | Display label (falls back to `module_name`)       |
+| `icon`             | Data  | —       | Lucide icon name shown in the sidebar             |
+| `show_in_menu`     | Check | `1`     | **Controls sidebar visibility** — set `0` to hide |
+| `order`            | Int   | `0`     | Sort order (ascending) in the sidebar             |
+| `restrict_to_domain` | Data | —    | Show only when this domain is active              |
+| `custom`           | Check | `0`     | Set by admin when creating custom modules         |
+
+#### `UserModule` (child of `User`)
+
+Lists which modules a specific user is allowed to access.  **Empty list = all modules allowed** (same semantics as Frappe's `allow_modules`).
+
+| Field    | Type | Purpose                            |
+|----------|------|------------------------------------|
+| `module` | Link → ModuleDef | Module name |
+
+#### `DocType` additions
+
+| Field          | Type  | Default | Purpose                                     |
+|----------------|-------|---------|---------------------------------------------|
+| `show_in_menu` | Check | `1`     | Whether this DocType appears in the sidebar under its module |
+| `icon`         | Data  | —       | Icon shown next to the DocType in sidebar   |
+
+### Boot Info Endpoint
+
+```
+GET  /api/method/frappe.boot.get_bootinfo
+POST /api/method/frappe.boot.get_bootinfo    (both verbs accepted by method dispatcher)
+```
+
+Authentication: requires valid `sid` cookie. Returns `403` for Guest.  
+Also aliased at `frappe.utils.boot.get_boot_info` for internal use.
+
+#### Response Shape
+
+```jsonc
+{
+  // ── Identity
+  "sitename":       "ehsen",
+  "server_date":    "2026-04-08",
+  "lang":           "en",
+  "developer_mode": false,
+
+  // ── Logged-in user (drives RBAC on the client)
+  "user": {
+    "name":       "administrator",
+    "email":      "admin@example.com",
+    "full_name":  "Administrator",
+    "user_type":  "System User",
+    "desk_theme": "Light",
+    "roles":      ["System Manager", "Administrator", "All"],
+    "defaults":   {},                       // user-scoped DefaultValue rows
+    "can_read":   ["Journal Entry", ...],   // filtered by DocPerm
+    "can_write":  [...],
+    "can_create": [...],
+    "can_delete": [...],
+    "can_submit": [...],
+    "can_cancel": [...],
+    "allow_modules": []                     // empty = all modules allowed
+  },
+
+  // ── All active users (for @-mentions, avatars)
+  "user_info": {
+    "administrator": {
+      "name": "administrator", "full_name": "Administrator",
+      "email": "admin@example.com", "user_type": "System User",
+      "avatar_url": null
+    }
+  },
+
+  // ── Global defaults (from DefaultValue where parenttype = "__default")
+  "sysdefaults": {
+    "company": "Acme Corp",
+    "currency": "USD",
+    "date_format": "DD-MM-YYYY",
+    "timezone": "UTC",
+    "setup_complete": "1"
+  },
+
+  // ── Module map (drives sidebar, filtered by user.allow_modules)
+  "modules": {
+    "Accounts": {
+      "app":         "spotledger",
+      "label":       "Accounts",
+      "icon":        "calculator",
+      "order":       1,
+      "show_in_menu": 1,
+      "doctypes": [
+        { "name": "Journal Entry", "icon": null, "issingle": 0, "issubmittable": 1 },
+        { "name": "General Ledger", "icon": null, "issingle": 0, "issubmittable": 0 }
+      ]
+    }
+  },
+  "module_list": ["Accounts", "Buying", "Selling"],   // sorted by ModuleDef.order
+
+  // ── App summary
+  "app_data": [{ "app_name": "spotledger", "app_title": "Spotledger",
+                  "app_logo_url": "/assets/spotledger/images/logo.svg",
+                  "modules": ["Accounts", "Buying"] }],
+  "versions": { "spotledger": "0.1.0" },
+
+  // ── DocType helpers
+  "single_types":   ["System Settings", "Global Defaults"],
+  "home_page":      "Accounts",
+
+  // ── Branding
+  "app_logo_url":   "/assets/spotledger/images/logo.svg",
+  "navbar_settings": { "app_logo": "...", "items": [] },
+  "max_file_size":  10485760,
+
+  // ── P2 (empty until implemented)
+  "__messages": {}, "notification_settings": null,
+  "letter_heads": {}, "active_domains": [], "all_domains": [],
+  "desktop_icons": [], "frequently_visited_links": [],
+  "link_preview_doctypes": [], "link_title_doctypes": [],
+  "lang_dict": {}, "timezone_info": {"zones":{}, "rules":{}, "links":{}},
+  "docs": [], "time_zone": {"user": "UTC", "system": "UTC"}
+}
+```
+
+### UI Integration Contracts
+
+#### Post-Login / Session-Restore Flow
+
+```
+Login success OR valid sid cookie found
+  │
+  ├─ Read localStorage: key = "spotledger_boot_<site>_<user>"
+  │   ├─ Valid (< 5 min old, version matches) → use cached
+  │   └─ Stale / missing → GET /api/method/frappe.boot.get_bootinfo
+  │                         └─ write to cache
+  │
+  ├─ store.setBootInfo(bootinfo)
+  └─ store.setAuthenticated(username) → render Shell
+```
+
+Cache key envelope: `{ version: 1, fetchedAt: number, ttlMs: 300000, data: BootInfo }`.  
+Cache is cleared on logout and when `versions` differ from cached payload.
+
+#### Sidebar Wiring
+
+The `Sidebar.tsx` module list must be hydrated from `bootinfo.modules` (not hardcoded).  
+Expansion state is local (`useState`); no persistence needed.
+
+```
+bootinfo.module_list.forEach(moduleName => {
+  const mod = bootinfo.modules[moduleName]
+  // render module group with mod.label, mod.icon
+  // render mod.doctypes[].name as clickable items
+})
+```
+
+#### Logout Fix
+
+`frappeApi.ts → logoutUser()` must use `POST` (not `GET`) and clear the boot cache.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `crates/spotledger-core/src/doctypes/doctype.rs` | Added `show_in_menu`, `icon` fields to DocType meta |
+| `crates/spotledger-core/src/doctypes/system.rs`  | Added `ModuleDef`, `UserModule` meta + `inventory::submit!` |
+| `crates/spotledger-core/src/migrations/tier0.surql` | Added DDL for `ModuleDef`, `UserModule`; `show_in_menu`/`icon` on `DocType` |
+| `crates/spotledger-http/src/methods/desk/mod.rs`  | Rewrote `build_boot_user`, `handle_get_boot_info`; added helper fns; registered `frappe.boot.get_bootinfo` alias |
+| `Spotledger-ui/UI_BACKEND_INTEGRATION_PLAN.md`    | Full integration spec (Phase 1: Auth + Boot) |
+
+### Outstanding UI Work (tracked in UI_BACKEND_INTEGRATION_PLAN.md)
+
+| # | File | Change |
+|---|------|--------|
+| 1 | `src/lib/frappeApi.ts` | Fix `logoutUser` to POST; add `fetchBootInfo()` |
+| 2 | `src/lib/bootCache.ts` | New: localStorage cache with TTL + versioning |
+| 3 | `src/lib/initSession.ts` | New: shared login/restore initialiser |
+| 4 | `src/store/useAppStore.ts` | Add `bootInfo` state + `setBootInfo` action |
+| 5 | `src/types/bootinfo.ts` | New: TypeScript interface matching §Response Shape |
+| 6 | `src/App.tsx` | Call `initSession` instead of bare `setAuthenticated` |
+| 7 | `src/app/auth/LoginPage.tsx` | Call `initSession` after successful login |
+| 8 | `src/app/shell/Sidebar.tsx` | Drive from `bootinfo.modules` instead of hardcoded data |
 
 ---
 
