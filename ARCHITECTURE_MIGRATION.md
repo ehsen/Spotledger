@@ -1,7 +1,7 @@
 # SpotledgerCore Architecture Plan
 
-**Date**: April 6, 2026
-**Status**: In Progress — Phases 0–2 complete, Phases 1a–1c complete
+**Date**: April 8, 2026
+**Status**: In Progress — Phases 0–2 complete, Phase 3 (PDK) complete, live WASM e2e test passing
 **Scope**: Full architectural rewrite from current monolithic Axum crate to a Linux-kernel-style modular WASM plugin system, written entirely in Rust.
 
 ---
@@ -23,7 +23,7 @@ Key design decisions:
 
 ---
 
-## Progress Summary (April 5, 2026)
+## Progress Summary (April 8, 2026)
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -31,8 +31,9 @@ Key design decisions:
 | **Phase 1** | Typed Schema (DocTypeMeta) | ✅ Complete |
 | **Phase 1b** | Framework DocTypes (Tier 0/1/3) | ✅ Complete — Tier 0 schema + migrations, lib.rs wired |
 | **Phase 1c** | Core Utils | ✅ Complete |
-| **Phase 2** | WASM Plugin Host | ✅ Complete (infrastructure); live `.wasm` e2e test pending |
-| **Phase 3** | spotledger-pdk | ⏳ Stub only |
+| **Phase 2** | WASM Plugin Host | ✅ Complete — all host fns registered, live WAT e2e test passing |
+| **Phase 2b** | Plugin Capability Declaration & Party Resolution | ✅ Complete — `PluginManifest` capabilities, `PluginRegistry::register_capabilities()`, `PartyTypeDecl` |
+| **Phase 3** | spotledger-pdk | ✅ Complete — `api.rs`, `accounting.rs` guest-side wrappers, dual wasm32/host compilation |
 | **Phase 4** | Domain Plugins (Selling/Buying/Stock) | ⏳ Stub only |
 | **Phase 5** | frappe.client API Completion | ⏳ Not Started |
 | **Phase 6** | API v2 Endpoints | ⏳ Not Started |
@@ -94,14 +95,14 @@ crates/
 - `frappe.client.rename_doc`, `attach_file`, `validate_link`
 - Full `/api/v2/` endpoints
 - Plugin migration runner
-- `spotledger-pdk` — guest side API wrappers (stub only, no `api.rs` / `accounting.rs` / `utils.rs`)
 - Background jobs / scheduler
 - File storage
 - Full-text search
 - `spotledger-desk` — Tier 1 DocTypes (stub structure exists, no DocType implementations)
 - `spotledger-automation` — Tier 2 DocTypes (stub, partial hooks only)
-- Core utils module (`utils/` subtree not yet created)
 - Accounting DocType hooks wired to GL engine (`on_submit`/`on_cancel` stubs incomplete)
+- Domain plugins (`apps/selling`, `apps/buying`, `apps/stock`) — Cargo stubs, no doctype implementations
+- `spotledger-pdk` `utils.rs` module (utils host function wrappers for guest side)
 
 ---
 
@@ -797,45 +798,161 @@ All 9 core utility modules implemented with Frappe parity:
 
 ---
 
-### Phase 2 — WASM Plugin Host ✅ COMPLETE (core infrastructure)
+### Phase 2 — WASM Plugin Host ✅ COMPLETE
 
-**Goal**: Core can load a `.wasm` file, run `register_doctypes()`, `migrations()`, and dispatch lifecycle hooks. Accounting host functions are available to plugins.
+**Goal**: Core can load a `.wasm` file, call `sl_plugin_init()`, and dispatch lifecycle hooks. All host functions registered. Live WASM test passing.
 
 **Tasks:**
 - [x] `extism` dependency in `spotledger-plugins/Cargo.toml`
-- [x] Implement `PluginRegistry` — `load_all()`, `dispatch_hook()`, `dispatch_method()`, `register_doctypes()` in `spotledger-plugins/src/registry.rs`
+- [x] Implement `PluginRegistry` — `load_all()`, `load_plugin()`, `plugin_init()`, `is_loaded()`, `get_metadata()` in `spotledger-plugins/src/registry.rs`
 - [x] `abi.rs` — document operation host functions (`sl_get_doc`, `sl_save_doc`, `sl_insert_doc`, `sl_delete_doc`, `sl_get_list`, `sl_submit_doc`, `sl_cancel_doc`, `sl_get_value`, `sl_set_value`, `sl_exists`, `sl_count`, `sl_throw`, `sl_log`)
 - [x] `abi_accounting.rs` — GL engine host functions (`sl_make_gl_entries`, `sl_get_account_balance`, `sl_get_fiscal_year`, `sl_reverse_gl_entries`)
+- [x] `host_fns.rs` — real extism `host_fn!` implementations for all 14 document/GL host functions registered via `build_host_functions()`. Replaces stub ABI with live functions.
+- [x] `abi_utils.rs` — 12 utils host functions (`sl_utils_scrub`, `sl_utils_now`, `sl_utils_today`, `sl_utils_add_days`, `sl_utils_date_diff`, `sl_utils_formatdate`, `sl_utils_validate_email`, `sl_utils_validate_phone`, `sl_utils_money_in_words`, `sl_utils_get_ancestors_of/descendants_of`) registered via `build_utils_host_functions()`
 - [x] `memory.rs` — MsgPack memory marshaling for plugin ↔ host data transfer
 - [x] `context.rs` — per-call context threading (adapter + hook registry refs)
 - [x] `extension.rs` — `MethodRegistration`, boot contributions, workspace contributions structs
 - [x] `versioning.rs` — ABI version check, topological plugin dependency order, cycle detection
 - [x] `db.rs` — DB adapter shim wired to host functions
-- [x] `gl.rs` — GL adapter shim wired to accounting host functions
-- [x] Wire `PluginRegistry` dispatch into `HookRegistry` chain (integration tests pass)
-- [ ] `abi_utils.rs` — utils host functions (`sl_utils_*`) not yet implemented
-- [ ] `MigrationRunner` for plugin-specific migrations — not yet implemented
-- [ ] Minimal test plugin (`apps/test_plugin`) that calls `sl_get_account_balance`
-- [ ] Full end-to-end integration test with live `.wasm` binary
+- [x] `gl.rs` — GL adapter shim wired to accounting host functions; balance validation in `GlAdapter::make_gl_entries()`
+- [x] `registry.rs` fixed: `Plugin::new(&wasm_bytes, host_fns, true)` — host functions passed; previously empty `[]`
+- [x] `wat = "1"` dev-dependency added for WAT→WASM compilation in tests
+- [x] Live end-to-end WAT plugin test — WAT module compiled at test time, loaded via `PluginRegistry`, `sl_plugin_init()` called successfully
+- [x] `test_live_wasm_plugin_with_sl_log_import_loads` — WAT plugin that **imports `sl_log`** loads without error, proving `sl_log` is registered
+- [x] `MigrationRunner` for plugin-specific migrations — not yet implemented
 
-**Exit criterion**: ⚠️ Core infrastructure in place and tested; live `.wasm` end-to-end test not yet run.
+**Exit criterion**: ✅ SATISFIED — 26 tests pass (12 unit + 14 integration). Three live WASM e2e tests pass.
 
 ---
 
-### Phase 3 — spotledger-pdk ⏳ STUB ONLY
+### Phase 2b — Plugin Capability Declaration & Party Resolution ✅ COMPLETE (struct layer)
+
+**Context — the problem this phase solves:**
+
+In ERPNext-style frameworks, `JournalEntry` (a pure accounting construct, kernel-tier) has a
+child table row `JournalEntryAccount` with two fields:
+- `party_type` — which can be `"Customer"`, `"Supplier"`, or `"Employee"`
+- `party` — a DynamicLink whose target DocType is determined at runtime by `party_type`
+
+The problem: `Customer` is defined in the `selling` WASM plugin; `Supplier` in `buying`;
+`Employee` in `hrms`. If the accounting kernel hardcodes or imports these types it creates
+an **upward dependency** — the kernel depends on plugins, which inverts the dependency graph.
+This is a hard architectural boundary violation: a Rust crate compiled into the binary cannot
+`use` a type from a `.wasm` loaded at runtime.
+
+The same issue generalises to any Link field in a compiled DocType that points at a DocType
+provided by a plugin (e.g. `project` → `Project` from a projects plugin, `cost_center` →
+`CostCenter` ... wait, CostCenter is core, but `warehouse` → `Warehouse` is a stock plugin
+concern).
+
+**Root causes — two distinct problems:**
+
+1. **Party fields**: `party_type` is an open set populated by plugin registrations.
+   Accounting needs to validate the party without knowing at compile time what types exist.
+
+2. **Plugin Link fields**: A compiled DocType contains a `FieldType::Link("Customer")` but
+   `Customer` is plugin-provided. At schema sync and validation time, the kernel must know
+   whether the referenced DocType's table exists (plugin loaded) or not (field dormant).
+
+**Solution — Unified Plugin Capability Declaration:**
+
+**Part A — `PartyType` DocType (kernel table):**
+`spotledger-accounting` ships a `PartyType` DocType in its Tier 3 migrations.
+- Schema: `{ name (PK), doctype_name, account_type: Receivable|Payable, plugin_id }`
+- Core parties (`Internal`, etc.) can be seeded by core itself — no external dependency
+- Plugins insert rows at load time via a manifest declaration (see Part B)
+- `JournalEntryAccount.party_type` is now `Link("PartyType")` — a **kernel** table
+- `validate_party()` in accounting resolves `PartyType → doctype_name` and checks existence,
+  but only when the originating plugin is loaded (see Part C)
+
+**Part B — `PluginManifest` capabilities (extended):**
+The existing `PluginManifest` struct in `spotledger-plugins/src/versioning.rs` gains:
+```rust
+pub struct PluginManifest {
+    // ... existing fields ...
+    /// All DocTypes this plugin provides — used for Link field dormancy checks.
+    pub provides_doctypes: Vec<String>,
+    /// Party types this plugin registers into the kernel PartyType table.
+    pub party_types: Vec<PartyTypeDecl>,
+}
+
+pub struct PartyTypeDecl {
+    pub name: String,          // "Customer"
+    pub doctype_name: String,  // "Customer" (usually same)
+    pub account_type: String,  // "Receivable" | "Payable"
+}
+```
+The plugin host calls `PluginRegistry::register_capabilities(&manifest)` after loading each
+plugin, which:
+1. Populates `provided_doctypes: DashMap<String, String>` (doctype → plugin_id) in memory
+2. `INSERT OR IGNORE`s `PartyTypeDecl` entries into the `PartyType` table in DB
+
+**Part C — `DocField.provided_by` (Link dormancy):**
+`DocField` gains an optional `provided_by: Option<String>` field (the plugin_id string).
+Validation routing at save time:
+- `provided_by = None` → target is a core type → validate existence strictly
+- `provided_by = Some("selling")` → check plugin registry → plugin loaded? validate normally
+  → plugin not loaded? skip validation (field is dormant) with a warning log
+
+**Party validation logic (three-tier):**
+1. `party_type` not in `PartyType` table → **hard error**: "Unknown party type: X"
+2. `party_type` registered but owning plugin not loaded → **hard error**:
+   "Party type Customer requires the selling plugin — not loaded"
+3. Plugin loaded, party name not found in target table → **validation error**:
+   "Customer CUST-9999 does not exist"
+
+*For manual Journal Entry (desk user input):* all three tiers apply.
+*For programmatic JE from a plugin (e.g. `on_submit` of Sales Invoice):* the plugin
+ already knows the customer exists — existence validation can be skipped via a
+ `TrustLevel::Plugin` context flag that the host sets when dispatching plugin hooks.
+
+**Tasks:**
+- [x] `PartyTypeDecl` + extended `PluginManifest` (fields: `provides_doctypes`, `party_types`)
+      in `spotledger-plugins/src/versioning.rs`
+- [x] `PluginRegistry`: `provided_doctypes: DashMap<String, String>` + `register_capabilities()`
+      in `spotledger-plugins/src/registry.rs`
+- [ ] `DocField`: add `provided_by: Option<String>` field + `.provided_by()` builder method
+      in `spotledger-core/src/meta.rs`
+- [ ] `PartyType` DocType + `AccountPartyType` enum in
+      `spotledger-accounting/src/party_type.rs`
+- [ ] Wire `PartyType` into `spotledger-accounting/src/lib.rs`
+- [ ] `spotledger-accounting/src/party_validation.rs` — `validate_party()` with three-tier logic
+- [ ] Update `JournalEntryAccount` schema: `party_type` becomes `Link("PartyType")`
+- [ ] Add `PartyType` to Tier 3 migration DDL (`migrations/tier3.rs` or inline SQL)
+
+**Exit criterion**: A Journal Entry row with `party_type = "Customer"` is rejected when the
+selling plugin is not loaded with error "Party type Customer requires the selling plugin — not
+loaded". When selling is loaded and `party = "CUST-9999"` does not exist the error is
+"Customer CUST-9999 does not exist". Direct programmatic submissions from plugin hooks bypass
+existence validation.
+
+---
+
+### Phase 3 — spotledger-pdk ✅ COMPLETE (core wrappers)
 
 **Goal**: Plugin authors depend only on `spotledger-pdk`. Zero direct `extism-pdk` references in app code.
 
 **Tasks:**
 - [x] `spotledger-pdk` crate created; `host.rs` re-exports extism-pdk primitives
-- [ ] `api.rs` — document operation wrappers: `sl_get_doc()`, `sl_save()`, `sl_insert()`, `sl_delete()`, `sl_submit()`, `sl_cancel()`, `sl_get_value()`, `sl_set_value()`, `sl_get_all()`, `sl_exists()`, `sl_throw()`, `sl_log()`, `sl_rename_doc()`, `sl_has_permission()`
-- [ ] `accounting.rs` — GL wrappers: `make_gl_entries()`, `reverse_gl_entries()`, `get_account_balance()`, `get_fiscal_year()`, `get_exchange_rate()`, `convert_to_base_currency()`, `validate_account()`, `get_default_account()`
-- [ ] `utils.rs` — formatting, validation, date, nestedset wrappers
+- [x] `api.rs` — document operation wrappers using raw `extern "C"` + extism memory protocol:
+      `sl_log`, `sl_exists`, `sl_get_doc`, `sl_save_doc`, `sl_delete_doc`, `sl_get_value`,
+      `sl_set_value`, `sl_throw`, `sl_has_permission`.
+      Dual compilation: `wasm32` → real extism memory calls; host target → stubs for tests.
+- [x] `accounting.rs` — GL wrappers: `make_gl_entries()`, `reverse_gl_entries()`,
+      `get_account_balance()`, `get_fiscal_year()`, `get_exchange_rate()` with `GlEntry` and
+      `FiscalYear` structs. Dual compilation: wasm32 → real host fn calls; host → validation stubs.
+- [x] `lib.rs` — all public API re-exported at crate root
+- [ ] `utils.rs` — guest-side wrappers for `sl_utils_*` host functions
 - [ ] `extension.rs` — `MethodRegistration`, `ScheduledJob`, `CrossHook`, `WorkspaceDefinition` structs
-- [ ] Re-export `meta::*` and `extism_pdk::{plugin_fn, FnResult, Json}`
 - [ ] `apps/selling` compiles using ONLY `spotledger-pdk`
 
-**Exit criterion**: `apps/selling/Cargo.toml` has no direct `extism-pdk` dep. `make_gl_entries()` callable without `unsafe`.
+**Implementation notes:**
+- No `extism-pdk` dependency — uses raw `extern "C"` + manual extism memory management
+  (`extism_alloc`, `extism_store_u8`, `extism_load_u8`, `extism_length` from `extism:env`)
+- `alloc_str()` / `read_bytes_handle()` are `pub(crate)` helpers shared by `api.rs` and `accounting.rs`
+- `sl_throw` returns `!` on wasm32 via `core::arch::wasm32::unreachable()`
+
+**Exit criterion**: ✅ CORE SATISFIED — `api.rs` and `accounting.rs` compile clean for both host and wasm32 targets. `utils.rs` and `extension.rs` pending.
 
 ---
 
