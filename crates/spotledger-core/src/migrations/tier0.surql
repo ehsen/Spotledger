@@ -8,6 +8,8 @@
 DEFINE TABLE DocType SCHEMAFULL;
 DEFINE FIELD name ON DocType TYPE string ASSERT $value != NONE;
 DEFINE FIELD module ON DocType TYPE string;
+DEFINE FIELD show_in_menu ON DocType TYPE int DEFAULT 1;
+DEFINE FIELD icon ON DocType TYPE option<string>;
 DEFINE FIELD issingle ON DocType TYPE int;
 DEFINE FIELD istree ON DocType TYPE int;
 DEFINE FIELD issubmittable ON DocType TYPE int;
@@ -293,3 +295,43 @@ DEFINE FIELD modified ON DocumentNamingSettings TYPE option<datetime>;
 DEFINE FIELD modified_by ON DocumentNamingSettings TYPE option<string>;
 
 CREATE UNIQUE INDEX idx_docnamingsettings_name ON DocumentNamingSettings (name);
+
+-- ============================================================================
+-- Module Definition
+-- Each installed app registers its modules here.
+-- show_in_menu controls sidebar visibility; order controls sorting.
+-- ============================================================================
+
+DEFINE TABLE ModuleDef SCHEMAFULL;
+DEFINE FIELD name ON ModuleDef TYPE string ASSERT $value != NONE;
+DEFINE FIELD module_name ON ModuleDef TYPE string ASSERT $value != NONE;
+DEFINE FIELD app_name ON ModuleDef TYPE string ASSERT $value != NONE;
+DEFINE FIELD label ON ModuleDef TYPE option<string>;
+DEFINE FIELD icon ON ModuleDef TYPE option<string>;
+DEFINE FIELD show_in_menu ON ModuleDef TYPE int DEFAULT 1;
+DEFINE FIELD order ON ModuleDef TYPE int DEFAULT 0;
+DEFINE FIELD restrict_to_domain ON ModuleDef TYPE option<string>;
+DEFINE FIELD custom ON ModuleDef TYPE int DEFAULT 0;
+DEFINE FIELD owner ON ModuleDef TYPE option<string>;
+DEFINE FIELD creation ON ModuleDef TYPE option<datetime>;
+DEFINE FIELD modified ON ModuleDef TYPE option<datetime>;
+DEFINE FIELD modified_by ON ModuleDef TYPE option<string>;
+
+CREATE UNIQUE INDEX idx_moduledef_name ON ModuleDef (name);
+CREATE UNIQUE INDEX idx_moduledef_module_name ON ModuleDef (module_name);
+CREATE INDEX idx_moduledef_app_name ON ModuleDef (app_name);
+
+-- ============================================================================
+-- UserModule (child table on User, restricts which modules user can access)
+-- Empty list = all modules allowed.
+-- ============================================================================
+
+DEFINE TABLE UserModule SCHEMAFULL;
+DEFINE FIELD parent ON UserModule TYPE string ASSERT $value != NONE;
+DEFINE FIELD parenttype ON UserModule TYPE string;
+DEFINE FIELD parentfield ON UserModule TYPE string;
+DEFINE FIELD idx ON UserModule TYPE int;
+DEFINE FIELD module ON UserModule TYPE string ASSERT $value != NONE;
+
+CREATE INDEX idx_usermodule_parent ON UserModule (parent);
+CREATE INDEX idx_usermodule_module ON UserModule (module);

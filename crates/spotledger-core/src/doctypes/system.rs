@@ -101,3 +101,107 @@ inventory::submit!(MetaEntry {
     name: "DefaultValue",
     meta: defaultvalue_meta,
 });
+
+// ── ModuleDef ─────────────────────────────────────────────────────────────────
+//
+// Defines a logical module (group of DocTypes). Every installed app delivers
+// one or more ModuleDef records.  The `show_in_menu` flag controls whether
+// the module appears in the sidebar.  `order` controls sorting.
+//
+// Our sidebar is module-driven (not workspace-driven like Frappe).
+
+pub fn moduledef_meta() -> DocTypeMeta {
+    DocTypeMeta {
+        name: "ModuleDef".into(),
+        module: "Core".into(),
+        is_single: false,
+        is_tree: false,
+        is_child: false,
+        is_submittable: false,
+        track_changes: false,
+        fields: vec![
+            DocField::new("module_name", "Module Name", FieldType::Data)
+                .required()
+                .unique()
+                .in_list(),
+            DocField::new("app_name", "App Name", FieldType::Data)
+                .required()
+                .in_list()
+                .in_standard_filter(),
+            DocField::new("label", "Label", FieldType::Data)
+                .description("Display label for the module (defaults to module_name if blank)")
+                .in_list(),
+            DocField::new("icon", "Icon", FieldType::Data)
+                .description("Lucide icon name shown in sidebar (e.g. 'calculator', 'box')"),
+            DocField::new("show_in_menu", "Show in Menu", FieldType::Check)
+                .default_value("1")
+                .description("Show this module in the sidebar navigation"),
+            DocField::new("order", "Order", FieldType::Int)
+                .default_value("0")
+                .description("Sort order within the sidebar (lower = higher)"),
+            DocField::new("restrict_to_domain", "Restrict to Domain", FieldType::Data)
+                .description("Visible only when this domain is active"),
+            DocField::new("custom", "Custom", FieldType::Check)
+                .hidden(),
+        ],
+        permissions: vec![
+            Permission::full("System Manager"),
+            Permission::read_only("All"),
+        ],
+        title_field: Some("module_name".into()),
+        search_fields: vec!["module_name".into(), "app_name".into()],
+        sort_field: Some("order".into()),
+        sort_order: Some("asc".into()),
+        autoname: Some("field:module_name".into()),
+        naming_series: None,
+    }
+}
+
+inventory::submit!(MetaEntry {
+    name: "ModuleDef",
+    meta: moduledef_meta,
+});
+
+// ── UserModule ────────────────────────────────────────────────────────────────
+//
+// Child table on User that lists which modules the user is allowed to access.
+// If the list is empty, all modules are allowed (same as Frappe's `allow_modules`).
+
+pub fn usermodule_meta() -> DocTypeMeta {
+    DocTypeMeta {
+        name: "UserModule".into(),
+        module: "Core".into(),
+        is_single: false,
+        is_tree: false,
+        is_child: true,
+        is_submittable: false,
+        track_changes: false,
+        fields: vec![
+            DocField::new("parent", "Parent", FieldType::Link)
+                .options("User")
+                .hidden(),
+            DocField::new("parenttype", "Parent Type", FieldType::Data)
+                .hidden(),
+            DocField::new("parentfield", "Parent Field", FieldType::Data)
+                .hidden(),
+            DocField::new("idx", "Index", FieldType::Int)
+                .hidden(),
+            DocField::new("module", "Module", FieldType::Link)
+                .options("ModuleDef")
+                .required()
+                .in_list(),
+        ],
+        permissions: vec![Permission::full("System Manager")],
+        title_field: Some("module".into()),
+        search_fields: vec!["module".into()],
+        sort_field: Some("idx".into()),
+        sort_order: Some("asc".into()),
+        autoname: None,
+        naming_series: None,
+    }
+}
+
+inventory::submit!(MetaEntry {
+    name: "UserModule",
+    meta: usermodule_meta,
+});

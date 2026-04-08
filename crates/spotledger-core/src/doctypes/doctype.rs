@@ -43,6 +43,14 @@ pub fn doctype_meta() -> DocTypeMeta {
                 .options("DocField"),
             DocField::new("permissions", "Permissions", FieldType::Table)
                 .options("DocPerm"),
+            // Sidebar/menu visibility — controls whether this DocType appears
+            // in the sidebar under its module.  Default 1 for most types.
+            DocField::new("show_in_menu", "Show in Menu", FieldType::Check)
+                .default_value("1")
+                .description("Show this DocType in the sidebar under its module"),
+            // Icon shown next to the DocType in sidebar/command palette
+            DocField::new("icon", "Icon", FieldType::Data)
+                .description("Lucide icon name or icon URL"),
         ],
         permissions: vec![
             Permission::full("System Manager"),
