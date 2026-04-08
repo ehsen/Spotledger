@@ -14,6 +14,10 @@ serde                  = { workspace = true }
 serde_json             = { workspace = true }
 tracing                = { workspace = true }
 dashmap                = { workspace = true }
+anyhow                 = { workspace = true }
 extism                 = "1.0"
 tokio                  = { workspace = true, features = ["fs", "io-util"] }
-anyhow                 = { workspace = true }
+
+[dev-dependencies]
+wat     = "1"
+tokio   = { workspace = true, features = ["rt", "macros"] }
