@@ -156,7 +156,11 @@ pub fn register_desk_methods(registry: &Arc<MethodRegistry>) {
          stubs::handle_workspace_add_sidebar_items);
 
     // ── Boot info ─────────────────────────────────────────────────────────
+    // Register under both paths:
+    //   - frappe.utils.boot.get_boot_info  (legacy, used internally)
+    //   - frappe.boot.get_bootinfo          (Frappe-compatible /api/method/ path)
     reg!("frappe.utils.boot.get_boot_info", handle_get_boot_info);
+    reg!("frappe.boot.get_bootinfo",        handle_get_boot_info);
 
     // ── Route history ─────────────────────────────────────────────────────
     reg!("frappe.desk.doctype.route_history.route_history.deferred_insert", handle_noop_ok);
@@ -1154,76 +1158,347 @@ pub(crate) async fn query_workspace_pages(db: &DbAdapter) -> Value {
 
 // ── frappe.utils.boot.get_boot_info ──────────────────────────────────────────
 
-/// Build the `user` boot object expected at `frappe.boot.user` by the Desk JS.
-/// Shape mirrors `frappe.utils.user.UserPermissions.load_user()`.
-async fn build_boot_user(db: &DbAdapter, user: &str) -> Value {
-    // Get all doctypes for can_* permission lists
-    let all_doctypes: Vec<String> = match get_list(db, "DocType", Some(&["name"]), None, 5000, 0).await {
-        Ok(rows) => rows.into_iter()
+/// Fetch the logged-in user's record from DB and return their roles as a Vec<String>.
+/// Returns Administrator defaults when no DB row exists.
+async fn get_user_roles(db: &DbAdapter, user: &str) -> Vec<String> {
+    if user == "Administrator" {
+        return vec![
+            "Administrator".to_string(),
+            "System Manager".to_string(),
+            "All".to_string(),
+        ];
+    }
+    // HasRole rows are embedded in the User record as `roles` array<object>
+    // Each element has a `role` field.
+    match get_doc(db, "User", user).await {
+        Ok(doc) => {
+            doc.fields
+                .get("roles")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|r| r.get("role").and_then(|v| v.as_str()).map(String::from))
+                        .collect()
+                })
+                .unwrap_or_else(|| vec!["All".to_string()])
+        }
+        Err(_) => vec!["All".to_string()],
+    }
+}
+
+/// Build the per-doctype `can_read / can_write / can_create / can_delete` lists.
+///
+/// For Administrator we grant everything.  For other users we check DocPerm
+/// against their role list.
+async fn build_permission_lists(
+    db: &DbAdapter,
+    user: &str,
+    roles: &[String],
+) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
+    // Fetch all DocType names
+    let all_doctypes: Vec<String> = get_list(db, "DocType", Some(&["name", "issubmittable"]), None, 5000, 0)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|r| r.get("name").and_then(|v| v.as_str()).map(String::from))
+        .collect();
+
+    if user == "Administrator" || roles.contains(&"System Manager".to_string()) {
+        let submittable: Vec<String> = get_list(db, "DocType", Some(&["name"]),
+            Some(&json!({"issubmittable": 1})), 5000, 0)
+            .await.unwrap_or_default()
+            .into_iter()
             .filter_map(|r| r.get("name").and_then(|v| v.as_str()).map(String::from))
-            .collect(),
-        Err(_) => vec![],
+            .collect();
+
+        return (
+            all_doctypes.clone(),   // can_read
+            all_doctypes.clone(),   // can_write
+            all_doctypes.clone(),   // can_create
+            all_doctypes.clone(),   // can_delete
+            submittable.clone(),    // can_submit
+            submittable,            // can_cancel
+        );
+    }
+
+    // For ordinary users: evaluate DocPerm rows
+    // DocPerm is embedded in DocType.permissions array<object>
+    // We do a simplified check: any row where role is in user's roles grants the permission.
+    let mut can_read   = vec![];
+    let mut can_write  = vec![];
+    let mut can_create = vec![];
+    let mut can_delete = vec![];
+    let mut can_submit = vec![];
+    let mut can_cancel = vec![];
+
+    let doctype_rows = get_list(
+        db, "DocType",
+        Some(&["name", "issubmittable", "permissions"]),
+        None, 5000, 0,
+    ).await.unwrap_or_default();
+
+    for row in doctype_rows {
+        let dt_name = match row.get("name").and_then(|v| v.as_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        let perms = match row.get("permissions").and_then(|v| v.as_array()) {
+            Some(p) => p,
+            None => continue,
+        };
+        for perm in perms {
+            let role = perm.get("role").and_then(|v| v.as_str()).unwrap_or("");
+            if !roles.contains(&role.to_string()) {
+                continue;
+            }
+            let flag = |key: &str| -> bool {
+                perm.get(key)
+                    .map(|v| v.as_i64().unwrap_or(0) != 0 || v.as_bool().unwrap_or(false))
+                    .unwrap_or(false)
+            };
+            if flag("read")   { can_read.push(dt_name.clone()); break; }
+            if flag("write")  { can_write.push(dt_name.clone()); }
+            if flag("create") { can_create.push(dt_name.clone()); }
+            if flag("delete") { can_delete.push(dt_name.clone()); }
+            if flag("submit") { can_submit.push(dt_name.clone()); }
+            if flag("cancel") { can_cancel.push(dt_name.clone()); }
+        }
+    }
+
+    (can_read, can_write, can_create, can_delete, can_submit, can_cancel)
+}
+
+/// Build the full `user` sub-object for bootinfo.
+async fn build_boot_user(db: &DbAdapter, user: &str) -> Value {
+    // Fetch user record
+    let (email, full_name, user_type, desk_theme) = if user != "Guest" {
+        match get_doc(db, "User", user).await {
+            Ok(doc) => {
+                let email = doc.fields.get("email")
+                    .and_then(|v| v.as_str()).unwrap_or(user).to_string();
+                let full_name = doc.fields.get("full_name")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .unwrap_or_else(|| {
+                        // Derive from first_name + last_name
+                        let first = doc.fields.get("first_name").and_then(|v| v.as_str()).unwrap_or("");
+                        let last  = doc.fields.get("last_name").and_then(|v| v.as_str()).unwrap_or("");
+                        let parts: Vec<&str> = [first, last].iter().filter(|s| !s.is_empty()).copied().collect();
+                        if parts.is_empty() { user.to_string() } else { parts.join(" ") }
+                    });
+                let user_type = doc.fields.get("user_type")
+                    .and_then(|v| v.as_str()).unwrap_or("System User").to_string();
+                let desk_theme = doc.fields.get("desk_theme")
+                    .and_then(|v| v.as_str()).unwrap_or("Light").to_string();
+                (email, full_name, user_type, desk_theme)
+            }
+            Err(_) => (user.to_string(), user.to_string(), "System User".to_string(), "Light".to_string()),
+        }
+    } else {
+        ("guest".to_string(), "Guest".to_string(), "Website User".to_string(), "Light".to_string())
     };
 
-    // For Administrator — full access to everything
-    let (roles, can_read, can_write, can_create, can_delete, can_submit, can_cancel) =
-        if user == "Administrator" {
-            (
-                vec!["Administrator".to_string(), "System Manager".to_string(), "All".to_string()],
-                all_doctypes.clone(),
-                all_doctypes.clone(),
-                all_doctypes.clone(),
-                all_doctypes.clone(),
-                vec![] as Vec<String>,
-                vec![] as Vec<String>,
-            )
-        } else {
-            // Fetch roles from tabHasRole
-            let role_filter = json!({"parent": user, "parenttype": "User"});
-            let roles_rows = get_list(db, "Has Role", Some(&["role"]), Some(&role_filter), 100, 0)
-                .await.unwrap_or_default();
-            let roles: Vec<String> = roles_rows.into_iter()
-                .filter_map(|r| r.get("role").and_then(|v| v.as_str()).map(String::from))
-                .collect();
-            // Simple read list based on DocPerm for user's roles
-            let can_read = all_doctypes.clone();
-            (roles, can_read, vec![], vec![], vec![], vec![], vec![])
-        };
+    let roles = get_user_roles(db, user).await;
+    let (can_read, can_write, can_create, can_delete, can_submit, can_cancel) =
+        build_permission_lists(db, user, &roles).await;
+
+    // Fetch user's allowed modules (from UserModule child; empty = all allowed)
+    let allowed_modules: Vec<String> = {
+        let filter = json!({"parent": user, "parenttype": "User"});
+        get_list(db, "UserModule", Some(&["module"]), Some(&filter), 500, 0)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|r| r.get("module").and_then(|v| v.as_str()).map(String::from))
+            .collect()
+    };
+
+    // Fetch user-scoped defaults (from DefaultValue where user = this user)
+    let defaults: serde_json::Map<String, Value> = {
+        let filter = json!({"user": user});
+        get_list(db, "DefaultValue", Some(&["fieldname", "defvalue"]), Some(&filter), 500, 0)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|r| {
+                let k = r.get("fieldname").and_then(|v| v.as_str()).map(String::from)?;
+                let v = r.get("defvalue").cloned().unwrap_or(Value::Null);
+                Some((k, v))
+            })
+            .collect()
+    };
 
     json!({
         "name":              user,
-        "email":             "",
-        "full_name":         user,
+        "email":             email,
+        "full_name":         full_name,
+        "user_type":         user_type,
+        "desk_theme":        desk_theme,
         "roles":             roles,
-        "defaults":          {},
+        "defaults":          defaults,
         "can_read":          can_read,
         "can_write":         can_write,
         "can_create":        can_create,
         "can_delete":        can_delete,
         "can_submit":        can_submit,
         "can_cancel":        can_cancel,
-        "can_select":        [],
-        "can_search":        [],
         "can_export":        [],
         "can_import":        [],
         "can_print":         [],
         "can_email":         [],
         "can_get_report":    [],
-        "in_create":         [],
-        "all_read":          [],
-        "allow_modules":     [],
-        "all_reports":       {},
-        "onboarding_status": null,
-        "default_workspace": null,
+        "allow_modules":     allowed_modules,
     })
+}
+
+/// Build `sysdefaults` from the DefaultValue table (global defaults, no user).
+async fn build_sysdefaults(db: &DbAdapter) -> serde_json::Map<String, Value> {
+    // Global defaults are stored with parenttype = "__default" and no user value
+    let filter = json!({"parenttype": "__default"});
+    let rows = get_list(db, "DefaultValue",
+        Some(&["fieldname", "defvalue"]), Some(&filter), 500, 0)
+        .await.unwrap_or_default();
+
+    let mut map: serde_json::Map<String, Value> = rows
+        .into_iter()
+        .filter_map(|r| {
+            let k = r.get("fieldname").and_then(|v| v.as_str()).map(String::from)?;
+            let v = r.get("defvalue").cloned().unwrap_or(Value::Null);
+            Some((k, v))
+        })
+        .collect();
+
+    // Also pull key settings from SystemSettings (single doctype)
+    if let Ok(ss) = get_doc(db, "SystemSettings", "SystemSettings").await {
+        for key in &["country", "timezone", "default_company", "default_currency", "date_format"] {
+            if let Some(val) = ss.fields.get(*key) {
+                map.entry(key.to_string()).or_insert_with(|| val.clone());
+            }
+        }
+        // setup_complete as string "1"/"0"
+        let sc = ss.fields.get("setup_complete")
+            .map(|v| if v.as_i64().unwrap_or(0) != 0 { "1" } else { "0" })
+            .unwrap_or("0");
+        map.insert("setup_complete".into(), Value::String(sc.into()));
+    }
+
+    if !map.contains_key("setup_complete") {
+        map.insert("setup_complete".into(), Value::String("0".into()));
+    }
+
+    map
+}
+
+/// Build the `modules` map and `module_list` from the ModuleDef table.
+///
+/// Returns:
+/// - `modules`: `{ "ModuleName": { "app", "label", "icon", "order", "show_in_menu", "doctypes": [...] } }`
+/// - `module_list`: `["ModuleName", ...]` sorted by order
+/// - `allowed_modules`: subset filtered to user's allowed list (empty = all)
+async fn build_modules(
+    db: &DbAdapter,
+    user_allowed: &[String],
+) -> (serde_json::Map<String, Value>, Vec<String>) {
+    // Fetch all modules that should appear in the menu
+    let filter = json!({"show_in_menu": 1});
+    let module_rows = get_list(
+        db, "ModuleDef",
+        Some(&["name", "module_name", "app_name", "label", "icon", "order", "show_in_menu"]),
+        Some(&filter), 200, 0,
+    ).await.unwrap_or_default();
+
+    // Keep only allowed modules (empty allowed list = all)
+    let module_rows: Vec<_> = module_rows.into_iter()
+        .filter(|r| {
+            if user_allowed.is_empty() { return true; }
+            let mname = r.get("module_name").and_then(|v| v.as_str()).unwrap_or("");
+            user_allowed.iter().any(|a| a == mname)
+        })
+        .collect();
+
+    // For each module, fetch its DocTypes where show_in_menu = 1
+    let mut modules_map: serde_json::Map<String, Value> = serde_json::Map::new();
+    let mut module_list: Vec<(i64, String)> = vec![];
+
+    for row in &module_rows {
+        let module_name = match row.get("module_name").and_then(|v| v.as_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        let app_name = row.get("app_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let label = row.get("label").and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .unwrap_or_else(|| module_name.clone());
+        let icon = row.get("icon").cloned().unwrap_or(Value::Null);
+        let order = row.get("order").and_then(|v| v.as_i64()).unwrap_or(0);
+
+        // Query doctypes for this module with show_in_menu = 1
+        let dt_filter = json!({"module": module_name, "show_in_menu": 1});
+        let dt_rows = get_list(
+            db, "DocType",
+            Some(&["name", "icon", "issingle", "issubmittable"]),
+            Some(&dt_filter), 500, 0,
+        ).await.unwrap_or_default();
+
+        let doctypes: Vec<Value> = dt_rows.into_iter()
+            .filter_map(|r| {
+                let name = r.get("name").and_then(|v| v.as_str()).map(String::from)?;
+                Some(json!({
+                    "name": name,
+                    "icon": r.get("icon").cloned().unwrap_or(Value::Null),
+                    "issingle": r.get("issingle").and_then(|v| v.as_i64()).unwrap_or(0),
+                    "issubmittable": r.get("issubmittable").and_then(|v| v.as_i64()).unwrap_or(0),
+                }))
+            })
+            .collect();
+
+        modules_map.insert(module_name.clone(), json!({
+            "app":          app_name,
+            "label":        label,
+            "icon":         icon,
+            "order":        order,
+            "show_in_menu": 1,
+            "doctypes":     doctypes,
+        }));
+        module_list.push((order, module_name));
+    }
+
+    module_list.sort_by_key(|(order, _)| *order);
+    let sorted_names: Vec<String> = module_list.into_iter().map(|(_, n)| n).collect();
+
+    (modules_map, sorted_names)
+}
+
+/// Build `user_info` map: one entry per enabled user (for avatars, @-mentions).
+async fn build_user_info(db: &DbAdapter) -> serde_json::Map<String, Value> {
+    let rows = get_list(
+        db, "User",
+        Some(&["name", "full_name", "email", "user_type", "enabled"]),
+        Some(&json!({"enabled": 1})),
+        1000, 0,
+    ).await.unwrap_or_default();
+
+    rows.into_iter()
+        .filter_map(|r| {
+            let name = r.get("name").and_then(|v| v.as_str()).map(String::from)?;
+            Some((name.clone(), json!({
+                "name":      &name,
+                "full_name": r.get("full_name").and_then(|v| v.as_str()).unwrap_or(&name),
+                "email":     r.get("email").and_then(|v| v.as_str()).unwrap_or(""),
+                "user_type": r.get("user_type").and_then(|v| v.as_str()).unwrap_or("System User"),
+                "avatar_url": Value::Null,
+            })))
+        })
+        .collect()
 }
 
 async fn handle_get_boot_info(
     site: Arc<SiteState>,
     params: HashMap<String, Value>,
 ) -> Result<Value, SpotError> {
-    // Prefer the session-resolved user (injected by call_method as __current_user),
-    // fall back to explicit "user" param, then Guest.
+    // Resolve logged-in user — injected as __current_user by call_method middleware
     let user = params.get("__current_user")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty() && *s != "Guest")
@@ -1231,72 +1506,132 @@ async fn handle_get_boot_info(
         .unwrap_or("Guest")
         .to_owned();
 
-    let (full_name, user_type) = if user != "Guest" {
-        match get_doc(&site.db, "User", &user).await {
-            Ok(doc) => (
-                doc.get_str("full_name").unwrap_or(&user).to_owned(),
-                doc.get_str("user_type").unwrap_or("System User").to_owned(),
-            ),
-            Err(_) => (user.clone(), "System User".to_owned()),
-        }
-    } else {
-        ("Guest".to_owned(), "Website User".to_owned())
-    };
+    // Guests get no boot info
+    if user == "Guest" {
+        return Err(SpotError::PermissionDenied(
+            "Must be logged in to access boot info".into(),
+        ));
+    }
 
-    let is_system_user = user_type != "Website User";
-    let workspace_pages = query_workspace_pages(&site.db).await;
+    // Build all sections in parallel-friendly sequence
     let boot_user = build_boot_user(&site.db, &user).await;
 
-    let sidebar_item: serde_json::Map<String, Value> = if let Value::Array(ref pages) = workspace_pages {
-        pages.iter().filter_map(|p| {
-            let title = p.get("title").and_then(Value::as_str)?;
-            let key = title.to_lowercase();
-            Some((key, json!({
-                "label": title,
-                "items": [],
-                "app": p.get("app").cloned().unwrap_or(Value::Null),
-                "module": p.get("module").cloned().unwrap_or(Value::Null),
-            })))
-        }).collect()
-    } else {
-        serde_json::Map::new()
+    // Allowed modules for this user (from UserModule child; empty = all)
+    let allowed_modules: Vec<String> = boot_user
+        .get("allow_modules")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect())
+        .unwrap_or_default();
+
+    let (modules_map, module_list) = build_modules(&site.db, &allowed_modules).await;
+    let user_info = build_user_info(&site.db).await;
+    let sysdefaults = build_sysdefaults(&site.db).await;
+
+    // single_types: DocType where issingle = 1
+    let single_types: Vec<String> = get_list(
+        &site.db, "DocType",
+        Some(&["name"]),
+        Some(&json!({"issingle": 1})),
+        1000, 0,
+    ).await.unwrap_or_default()
+    .into_iter()
+    .filter_map(|r| r.get("name").and_then(|v| v.as_str()).map(String::from))
+    .collect();
+
+    // home_page: user default key "desktop:home_page", fall back to first module
+    let home_page: String = {
+        let filter = json!({"user": user, "fieldname": "desktop:home_page"});
+        let rows = get_list(
+            &site.db, "DefaultValue",
+            Some(&["defvalue"]), Some(&filter), 1, 0,
+        ).await.unwrap_or_default();
+        rows.into_iter()
+            .find_map(|r| r.get("defvalue").and_then(|v| v.as_str()).map(String::from))
+            .or_else(|| module_list.first().cloned())
+            .unwrap_or_else(|| "desk".to_string())
     };
 
-    Ok(json!({
-        "user":          boot_user,
-        "user_info": {
-            &user: {
-                "name":      &user,
-                "full_name": &full_name,
-                "image":     "",
+    // app_data: one entry per installed app
+    let app_data: Vec<Value> = {
+        let mut seen_apps: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut result = vec![];
+        for (module_name, module_val) in &modules_map {
+            let app_name = module_val.get("app").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if app_name.is_empty() || !seen_apps.insert(app_name.clone()) {
+                continue;
             }
-        },
-        "lang":           "en",
-        "__messages":     {},
-        "home_page":      "Workspaces",
-        "user_type":      &user_type,
-        "is_system_user": is_system_user,
-        "disable_async":  1,
-        "user_permissions": {},
-        "desktop_icons":  [],
-        "app_list":       [],
+            // Collect modules for this app
+            let app_modules: Vec<&str> = modules_map.iter()
+                .filter(|(_, v)| v.get("app").and_then(|a| a.as_str()) == Some(&app_name))
+                .map(|(k, _)| k.as_str())
+                .collect();
+            let _ = module_name; // suppress warning
+            result.push(json!({
+                "app_name":    &app_name,
+                "app_title":   app_name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()
+                               + &app_name[app_name.chars().next().map(|c| c.len_utf8()).unwrap_or(0)..],
+                "app_logo_url": format!("/assets/{}/images/logo.svg", app_name),
+                "modules":      app_modules,
+            }));
+        }
+        result
+    };
+
+    // versions: one entry per installed app (from SiteConfig) + framework version
+    let mut versions: serde_json::Map<String, Value> = serde_json::Map::new();
+    versions.insert("spotledger".into(), Value::String(env!("CARGO_PKG_VERSION").into()));
+    for app in &site.config.apps.installed {
+        versions.entry(app.clone()).or_insert_with(|| Value::String("0.1.0".into()));
+    }
+
+    Ok(json!({
+        // ── Identity ────────────────────────────────────────────────────
+        "sitename":        &site.config.site.name,
+        "server_date":     chrono_now(),
+        "lang":            "en",
+        "developer_mode":  site.config.apps.installed.is_empty(),  // could also store flag
+
+        // ── User ────────────────────────────────────────────────────────
+        "user":            boot_user,
+        "user_info":       serde_json::Value::Object(user_info),
+
+        // ── System defaults ──────────────────────────────────────────────
+        "sysdefaults":     serde_json::Value::Object(sysdefaults),
+
+        // ── App + module navigation (drives sidebar) ─────────────────────
+        "modules":         serde_json::Value::Object(modules_map),
+        "module_list":      module_list,
+        "app_data":        app_data,
+        "versions":        serde_json::Value::Object(versions),
+
+        // ── DocType helpers ──────────────────────────────────────────────
+        "single_types":    single_types,
+        "home_page":       home_page,
+
+        // ── Branding / settings ──────────────────────────────────────────
+        "app_logo_url":    "/assets/spotledger/images/logo.svg",
         "navbar_settings": {
-            "app_logo_url": "/assets/frappe/images/frappe-favicon.svg",
+            "app_logo": "/assets/spotledger/images/logo.svg",
+            "items": [],
         },
-        "notification_dot_count": 0,
-        "sysdefaults":    {},
-        "server_date":    chrono_now(),
-        "time_zone":      {"user": "UTC", "system": "UTC"},
-        "modules_by_app": {},
-        "hide_modules":   [],
-        "docs":           [],
-        "workspaces": {
-            "pages": workspace_pages,
-            "has_access": true,
-            "has_create_access": true,
-            "workspace_setup_completed": 1,
-        },
-        "workspace_sidebar_item": serde_json::Value::Object(sidebar_item),
+        "max_file_size":   10_485_760_i64,  // 10 MB
+
+        // ── P2 fields — safe empty values ────────────────────────────────
+        "__messages":             {},
+        "notification_settings":  Value::Null,
+        "letter_heads":           {},
+        "active_domains":         [],
+        "all_domains":            [],
+        "desktop_icons":          [],
+        "frequently_visited_links": [],
+        "link_preview_doctypes":  [],
+        "link_title_doctypes":    [],
+        "lang_dict":              {},
+        "timezone_info":          {"zones": {}, "rules": {}, "links": {}},
+        "docs":                   [],
+        "time_zone":              {"user": "UTC", "system": "UTC"},
     }))
 }
 
