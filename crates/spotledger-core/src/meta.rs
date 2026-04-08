@@ -164,6 +164,18 @@ pub struct DocField {
     pub fetch_from: Option<String>,
     /// Only fetch when this field's current value is empty.
     pub fetch_if_empty: bool,
+
+    // ── Plugin capability annotation ──────────────────────────────────────
+    /// For `Link` / `DynamicLink` fields whose target DocType is provided by a
+    /// WASM plugin rather than the kernel.  Set to the plugin_id string (e.g.
+    /// `"selling"` for a link to `Customer`).
+    ///
+    /// Validation routing:
+    /// - `None`           → target is a kernel/core DocType → validate existence strictly.
+    /// - `Some(plugin_id)` → target is plugin-provided:
+    ///     • plugin loaded   → validate existence normally.
+    ///     • plugin NOT loaded → field is **dormant**; skip existence check with a warning.
+    pub provided_by: Option<String>,
 }
 
 impl DocField {
@@ -192,6 +204,7 @@ impl DocField {
             length: None,
             fetch_from: None,
             fetch_if_empty: false,
+            provided_by: None,
         }
     }
 
@@ -228,6 +241,11 @@ impl DocField {
         self.default_value = Some(val.into()); self
     }
     pub fn precision(mut self, p: u8) -> Self          { self.precision = Some(p); self }
+    /// Mark this Link/DynamicLink field's target DocType as provided by a plugin.
+    /// Validation is skipped if that plugin is not loaded (field becomes dormant).
+    pub fn provided_by(mut self, plugin_id: impl Into<String>) -> Self {
+        self.provided_by = Some(plugin_id.into()); self
+    }
 }
 
 // ── DocTypeMeta ───────────────────────────────────────────────────────────────
