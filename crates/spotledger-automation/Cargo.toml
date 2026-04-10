@@ -14,6 +14,7 @@ automation = []
 [dependencies]
 spotledger-core = { workspace = true }
 spotledger-db   = { workspace = true }
+inventory       = { workspace = true }
 serde           = { workspace = true }
 serde_json      = { workspace = true }
 tracing         = { workspace = true }

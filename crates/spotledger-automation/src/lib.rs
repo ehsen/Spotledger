@@ -6,6 +6,11 @@
 //!
 //! Gate all code with `#[cfg(feature = "automation")]`.
 
+pub mod auto_repeat;
+
+/// Returns this crate's name. Used to force-link inventory submissions into the binary.
+pub const fn name() -> &'static str { "spotledger-automation" }
+
 #[cfg(feature = "automation")]
 pub mod webhook;
 
