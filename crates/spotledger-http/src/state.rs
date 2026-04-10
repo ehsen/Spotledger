@@ -4,6 +4,7 @@ use dashmap::DashMap;
 use moka::future::Cache;
 use spotledger_db::adapter::DbAdapter;
 use spotledger_db::hooks::HookRegistry;
+use spotledger_db::meta_cache::MetaCache;
 use spotledger_core::config::SiteConfig;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,6 +22,8 @@ pub struct SiteState {
     pub method_registry: Arc<MethodRegistry>,
     /// Document lifecycle hook registry.
     pub hook_registry: Arc<HookRegistry>,
+    /// Runtime DocType meta cache — queries the graph for non-compiled DocTypes.
+    pub meta_cache: MetaCache,
 }
 
 impl SiteState {
@@ -35,6 +38,7 @@ impl SiteState {
             doc_cache,
             method_registry: build_registry(),
             hook_registry: Arc::new(HookRegistry::new()),
+            meta_cache: MetaCache::new(),
         }
     }
 }

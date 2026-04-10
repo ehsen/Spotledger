@@ -1471,29 +1471,6 @@ async fn build_modules(
     (modules_map, sorted_names)
 }
 
-/// Build `user_info` map: one entry per enabled user (for avatars, @-mentions).
-async fn build_user_info(db: &DbAdapter) -> serde_json::Map<String, Value> {
-    let rows = get_list(
-        db, "User",
-        Some(&["name", "full_name", "email", "user_type", "enabled"]),
-        Some(&json!({"enabled": 1})),
-        1000, 0,
-    ).await.unwrap_or_default();
-
-    rows.into_iter()
-        .filter_map(|r| {
-            let name = r.get("name").and_then(|v| v.as_str()).map(String::from)?;
-            Some((name.clone(), json!({
-                "name":      &name,
-                "full_name": r.get("full_name").and_then(|v| v.as_str()).unwrap_or(&name),
-                "email":     r.get("email").and_then(|v| v.as_str()).unwrap_or(""),
-                "user_type": r.get("user_type").and_then(|v| v.as_str()).unwrap_or("System User"),
-                "avatar_url": Value::Null,
-            })))
-        })
-        .collect()
-}
-
 async fn handle_get_boot_info(
     site: Arc<SiteState>,
     params: HashMap<String, Value>,
@@ -1526,7 +1503,16 @@ async fn handle_get_boot_info(
         .unwrap_or_default();
 
     let (modules_map, module_list) = build_modules(&site.db, &allowed_modules).await;
-    let user_info = build_user_info(&site.db).await;
+    let all_user_names: Vec<String> = get_list(
+        &site.db, "User",
+        Some(&["name"]),
+        Some(&json!({"enabled": 1})),
+        1000, 0,
+    ).await.unwrap_or_default()
+    .into_iter()
+    .filter_map(|r| r.get("name").and_then(|v| v.as_str()).map(String::from))
+    .collect();
+    let user_info = build_user_info(&site.db, &all_user_names).await;
     let sysdefaults = build_sysdefaults(&site.db).await;
 
     // single_types: DocType where issingle = 1
@@ -1595,7 +1581,7 @@ async fn handle_get_boot_info(
 
         // ── User ────────────────────────────────────────────────────────
         "user":            boot_user,
-        "user_info":       serde_json::Value::Object(user_info),
+        "user_info":       user_info,
 
         // ── System defaults ──────────────────────────────────────────────
         "sysdefaults":     serde_json::Value::Object(sysdefaults),

@@ -95,6 +95,10 @@ pub struct InstallAppArgs {
     /// Hostname of the site to install into (must already exist via new-site)
     pub site: String,
 
+    /// App version string (recorded in the schema_change_log and app graph node)
+    #[arg(long)]
+    pub version: Option<String>,
+
     /// Path to the bench root (default: current directory)
     #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
     pub bench: PathBuf,

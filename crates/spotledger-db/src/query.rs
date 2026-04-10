@@ -95,6 +95,12 @@ impl SetClause {
             if SKIP_FIELDS.contains(&k.as_str()) {
                 continue;
             }
+            // Skip JSON null — SurrealDB v3 SCHEMAFULL rejects null for non-nullable
+            // fields (e.g. TYPE int). Omitting the field from SET lets DEFAULT apply
+            // for new records and preserves the existing value for updates.
+            if v.is_null() {
+                continue;
+            }
             let key = format!("f_{k}");
             parts.push(format!("`{k}` = ${key}"));
             bindings.push((key, v.clone()));

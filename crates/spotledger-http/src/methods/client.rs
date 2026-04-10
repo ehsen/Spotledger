@@ -11,6 +11,7 @@ use spotledger_db::document::{
 use spotledger_db::hooks::{
     run_before_cancel_hooks, run_before_submit_hooks, run_on_cancel_hooks, run_on_submit_hooks,
 };
+use spotledger_db::save_proxy::{save_doc_proxy, submit_doc_proxy, cancel_doc_proxy};
 use spotledger_core::document::Document;
 use spotledger_core::error::SpotError;
 use std::collections::HashMap;
@@ -140,26 +141,36 @@ async fn handle_save(
         .unwrap_or("Administrator")
         .to_owned();
 
-    // Build the in-memory Document from the incoming JSON
-    let doc = doc_from_value(&doctype, &doc_val);
-
-    // Look up compiled meta (fall back to hook-only pipeline if not compiled)
-    let saved = if let Some(meta) = get_compiled_meta(&doctype) {
-        save_doc(&site.db, &site.hook_registry, &meta, doc, &user).await?
+    // Route: compiled Tier-0 types → full validation pipeline
+    //         runtime types (Tier 3+) → thin auth+proxy, SurrealDB events handle the rest
+    let (saved_val, saved_name) = if let Some(meta) = get_compiled_meta(&doctype) {
+        let doc = doc_from_value(&doctype, &doc_val);
+        let saved = save_doc(&site.db, &site.hook_registry, &meta, doc, &user).await?;
+        let name = saved.name.clone();
+        (saved.as_dict(), name)
     } else {
-        save_doc_no_meta(&site, doc, &user).await?
+        let result = save_doc_proxy(&site.db, &site.meta_cache, &user, &doctype, doc_val)
+            .await
+            .map_err(|e| SpotError::Validation(e.to_string()))?;
+        let name = result
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        (result, name)
     };
 
     // Invalidate cache
     site.doc_cache
-        .remove(&(doctype.clone(), saved.name.clone()))
+        .remove(&(doctype.clone(), saved_name.clone()))
         .await;
 
     // Activity log (best-effort — failures are silently ignored)
-    let action = if saved.fields.get("creation") == saved.fields.get("modified") {
-        "created"
-    } else {
-        "saved"
+    // Determine action: if creation == modified it was just created, otherwise updated.
+    let action = {
+        let creation  = saved_val.get("creation").and_then(Value::as_str).unwrap_or("");
+        let modified  = saved_val.get("modified").and_then(Value::as_str).unwrap_or("x");
+        if creation == modified { "created" } else { "saved" }
     };
     let _ = site
         .db
@@ -168,14 +179,14 @@ async fn handle_save(
             vec![
                 ("user".into(),   user.into()),
                 ("dt".into(),     doctype.into()),
-                ("dn".into(),     saved.name.clone().into()),
+                ("dn".into(),     saved_name.into()),
                 ("action".into(), action.into()),
                 ("data".into(),   Value::Null),
             ],
         )
         .await;
 
-    Ok(saved.as_dict())
+    Ok(saved_val)
 }
 
 // ── frappe.client.insert ──────────────────────────────────────────────────────
@@ -201,19 +212,34 @@ async fn handle_insert(
         .unwrap_or("Administrator")
         .to_owned();
 
-    // Force is_new by clearing name so the controller assigns one via naming series
-    let mut doc = doc_from_value(&doctype, &doc_val);
-    doc.name.clear();
-    doc.fields.insert("__islocal".into(), Value::Number(1.into()));
+    // Force is_new by clearing name so naming series kicks in
+    let mut insert_val = doc_val.clone();
+    if let Value::Object(ref mut m) = insert_val {
+        m.remove("name");
+        m.insert("__islocal".into(), Value::Number(1.into()));
+    }
 
-    let saved = if let Some(meta) = get_compiled_meta(&doctype) {
-        save_doc(&site.db, &site.hook_registry, &meta, doc, &user).await?
+    let (saved_val, saved_name) = if let Some(meta) = get_compiled_meta(&doctype) {
+        let mut doc = doc_from_value(&doctype, &doc_val);
+        doc.name.clear();
+        doc.fields.insert("__islocal".into(), Value::Number(1.into()));
+        let saved = save_doc(&site.db, &site.hook_registry, &meta, doc, &user).await?;
+        let name = saved.name.clone();
+        (saved.as_dict(), name)
     } else {
-        save_doc_no_meta(&site, doc, &user).await?
+        let result = save_doc_proxy(&site.db, &site.meta_cache, &user, &doctype, insert_val)
+            .await
+            .map_err(|e| SpotError::Validation(e.to_string()))?;
+        let name = result
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        (result, name)
     };
 
     site.doc_cache
-        .remove(&(doctype.clone(), saved.name.clone()))
+        .remove(&(doctype.clone(), saved_name.clone()))
         .await;
 
     let _ = site
@@ -223,14 +249,14 @@ async fn handle_insert(
             vec![
                 ("user".into(),   user.into()),
                 ("dt".into(),     doctype.into()),
-                ("dn".into(),     saved.name.clone().into()),
+                ("dn".into(),     saved_name.into()),
                 ("action".into(), "created".into()),
                 ("data".into(),   Value::Null),
             ],
         )
         .await;
 
-    Ok(saved.as_dict())
+    Ok(saved_val)
 }
 
 // ── frappe.client.set_value ───────────────────────────────────────────────────
@@ -292,32 +318,39 @@ async fn handle_submit(
         .ok_or_else(|| SpotError::Validation("doc.name is required for submit".into()))?
         .to_owned();
 
-    // Fetch latest from DB
-    let doc = get_doc(&site.db, &doctype, &name)
-        .await
-        .map_err(SpotError::from)?;
-
-    // Run before_submit + validate hooks
-    let doc = run_before_submit_hooks(&site.hook_registry, doc).await?;
-
-    // DB: set docstatus = 1 (also re-saves any hook-modified fields)
-    let mut fields_val = doc.as_dict();
-    if let Value::Object(ref mut m) = fields_val {
-        m.insert("docstatus".into(), Value::Number(1.into()));
-    }
-    upsert_doc(&site.db, &doctype, &name, &fields_val)
-        .await
-        .map_err(SpotError::from)?;
-
-    let submitted = submit_doc(&site.db, &doctype, &name)
-        .await
-        .map_err(SpotError::from)?;
+    let user = params
+        .get("__current_user")
+        .and_then(Value::as_str)
+        .unwrap_or("Administrator")
+        .to_owned();
 
     site.doc_cache.remove(&(doctype.clone(), name.clone())).await;
 
-    // on_submit hooks
-    let submitted = run_on_submit_hooks(&site.hook_registry, submitted).await?;
-    Ok(submitted.as_dict())
+    // For compiled Tier-0 types use the hook-based submit path.
+    // For runtime types let the save_proxy + SurrealDB on_submit event handle it.
+    if get_compiled_meta(&doctype).is_some() {
+        let doc = get_doc(&site.db, &doctype, &name)
+            .await
+            .map_err(SpotError::from)?;
+        let doc = run_before_submit_hooks(&site.hook_registry, doc).await?;
+        let mut fields_val = doc.as_dict();
+        if let Value::Object(ref mut m) = fields_val {
+            m.insert("docstatus".into(), Value::Number(1.into()));
+        }
+        upsert_doc(&site.db, &doctype, &name, &fields_val)
+            .await
+            .map_err(SpotError::from)?;
+        let submitted = submit_doc(&site.db, &doctype, &name)
+            .await
+            .map_err(SpotError::from)?;
+        let submitted = run_on_submit_hooks(&site.hook_registry, submitted).await?;
+        Ok(submitted.as_dict())
+    } else {
+        let result = submit_doc_proxy(&site.db, &user, &doctype, &name)
+            .await
+            .map_err(|e| SpotError::Validation(e.to_string()))?;
+        Ok(result)
+    }
 }
 
 // ── frappe.client.cancel ──────────────────────────────────────────────────────
@@ -343,20 +376,31 @@ async fn handle_cancel(
         .ok_or_else(|| SpotError::Validation("doc.name is required for cancel".into()))?
         .to_owned();
 
-    let doc = get_doc(&site.db, &doctype, &name)
-        .await
-        .map_err(SpotError::from)?;
-
-    let _doc = run_before_cancel_hooks(&site.hook_registry, doc).await?;
-
-    let cancelled = cancel_doc(&site.db, &doctype, &name)
-        .await
-        .map_err(SpotError::from)?;
+    let user = params
+        .get("__current_user")
+        .and_then(Value::as_str)
+        .unwrap_or("Administrator")
+        .to_owned();
 
     site.doc_cache.remove(&(doctype.clone(), name.clone())).await;
 
-    let cancelled = run_on_cancel_hooks(&site.hook_registry, cancelled).await?;
-    Ok(cancelled.as_dict())
+    if get_compiled_meta(&doctype).is_some() {
+        let doc = get_doc(&site.db, &doctype, &name)
+            .await
+            .map_err(SpotError::from)?;
+        let doc = run_before_cancel_hooks(&site.hook_registry, doc).await?;
+        let _ = doc;
+        let cancelled = cancel_doc(&site.db, &doctype, &name)
+            .await
+            .map_err(SpotError::from)?;
+        let cancelled = run_on_cancel_hooks(&site.hook_registry, cancelled).await?;
+        Ok(cancelled.as_dict())
+    } else {
+        let result = cancel_doc_proxy(&site.db, &user, &doctype, &name)
+            .await
+            .map_err(|e| SpotError::Validation(e.to_string()))?;
+        Ok(result)
+    }
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -382,45 +426,4 @@ fn doc_from_value(doctype: &str, val: &Value) -> Document {
         }
     }
     doc
-}
-
-/// Fallback save pipeline for DocTypes without a compiled `DocTypeMeta`.
-///
-/// Runs hooks only — no validation, no naming series from meta.
-/// Use `get_compiled_meta` to check in advance and prefer `save_doc`.
-async fn save_doc_no_meta(
-    site: &Arc<SiteState>,
-    doc: Document,
-    user: &str,
-) -> Result<Document, SpotError> {
-    use spotledger_db::document::{insert_doc, upsert_doc};
-    use spotledger_db::hooks::{run_after_save_hooks, run_save_hooks};
-    use spotledger_db::naming::resolve_name;
-
-    let doctype = doc.doctype.clone();
-    let is_new  = doc.name.is_empty()
-        || doc.fields.get("__islocal").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
-
-    let name = if is_new {
-        resolve_name(&site.db, &doctype, &doc.as_dict())
-            .await
-            .map_err(SpotError::from)?
-    } else {
-        doc.name.clone()
-    };
-
-    let mut doc = doc;
-    doc.name = name.clone();
-    doc.set_user_and_timestamp(user, &chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(), is_new);
-
-    let doc = run_save_hooks(&site.hook_registry, doc, is_new).await?;
-    let fields_val = doc.as_dict();
-
-    let saved = if is_new {
-        insert_doc(&site.db, &doctype, &fields_val).await.map_err(SpotError::from)?
-    } else {
-        upsert_doc(&site.db, &doctype, &name, &fields_val).await.map_err(SpotError::from)?
-    };
-
-    run_after_save_hooks(&site.hook_registry, saved, is_new).await
 }

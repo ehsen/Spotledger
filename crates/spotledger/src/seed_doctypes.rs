@@ -81,6 +81,42 @@ pub async fn seed_doctypes_for_app(
          DEFINE FIELD IF NOT EXISTS allow_events_in_timeline ON tabDocType TYPE none | bool | int; \
          DEFINE FIELD IF NOT EXISTS force_re_route_to_default_view ON tabDocType TYPE none | bool | int; \
          DEFINE FIELD IF NOT EXISTS rows_threshold_for_grid_search ON tabDocType TYPE none | int; \
+         DEFINE FIELD IF NOT EXISTS allow_auto_repeat ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS allow_copy ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS allow_guest_to_view ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS allow_import ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS allow_rename ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS beta ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS description ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS document_type ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS editable_grid ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS email_append_to ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS engine ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS has_web_view ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS hide_heading ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS hide_toolbar ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS image_field ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS image_view ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS in_create ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS is_virtual ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS istable ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS is_submittable ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS is_tree ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS max_attachments ON tabDocType TYPE none | int; \
+         DEFINE FIELD IF NOT EXISTS naming_rule ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS notify_on_update ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS nsm_parent_field ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS read_only ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS read_only_onload ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS sender_field ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS sender_name_field ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS show_name_in_global_search ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS show_preview_popup ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS show_title_field_in_link ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS subject_field ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS timeline_field ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS track_seen ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD OVERWRITE translated_doctype ON tabDocType TYPE any; \
          DEFINE FIELD IF NOT EXISTS doctype      ON tabModule_Def TYPE none | string; \
          DEFINE FIELD IF NOT EXISTS doctype      ON tabDocField TYPE none | string; \
          DEFINE FIELD IF NOT EXISTS hidden       ON tabDocField TYPE none | bool | int; \
@@ -120,7 +156,18 @@ pub async fn seed_doctypes_for_app(
          DEFINE FIELD IF NOT EXISTS doctype ON tabHas_Role  TYPE none | string; \
          DEFINE FIELD IF NOT EXISTS doctype ON tabPage      TYPE none | string; \
          DEFINE FIELD IF NOT EXISTS doctype ON tabReport    TYPE none | string; \
-         DEFINE FIELD IF NOT EXISTS doctype ON tabWorkspace TYPE none | string;",
+         DEFINE FIELD IF NOT EXISTS doctype ON tabWorkspace TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS `perm_select` ON tabDocPerm TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS perm_delete ON tabDocPerm TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS perm_create ON tabDocPerm TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS perm_cancel ON tabDocPerm TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS if_owner    ON tabDocPerm TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS report      ON tabDocPerm TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS import      ON tabDocPerm TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS export      ON tabDocPerm TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS print       ON tabDocPerm TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS email       ON tabDocPerm TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS share       ON tabDocPerm TYPE none | bool | int;",
         vec![],
     )
     .await
@@ -201,7 +248,7 @@ pub async fn seed_doctypes_for_app(
                 }
                 // Deterministic, unique name: ParentName-fieldname
                 let row_name = format!("{}-{}", doctype_name, fieldname);
-                let row = build_child_row(
+                let mut row = build_child_row(
                     field,
                     &row_name,
                     &doctype_name,
@@ -210,6 +257,27 @@ pub async fn seed_doctypes_for_app(
                     "fields",
                     idx,
                 );
+                // Stamp provenance — Phase A requirement
+                if let Value::Object(ref mut map) = row {
+                    map.entry("introduced_by".to_owned())
+                        .or_insert_with(|| json!(app_name));
+                    map.entry("is_custom".to_owned())
+                        .or_insert_with(|| json!(0));
+                    // Coerce string-encoded int fields (Frappe stores precision as "9" or "")
+                    for int_key in &["precision", "length", "permlevel", "columns"] {
+                        match map.get(*int_key) {
+                            Some(Value::String(s)) if s.is_empty() => {
+                                map.insert(int_key.to_string(), serde_json::Value::Null);
+                            }
+                            Some(Value::String(s)) => {
+                                if let Ok(n) = s.parse::<i64>() {
+                                    map.insert(int_key.to_string(), json!(n));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 if let Err(e) = upsert_doc(&db, "DocField", &row_name, &row).await {
                     eprintln!("WARN: DocField '{}': {}", row_name, e);
                 }
@@ -225,7 +293,7 @@ pub async fn seed_doctypes_for_app(
                     .unwrap_or("Guest");
                 // Deterministic name: ParentName-RoleName-idx
                 let row_name = format!("{}-{}-{}", doctype_name, role, idx);
-                let row = build_child_row(
+                let mut row = build_child_row(
                     perm,
                     &row_name,
                     &doctype_name,
@@ -234,6 +302,21 @@ pub async fn seed_doctypes_for_app(
                     "permissions",
                     idx,
                 );
+                // Reserved keywords in SurrealDB v3 — rename to perm_* to avoid CBOR decode failures
+                if let Value::Object(ref mut map) = row {
+                    if let Some(v) = map.remove("delete") {
+                        map.insert("perm_delete".to_owned(), v);
+                    }
+                    if let Some(v) = map.remove("create") {
+                        map.insert("perm_create".to_owned(), v);
+                    }
+                    if let Some(v) = map.remove("select") {
+                        map.insert("perm_select".to_owned(), v);
+                    }
+                    if let Some(v) = map.remove("cancel") {
+                        map.insert("perm_cancel".to_owned(), v);
+                    }
+                }
                 if let Err(e) = upsert_doc(&db, "DocPerm", &row_name, &row).await {
                     eprintln!("WARN: DocPerm '{}': {}", row_name, e);
                 }
@@ -271,15 +354,51 @@ pub async fn seed_doctypes_for_app(
 fn build_doctype_row(doc: &Value) -> Value {
     let mut row = doc.clone();
     if let Value::Object(ref mut map) = row {
-        // Remove child-table arrays — stored as separate table rows
+        // Strip ALL embedded child-table arrays. Field data is stored in
+        // separate tabDocField rows; perm data in tabDocPerm rows.
+        // SurrealDB SCHEMAFULL validates nested paths in array<object> columns
+        // even with array<any>, so we must keep these as empty arrays.
         for key in &["fields", "permissions", "actions", "links", "states", "field_order"] {
             map.remove(*key);
         }
+        // Insert empty arrays to satisfy the NOT NULL / DEFAULT constraint
+        map.insert("fields".to_owned(), json!([]));
+        map.insert("permissions".to_owned(), json!([]));
+
         map.insert("doctype".to_owned(), json!("DocType"));
         map.entry("owner".to_owned())
             .or_insert_with(|| json!("Administrator"));
         map.entry("modified_by".to_owned())
             .or_insert_with(|| json!("Administrator"));
+
+        // Normalize ERPNext v15 field name aliases → our schema field names.
+        // ERPNext 15 uses underscored variants; older Frappe omitted the underscore.
+        for (new_key, alias) in &[
+            ("issubmittable", "is_submittable"),
+            ("istree",        "is_tree"),
+            ("is_child_table","istable"),
+        ] {
+            if let Some(v) = map.remove(*alias) {
+                map.entry(new_key.to_string()).or_insert(v);
+            }
+        }
+
+        // Normalize ALL int (boolean-flag and system) fields — tabDocType is
+        // SCHEMAFULL with `TYPE int DEFAULT 0` on these, but data may come in
+        // as JSON booleans; coerce to 0/1 for consistency.
+        const INT_FIELDS: &[&str] = &[
+            "docstatus", "idx",
+            "custom", "issingle", "istree", "issubmittable",
+            "is_child_table", "track_changes", "show_in_menu",
+            "in_create", "has_web_view", "allow_guest_to_view",
+            "email_append_to", "notify_on_update", "editable_grid",
+        ];
+        for field in INT_FIELDS {
+            let entry = map.entry(field.to_string()).or_insert(json!(0));
+            if let Value::Bool(b) = *entry {
+                *entry = json!(if b { 1i64 } else { 0i64 });
+            }
+        }
     }
     row
 }
@@ -317,6 +436,12 @@ pub fn build_child_row(
 ///
 /// We only pick files where the JSON filename (without `.json`) matches the parent
 /// directory name — this filters out test_records.json and other fixtures.
+///
+/// Public re-export so `install_app.rs` can call it without duplicating logic.
+pub fn collect_doctype_jsons_pub(frappe_root: &Path) -> Result<Vec<PathBuf>> {
+    collect_doctype_jsons(frappe_root)
+}
+
 fn collect_doctype_jsons(frappe_root: &Path) -> Result<Vec<PathBuf>> {
     let mut result = Vec::new();
 

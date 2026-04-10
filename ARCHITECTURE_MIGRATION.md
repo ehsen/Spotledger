@@ -1,41 +1,48 @@
 # SpotledgerCore Architecture Plan
 
-**Date**: April 8, 2026
-**Status**: In Progress — Phases 0–2 complete, Phase 3 (PDK) complete, live WASM e2e test passing
-**Scope**: Full architectural rewrite from current monolithic Axum crate to a Linux-kernel-style modular WASM plugin system, written entirely in Rust.
+**Date**: April 9, 2026
+**Status**: In Progress — Phases 0–3b complete. **Major architectural revision April 9, 2026** — metadata-as-graph model adopted.
+**Scope**: Full architectural rewrite from current monolithic Axum crate to a Linux-kernel-style modular WASM plugin system, written entirely in Rust, with SurrealDB as the live metadata knowledge base.
 
 ---
 
 ## Executive Summary
 
-**SpotledgerCore** is a **financial framework** — not a generic app framework. It is purpose-built for financial and enterprise applications. The core binary ships with the complete accounting engine compiled in as a mandatory tier, not as a plugin. Vertical domain modules (Selling, Buying, Stock, HR, Manufacturing, CRM) are WASM plugins loaded at runtime.
+**SpotledgerCore** is a **financial framework** — not a generic app framework. It is purpose-built for financial and enterprise applications.
 
 Key design decisions:
 - **No Python. No JavaScript runtime (V8). No Rhai.** The system is Rust end-to-end.
-- **The accounting engine is CORE** — GL, Journal Entry, Chart of Accounts, Fiscal Year, Currency, Cost Center, Tax infrastructure. These compile directly into the binary. You cannot run SpotledgerCore without them.
-- **Modules are `.wasm` binaries** — dropped into a `plugins/` folder. Selling, Buying, Stock, HR are plugins. Core never recompiles when a module changes.
+- **Rust is the engine. SurrealDB is the knowledge base.** They are not the same thing. Rust owns HTTP, auth enforcement, WASM sandboxing, and the save pipeline orchestration. SurrealDB owns all metadata (DocType/DocField records as graph nodes), all domain logic (validation events, computed fields, graph traversal), and all document data.
+- **Metadata is live graph data.** `DocType` and `DocField` records exist as nodes in SurrealDB with `has_field` edges. `frappe.get_meta("Account")` is a graph query, not a compiled Rust lookup. Custom fields, plugin-added fields, and user-added fields are all just edges in the same graph — no merge step, no separate table.
+- **The save pipeline is a thin auth proxy.** Rust checks permission, sends one DB statement, returns the response. SurrealDB's own `DEFINE EVENT` / `DEFINE FIELD VALUE` / `ASSERT` fire within the same transaction — unconditionally, regardless of call origin.
+- **Modules are `.wasm` binaries** — dropped into a `plugins/` folder. Each plugin carries an embedded `schema.json` payload (not Rust structs). At plugin load, the host engine upserts schema records into SurrealDB. Domain logic runs as `DEFINE FUNCTION LANGUAGE WASM` inside SurrealDB, with direct graph access.
 - **Frappe REST API parity** — `/api/resource/`, `/api/method/`, `/api/v2/` are preserved so the Frappe desk frontend works unchanged.
-- **Linux kernel model** — core is the kernel; modules are loadable kernel modules, sandboxed via WASM.
+- **Schema versioning without migrations.** All schema changes are idempotent upserts. A `schema_change_log` table records every field change with app version and diff. No SQL migration files ever.
 
 ### What is "Core"?
 
-> Core = everything a financial ledger *must* have to be useful. You cannot build a Sales Invoice plugin without a GL engine. You cannot build a Payment Entry plugin without accounts and currency. Therefore the accounting engine is part of the kernel, not an add-on.
+> Core = the engine that runs financial applications. It is the HTTP server, the permission enforcer, the WASM sandbox host, and the DB adapter. It does NOT contain the schema of Account, Customer, or Journal Entry — those live in SurrealDB, seeded by plugins.
+>
+> The only DocTypes compiled into Rust (Tier 0) are those the engine itself cannot boot without: DocType, DocField, User, Role, SystemSettings.
 
 ---
 
-## Progress Summary (April 8, 2026)
+## Progress Summary (April 9, 2026)
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | **Phase 0** | Repository Restructure | ✅ Complete |
-| **Phase 1** | Typed Schema (DocTypeMeta) | ✅ Complete |
-| **Phase 1b** | Framework DocTypes (Tier 0/1/3) | ✅ Complete — Tier 0 schema + migrations, lib.rs wired |
+| **Phase 1** | Typed Schema (DocTypeMeta) | ✅ Complete — **scope now Tier 0 only** |
+| **Phase 1b** | Framework DocTypes (Tier 0/1) | 🔄 In Progress — Tier 0 done; Tier 3 scope moved to Phase A/B |
 | **Phase 1c** | Core Utils | ✅ Complete |
 | **Phase 2** | WASM Plugin Host | ✅ Complete — all host fns registered, live WAT e2e test passing |
 | **Phase 2b** | Plugin Capability Declaration & Party Resolution | ✅ Complete — `PluginManifest` capabilities, `PluginRegistry::register_capabilities()`, `PartyTypeDecl` |
 | **Phase 3** | spotledger-pdk | ✅ Complete — `api.rs`, `accounting.rs` guest-side wrappers, dual wasm32/host compilation |
 | **Phase 3b** | Boot Info & UI Integration | ✅ Complete — see §Boot Info below |
-| **Phase 4** | Domain Plugins (Selling/Buying/Stock) | ⏳ Stub only |
+| **Phase A** | Metadata-as-Graph Foundation | ✅ Complete |
+| **Phase B** | Save Pipeline → Auth+Proxy + SurrealDB Events | ✅ Complete |
+| **Phase C** | App/Module Graph + Schema Versioning | ✅ Complete |
+| **Phase 4** | ERPNext Domain App (`apps/erpnext`) | 🔄 In Progress — schema seeded, wasm build + install pending |
 | **Phase 5** | frappe.client API Completion | ⏳ Not Started |
 | **Phase 6** | API v2 Endpoints | ⏳ Not Started |
 | **Phase 7** | Background Jobs | ⏳ Not Started |
@@ -46,12 +53,21 @@ Key design decisions:
 ### Key Decisions Made During Implementation
 
 - **Child tables**: Stored as embedded `array<object>` in parent SurrealDB record — no scatter/gather to separate tables
-- **`DocTypeMeta` drives DDL**: `ensure_schema` / `ensure_all_schemas` emit `DEFINE TABLE / FIELD` from compiled Rust structs at startup (Hibernate `hbm2ddl.auto=update` equivalent)
-- **Save pipeline centralized**: All `frappe.client.save` / `insert` / `delete` flow through `controller::save_doc` / `delete_doc_checked` — 15-step ordered pipeline
-- **Validation is pure (no DB)**: `spotledger-core/src/validation.rs` has zero DB dependency — works in WASM guest context too
-- **Permission system**: Strong-typed with full Frappe parity (role, DocType, If Owner, User permissions, `permlevel`)
-- **`MetaEntry` inventory**: Compile-time self-registration via `inventory::submit!` — no dynamic map needed for schema sync
-- **No Workspaces** — Spotledger UI uses a module-driven sidebar, not Frappe's workspace/link system. Navigation is driven entirely by `ModuleDef` records and `DocType.show_in_menu = 1`. Workspaces code remains in the backend for compatibility but is not consumed by the Spotledger UI.
+- **`DocTypeMeta` drives DDL (Tier 0 only)**: `ensure_schema` / `ensure_all_schemas` emit `DEFINE TABLE / FIELD` only for the ~16 Tier 0 bootstrap types. All domain DocTypes (Account, Customer, etc.) get their DDL from `seed_doctypes_for_app` reading JSON files, not from compiled Rust structs.
+- **Save pipeline is auth + proxy**: All `frappe.client.save` / `insert` / `delete` flow through a thin Rust handler that (1) checks permission, (2) sends one SurrealDB statement. The 15-step pipeline is replaced by SurrealDB `DEFINE EVENT` / `DEFINE FIELD VALUE` / `ASSERT` firing automatically inside the transaction.
+- **Validation is table-level and unconditional**: `DEFINE TABLE ... ASSERT`, `DEFINE FIELD ... ASSERT`, and `DEFINE EVENT` fire for every write regardless of caller — Rust save path, SurrealDB event cascade, or direct console access.
+- **Permission system**: Strong-typed with full Frappe parity (role, DocType, If Owner, User permissions, `permlevel`). Auth stays in Rust permanently — SurrealDB's native auth model cannot encode Frappe-style role+doctype permission matrices.
+- **`MetaEntry` inventory**: Still used for Tier 0 DDL sync only. Domain DocTypes are not in the compiled inventory.
+- **Single ERPNext app**: Instead of separate WASM plugins per domain, all ERPNext modules (Accounts, Buying, Selling, Stock, CRM, Assets, Manufacturing, Projects, Quality Management, Subcontracting) live in **one app** — `apps/erpnext/` — following the ERPNext directory convention. This is manageable because the suite is deployed as a unit. Module-level granularity is still preserved via the `module` field on each DocType and the `app→module→doctype` graph.
+- **`spotledger-accounting` removed from workspace**: Accounting logic moves to SurrealDB events inside the `erpnext` app. The host binary has no compile-time knowledge of Account, JournalEntry, etc.
+- **Topological DocType seeding**: `install_app` parses `Link` fields in each DocType JSON, builds a dependency graph, and seeds in topological order (lowest-level first). This prevents FK constraint failures (e.g. `Journal Entry Account` references `Account` — `Account` is seeded first).
+- **Metadata is live graph data**: `doctype:Account -[has_field { idx, introduced_by, app_version, is_custom }]-> docfield:account_type`. All plugins, extensions, and user customizations are edges on the same graph. One query retrieves the complete merged meta.
+- **Ownership tracking on edges**: Every `has_field` edge carries `introduced_by` (app/plugin name), `app_version`, `is_custom`, and `removable_on_uninstall`. Uninstall is 3-stage: edge removal → orphan report → explicit purge. No automatic data loss.
+- **`schema_change_log`**: Written by `install_app` / `seed_doctypes_for_app` on every field diff. Records app version, before/after snapshot, timestamp. Replaces PatchLog for schema. Downgrade = reverse the diff.
+- **`custom_` prefix**: Admin-created fields must have `custom_` prefix, enforced at the Rust API boundary. `is_custom = true` fields are never auto-removed on uninstall.
+- **Apps and modules are graph nodes**: `app:erpnext -[provides_module]-> module:Accounts -[contains]-> doctype:Account`. Full lineage from every field back to its owning app.
+- **No Workspaces** — Spotledger UI uses a module-driven sidebar driven by `ModuleDef` records and `DocType.show_in_menu = 1`. Workspaces code remains in the backend for compatibility but is not consumed by the Spotledger UI.
+- **Outbox pattern for external side effects**: Email, queue, third-party API calls are never triggered directly from SurrealDB events. Events write to `pending_notification` / outbox tables; Rust subscribes via `LIVE SELECT` and processes them.
 
 ---
 
@@ -291,7 +307,7 @@ crates/
 - **Module wiring complete** — `doctypes::*` and `migrations::*` exported from lib.rs for startup schema sync
 - **DocField builder enhancements** — added `.in_standard_filter()`, `.description()`, `.default_value()` for full field metadata
 
-**What is missing / stubbed:**
+**What is missing / stubbed (pre-April-9 scope):**
 - `frappe.client.rename_doc`, `attach_file`, `validate_link`
 - Full `/api/v2/` endpoints
 - Plugin migration runner
@@ -300,9 +316,15 @@ crates/
 - Full-text search
 - `spotledger-desk` — Tier 1 DocTypes (stub structure exists, no DocType implementations)
 - `spotledger-automation` — Tier 2 DocTypes (stub, partial hooks only)
-- Accounting DocType hooks wired to GL engine (`on_submit`/`on_cancel` stubs incomplete)
 - Domain plugins (`apps/selling`, `apps/buying`, `apps/stock`) — Cargo stubs, no doctype implementations
-- `spotledger-pdk` `utils.rs` module (utils host function wrappers for guest side)
+- `spotledger-pdk` `utils.rs` module
+
+**What is now superseded / revised (April 9 architectural change):**
+- The 15-step `controller::save_doc` pipeline — **replaced** by auth+proxy + SurrealDB events (Phase B)
+- Tier 3 compiled `DocTypeMeta` (Account, GLEntry, JournalEntry) — **replaced** by JSON-seeded graph records (Phase A)
+- `lft`/`rgt` nested set on Account — **replaced** by `child_of` graph edges (Phase A)
+- `spotledger-core/src/validation.rs` pure validation — **replaced** by `DEFINE TABLE ASSERT` / `DEFINE EVENT` in SurrealDB (Phase B)
+- `MetaEntry` + `inventory::submit!` for domain types — **scoped to Tier 0 only**
 
 ---
 
@@ -312,7 +334,15 @@ crates/
 spotledger/                              ← workspace root
 ├── Cargo.toml                           ← workspace manifest
 │
+├── .cargo/
+│   └── config.toml                      ← `xtask = "run --package xtask --"` alias
+│
 ├── crates/
+│   ├── xtask/                           ← BUILD ORCHESTRATOR (host + WASM apps in one command)
+│   │   src/
+│   │     main.rs       → cargo xtask [build|wasm|host|check] [--release]
+│   │                     builds wasm32-wasip1 apps → copies to target/plugins/
+│   │
 │   ├── spotledger-core/                 ← THE KERNEL (Tier 0 types, replaces spotledger-types)
 │   │   src/
 │   │     lib.rs           → public re-exports
@@ -452,11 +482,15 @@ spotledger/                              ← workspace root
 
 ```
 Tier 0 — Absolute kernel (spotledger-core, compiled in)
-  Required before ANY plugin can load.
+  Required before ANY plugin can load. Rust MUST know these at compile time.
 
   DocType, DocField, DocPerm, CustomField, PropertySetter
   User, Role, HasRole, UserType, UserPermission, UserGroup
   DefaultValue, SystemSettings, Session
+  ModuleDef, UserModule
+  -- Graph bootstrap tables (Phase A):
+  doctype (graph node), docfield (graph node), has_field (relation edge)
+  schema_change_log, app, module
   _spotledger_migrations (internal tracking table)
 
 Tier 1 — Framework UI DocTypes (spotledger-desk, compiled in)
@@ -466,6 +500,7 @@ Tier 1 — Framework UI DocTypes (spotledger-desk, compiled in)
   ToDo, Note, Event, Comment, Communication, Tag, TagLink
   File, Folder
   NotificationLog, NotificationSettings, Notification
+  pending_notification (outbox — Phase B)
   Workflow, WorkflowAction, WorkflowState, WorkflowTransition
   Version, AuditTrail, DeletedDocument, ViewLog
   DocumentNamingRule, DocumentNamingSettings, NamingSeries
@@ -474,20 +509,30 @@ Tier 1 — Framework UI DocTypes (spotledger-desk, compiled in)
 Tier 2 — Optional framework modules (feature-gated, compiled in)
   spotledger-automation: AssignmentRule, AutoRepeat, Milestone, Reminder
 
-Tier 3 — Financial Core (spotledger-accounting, compiled in, MANDATORY)
-  The accounting engine. Cannot be disabled.
-  All transactional plugins depend on these host functions being present.
+Tier 3 — Financial Core (spotledger-accounting)
+  ⚠️ REVISED: Schema lives in JSON files seeded via install_app into SurrealDB graph.
+  GL engine HOST FUNCTIONS stay compiled in Rust (stable ABI for plugins).
+  Domain logic (validate_parent, set_root_and_report_type, propagate tree, etc.)
+  lives as SurrealDB DEFINE EVENT / DEFINE FIELD VALUE / DEFINE FUNCTION LANGUAGE WASM.
 
-  Company, FiscalYear, FiscalYearCompany
-  Account (tree), CostCenter (tree)
-  Currency, CurrencyExchange
-  TaxCategory, TaxTemplate, TaxTemplateDetail
-  GLEntry                          ← the ledger — written by engine only
-  JournalEntry, JournalEntryAccount
-  PaymentTerms, PaymentTermsTemplate
+  JSON schema seeds (not compiled DocTypeMeta):
+    Company, FiscalYear, FiscalYearCompany
+    Account (tree via child_of edges, no lft/rgt), CostCenter (tree)
+    Currency, CurrencyExchange
+    TaxCategory, TaxTemplate, TaxTemplateDetail
+    GLEntry  (written by engine only)
+    JournalEntry, JournalEntryAccount
+    PaymentTerms, PaymentTermsTemplate
+
+  Compiled Rust (host functions, always available to plugins):
+    sl_make_gl_entries, sl_reverse_gl_entries
+    sl_get_account_balance, sl_get_fiscal_year
+    sl_get_exchange_rate, sl_convert_to_base_currency
+    sl_validate_account, sl_get_default_account
 
 Tier 4 — Domain plugins (WASM, .wasm files in plugins/)
-  Everything above the financial engine.
+  Schema carried as embedded schema.json in each .wasm binary.
+  Logic as SurrealDB WASM functions where data-local; Extism WASM for cross-doc orchestration.
 
   selling.wasm:  SalesOrder, SalesInvoice, Quotation, Customer, PriceList
   buying.wasm:   PurchaseOrder, PurchaseInvoice, Supplier
@@ -892,9 +937,11 @@ systemctl restart spotledger
 - [x] Create `apps/selling/`, `apps/buying/`, `apps/stock/`, `apps/hrms/` — stub Cargo.toml (`crate-type = ["cdylib"]`)
 - [x] Remove `crates/spotledger-proxy/` from workspace
 - [x] Update workspace `Cargo.toml` members list
+- [x] Create `crates/xtask/` — build orchestrator: `cargo xtask build` compiles host workspace + all WASM apps, copies `.wasm` → `target/plugins/`
+- [x] Create `.cargo/config.toml` with `xtask` alias
 - [x] `cargo build` passes with zero warnings
 
-**Exit criterion**: ✅ `cargo build` clean. All tests pass.
+**Exit criterion**: ✅ `cargo build` clean. All tests pass. `cargo xtask check` verified working.
 
 ---
 
@@ -918,18 +965,67 @@ systemctl restart spotledger
 
 ---
 
+---
+
+## Architecture Revision — April 9, 2026
+
+> **This section records the major architectural decision taken April 9, 2026.**
+> All phases below are updated to reflect this. The detailed rationale lives in
+> `memories/repo/spotledger-architecture.md`.
+
+### The Decision in One Paragraph
+
+Rust's compiled `DocTypeMeta` structs are **not** the source of truth for domain DocTypes (Account, Customer, Journal Entry, etc.). They are only used for the ~16 Tier 0 bootstrap types that the engine itself needs at compile time. Everything else — schema, field definitions, computed derivations, validation logic — lives in SurrealDB as graph data, seeded at install time from JSON files (Frappe-compatible `{name}.json`). The save pipeline collapses to: auth check in Rust → one DB write → SurrealDB events fire automatically. Adding a field to Account does not require recompiling the binary.
+
+### Three-Layer Architecture
+
+```
+Rust (Engine)          SurrealDB (Knowledge Base)       WASM Plugins (Logic + Schema)
+──────────────         ───────────────────────────      ─────────────────────────────
+HTTP server            doctype/docfield graph nodes     Carry embedded schema.json
+Auth enforcement       has_field edges + provenance     Upserted into graph at load
+WASM sandbox host      Computed fields (DEFINE FIELD    Domain logic as DEFINE FUNCTION
+DB adapter             VALUE ...)                       LANGUAGE WASM inside SurrealDB
+Tier 0 DDL only        Events (DEFINE EVENT)            Direct graph access, no IPC
+                       All document instance data
+                       schema_change_log
+```
+
+### What Rust Knows at Compile Time (Tier 0 Only)
+
+DocType, DocField, DocPerm, User, Role, UserPermission, Session, SystemSettings, ModuleDef.
+Nothing else. The save pipeline is generic — it does not know what fields `Account` has.
+
+### Save Pipeline After Revision
+
+```rust
+async fn save_handler(session: Session, body: Document) -> Response {
+    check_permission(&session, &body.doctype, PermType::Write)?;  // Rust owns auth forever
+    let result = db.execute("UPSERT type::thing($dt, $name) CONTENT $doc", params![body]).await?;
+    Json(result).into_response()  // SurrealDB events fire inside the transaction
+}
+```
+
+---
+
 ### Phase 1b — Framework DocTypes (Tier 0 + Tier 1 + Tier 3) 🔄 IN PROGRESS
 
-**Goal**: All framework DocTypes are typed Rust structs. Tier 0/1/3 migrations run at startup. No `seed_doctypes.rs` needed.
+> **Revised scope**: Tier 0 and Tier 1 DocTypes stay compiled in Rust (the engine needs them).
+> Tier 3 accounting DocTypes (Account, GL Entry, Journal Entry, etc.) move to JSON-seeded
+> graph records. Their logic moves to SurrealDB WASM events. The `lft/rgt` nested set on
+> Account is replaced by `child_of` graph edges.
 
-**Tier 0 (spotledger-core):**
-- [ ] `doctypes/doctype.rs` — DocType, DocField, DocPerm, CustomField, PropertySetter
-- [ ] `doctypes/user.rs` — User (`validate` email, `before_save` → full_name, `on_update` → role sync)
-- [ ] `doctypes/system.rs` — SystemSettings (single), DefaultValue
-- [ ] `doctypes/naming.rs` — DocumentNamingRule, DocumentNamingSettings
-- [ ] `migrations/tier0.rs` — embedded SurrealQL for Tier 0 tables
+**Goal**: Tier 0 and Tier 1 DocTypes are typed Rust structs compiled into the engine (the engine needs them at boot). Tier 3 (accounting DocTypes) moves to JSON-seeded graph records \u2014 see Phase A.
 
-**Tier 1 (spotledger-desk):**
+**Tier 0 (spotledger-core) — compiled in, engine cannot boot without these:**
+- [x] `doctypes/doctype.rs` — DocType, DocField, DocPerm, CustomField, PropertySetter
+- [x] `doctypes/user.rs` — User, Role, HasRole, UserPermission
+- [x] `doctypes/system.rs` — SystemSettings (single), DefaultValue, ModuleDef
+- [x] `doctypes/naming.rs` — DocumentNamingRule, DocumentNamingSettings
+- [x] `migrations/tier0.surql` — DDL for all Tier 0 tables
+- [ ] Add `doctype`, `docfield`, `has_field` (relation), `schema_change_log`, `app`, `module` tables to Tier 0 DDL (Phase A prerequisite)
+
+**Tier 1 (spotledger-desk) — compiled in, desk cannot function without these:**
 - [ ] `doctypes/workspace.rs` — Workspace, WorkspaceSidebar
 - [ ] `doctypes/todo.rs` — ToDo, Note, Event, Comment
 - [ ] `doctypes/file.rs` — File (schema + hooks; storage in Phase 8)
@@ -938,23 +1034,15 @@ systemctl restart spotledger
 - [ ] `doctypes/version.rs` — Version (`before_insert` captures diff), AuditTrail, DeletedDocument
 - [ ] `migrations/tier1.rs` — embedded SurrealQL for Tier 1 tables
 
-**Tier 3 (spotledger-accounting):** ⚠️ schema files exist, hooks and engine partially stubbed
-- [x] `company.rs` — Company struct + DocTypeMeta defined
-- [x] `account.rs` — Account struct + DocTypeMeta defined (nested set fields present)
-- [x] `currency.rs` — Currency, CurrencyExchange structs defined
-- [x] `fiscal_year.rs` — FiscalYear, FiscalYearCompany structs defined
-- [x] `journal_entry.rs` — JournalEntry, JournalEntryAccount structs defined
-- [x] `gl_engine.rs` — `make_gl_entries()`, `reverse_gl_entries()` signatures present
-- [ ] `doctypes/cost_center.rs` — CostCenter nested set tree
-- [ ] `doctypes/tax.rs` — TaxCategory, TaxTemplate, TaxTemplateDetail
-- [ ] `engine/fiscal.rs` — `get_fiscal_year()`, `get_fiscal_year_start_end()`
-- [ ] `engine/currency.rs` — `get_exchange_rate()`, `convert_to_base_currency()`
-- [ ] `engine/coa.rs` — `get_account_balance()`, `get_account_tree()`, `validate_account()`
-- [ ] `migrations/tier3.rs` — embedded SurrealQL for all Tier 3 tables
-- [ ] `on_submit` / `on_cancel` hooks wired to GL engine for JournalEntry
-- [ ] `Company::after_insert` → create default Chart of Accounts + CostCenter
+**Tier 3 (spotledger-accounting) — ⚠️ SCOPE REVISED: moves to JSON + SurrealDB events (Phase A/B)**
+- [x] Rust structs exist for Company, Account, Currency, FiscalYear, JournalEntry, GL Entry
+- [x] `make_gl_entries()` / `reverse_gl_entries()` signatures present as host functions
+- [ ] Remove compiled `DocTypeMeta` for Tier 3 types — replace with `schema.json` files seeded via `install_app`
+- [ ] Remove `lft`/`rgt` from Account \u2014 replaced by `child_of` graph edges (Phase A)
+- [ ] GL engine host functions (`sl_make_gl_entries` etc.) stay in Rust as stable ABI \u2014 domain logic moves to SurrealDB events (Phase B)
+- [ ] `engine/fiscal.rs`, `engine/currency.rs`, `engine/coa.rs` \u2014 keep as host fn implementations, not DocType hooks
 
-**Exit criterion**: ⏳ `spotledger new-site` seeds all tables. Company + Chart of Accounts creatable. `get_account_balance()` returns 0.
+**Exit criterion**: ⏳ `spotledger new-site` seeds all Tier 0/1 tables. Phase A/B handle Tier 3.
 
 ---
 
@@ -1156,33 +1244,132 @@ existence validation.
 
 ---
 
-### Phase 4 — Domain Plugins (Selling, Buying, Stock) ⏳ STUB ONLY
+---
 
-**Selling (apps/selling):**
-- [ ] Customer, PriceList + PriceListItem
-- [ ] SalesOrder + SalesOrderItem (`validate`, `before_save` totals, `on_submit` status)
-- [ ] SalesInvoice + SalesInvoiceItem (`on_submit` → `make_gl_entries()`, `on_cancel` → `reverse_gl_entries()`)
-- [ ] Quotation + QuotationItem
-- [ ] DeliveryNote + DeliveryNoteItem
+### Phase A — Metadata-as-Graph Foundation ⏳ NOT STARTED
 
-**Buying (apps/buying):**
-- [ ] Supplier
-- [ ] PurchaseOrder + PurchaseOrderItem
-- [ ] PurchaseInvoice + PurchaseInvoiceItem (`on_submit` → `make_gl_entries()`)
-- [ ] PurchaseReceipt + PurchaseReceiptItem
+**Goal**: DocType and DocField records exist as live graph nodes in SurrealDB. `frappe.get_meta("Account")` is a graph query. `ensure_schema` grows a Phase 2 that upserts these records alongside DDL.
 
-**Stock (apps/stock):**
-- [ ] Item, ItemGroup (tree — uses `sl_utils_get_ancestors_of`), UOM, Warehouse
-- [ ] StockEntry + StockEntryDetail (`on_submit` → `make_stock_ledger_entries()` + `make_gl_entries()`)
-- [ ] StockLedgerEntry (schema; written by stock engine only)
-- [ ] PaymentEntry + PaymentEntryReference (`on_submit` → `make_gl_entries()`)
+**Tasks:**
+- [ ] Define `doctype`, `docfield`, `has_field` (relation) table schemas in Tier 0 migrations
+      Fields on `has_field` edge: `idx`, `introduced_by`, `app_version`, `is_custom`, `protected`, `removable_on_uninstall`
+- [ ] Extend `ensure_schema` in `spotledger-db/src/schema.rs` with Phase 2:
+      `ensure_meta_records(adapter, meta)` — upserts doctype node + docfield nodes + RELATE edges
+      for Tier 0 types only (other types come from `seed_doctypes_for_app`)
+- [ ] Extend `seed_doctypes_for_app` to stamp `introduced_by` + `app_version` + `is_custom = false`
+      on every DocField upsert (reads version from app's `pyproject.toml`)
+- [ ] Add diff logic to `seed_doctypes_for_app`: compare existing SurrealDB record vs JSON,
+      upsert only changed fields, write `schema_change_log` entry per change
+- [ ] Create `schema_change_log` table in Tier 0 migrations
+- [ ] `meta_cache` module in `spotledger-db`: query SurrealDB for DocTypeMeta at runtime
+      (replaces compiled `MetaEntry` lookups for non-Tier-0 types). LRU cache, invalidated on schema change.
+- [ ] Remove `lft`, `rgt`, `old_parent` from Account definition; add `child_of` relation table
+- [ ] `get_ancestors_of` / `get_descendants_of` in `spotledger-db` rewritten as SurrealDB graph queries
+      `SELECT <-child_of<-account... FROM account:xyz`
 
-**Accounts supplementary (apps/accounts):**
-- [ ] Period Closing Voucher (`on_submit` → close fiscal period)
-- [ ] Bank Reconciliation Statement
-- [ ] Purchase Taxes and Charges Template, Sales Taxes and Charges Template
+**Exit criterion**: `SELECT ->has_field->docfield.* FROM doctype:Account ORDER BY ->has_field.idx` returns all Account fields. `meta_cache.get("Account")` returns a `DocTypeMeta`-equivalent built from that graph query.
 
-**Exit criterion**: Create a Sales Invoice → submit → GL entries appear in `tabGL_Entry`. Cancel → reversal entries appear. Create a Stock Entry → StockLedgerEntry rows created.
+---
+
+### Phase B — Save Pipeline → Auth+Proxy + SurrealDB Events ⏳ NOT STARTED
+
+**Goal**: The 15-step Rust save pipeline is replaced. Rust does auth then one DB write. All validation, computed derivation, and side-effect propagation runs inside SurrealDB via events.
+
+**Tasks:**
+- [ ] Replace `controller::save_doc` 15-step pipeline with:
+      `check_permission` → `db.upsert(doctype, doc)` → return result
+- [ ] Replace `controller::delete_doc_checked` similarly
+- [ ] Define `DEFINE TABLE account SCHEMAFULL ASSERT ...` structural assertions for mandatory fields
+      (generated from `DocField.reqd = true` during schema sync)
+- [ ] Define `DEFINE FIELD <fieldname> ON account ASSERT ...` for per-field constraints
+      (generated from DocField metadata: `unique`, `not_nullable`, select options)
+- [ ] Port first domain event: `account_validate_parent` as `DEFINE EVENT validate ON account`
+      — replaces `account.py:validate_parent()`
+- [ ] Port `set_root_and_report_type` as `DEFINE FIELD report_type ON account VALUE IF ...`
+- [ ] Port `propagate_root_type_to_children` as `DEFINE EVENT` on account
+- [ ] GL Entry: `DEFINE EVENT validate ON gl_entry` — account exists, not disabled, not group
+- [ ] Journal Entry submit: `DEFINE EVENT on_submit ON journal_entry` — inserts GL entries
+      atomically; gl_entry's own event fires inside the same transaction
+- [ ] Outbox pattern: `pending_notification` table in Tier 0; Rust `LIVE SELECT` subscriber
+- [ ] `DEFINE EVENT on_submit/on_cancel` workflow state enforcement in Tier 0 DDL
+      (docstatus 0→1 only if `is_submittable`, 1→2 only if permitted)
+- [ ] `custom_` prefix enforcement in Rust API save handler for `is_custom = true` fields
+
+**Exit criterion**: Submit a Journal Entry via `POST /api/resource/Journal Entry/{name}` with `{"docstatus": 1}`. GL entries appear atomically. Cancel reverses them. If Account is disabled the GL insert throws and the entire transaction rolls back.
+
+---
+
+### Phase C — App/Module Graph + Schema Versioning ⏳ NOT STARTED
+
+**Goal**: Apps and modules are graph nodes with full lineage to every DocType and field they own. Schema changes are versioned and queryable.
+
+**Tasks:**
+- [ ] `app` table in Tier 0 migrations: `{ name, title, version, installed_at, updated_at }`
+- [ ] `module` table: `{ name, app, label, icon, show_in_menu, order }`
+- [ ] Relations: `app-[provides_module]->module`, `module-[contains]->doctype`
+- [ ] `install_app` command: upsert `app` node at start of install; upsert `module` nodes;
+      add `provides_module` and `contains` edges
+- [ ] Expose `GET /api/method/spotledger.get_installed_apps` — returns app graph
+- [ ] `GET /api/method/spotledger.schema_history?doctype=Account` — queries `schema_change_log`
+- [ ] Uninstall command: remove `has_field` edges for `introduced_by = app`,
+      generate orphan report, never auto-purge data
+- [ ] `spotledger-pdk`: replace `DocTypeMeta` struct with `schema.json` payload format;
+      plugin `register_doctypes()` returns JSON bytes, not compiled Rust structs
+
+**Exit criterion**: `spotledger install-app erpnext` seeds 500+ DocTypes. `SELECT ->has_field[WHERE introduced_by = "erpnext"]->docfield FROM doctype:Account` returns all erpnext-owned Account fields. `schema_change_log` has an entry for each field seeded.
+
+---
+
+### Phase 4 — ERPNext Domain App 🔄 IN PROGRESS
+
+**Decision**: One app (`apps/erpnext/`), all domains as modules within it. Follows ERPNext directory convention exactly. Deployed as a unit — no inter-plugin dependency resolution needed.
+
+**Modules included** (copied verbatim from `f:\Sources\erpnext\erpnext\`):
+`Accounts` · `Assets` · `Buying` · `Selling` · `Stock` · `CRM` · `Manufacturing` · `Projects` · `Quality Management` · `Subcontracting` · `Setup` · `Domains`
+
+**App structure**:
+```
+apps/erpnext/
+  Cargo.toml              ← cdylib stub, wasm32-wasip1
+  src/lib.rs              ← #[no_mangle] sl_plugin_init() {}
+  erpnext/                ← Frappe convention: apps/{app}/{app}/
+    modules.txt
+    accounts/doctype/{name}/{name}.json
+    buying/doctype/{name}/{name}.json
+    selling/doctype/{name}/{name}.json
+    stock/doctype/{name}/{name}.json
+    assets/doctype/{name}/{name}.json
+    crm/doctype/{name}/{name}.json
+    manufacturing/doctype/{name}/{name}.json
+    projects/doctype/{name}/{name}.json
+    quality_management/doctype/{name}/{name}.json
+    subcontracting/doctype/{name}/{name}.json
+    setup/doctype/{name}/{name}.json
+```
+
+**Dependency checking — graph-first, no pre-sort needed**: DocType definitions are metadata records; SurrealDB has no cross-table constraints at schema-definition time. All DocTypes are seeded in a single pass in any order. After seeding, a graph query finds every Link field pointing to a DocType not yet installed:
+
+```surql
+SELECT doctype.name AS source, docfield.fieldname, docfield.options AS links_to
+FROM doctype, ->has_field->docfield
+WHERE docfield.fieldtype = "Link"
+  AND NOT (SELECT 1 FROM doctype WHERE name = docfield.options LIMIT 1)
+```
+
+This runs as a **post-install health check** — surfaces actionable warnings (e.g. "Sales Invoice references Customer — install the app that provides it") rather than failing mid-seed.
+
+**Tasks:**
+- [x] Remove `spotledger-accounting` from workspace members + workspace deps
+- [x] Remove `spotledger-accounting` dep from `spotledger-plugins/Cargo.toml`
+- [x] Create `apps/erpnext/` Cargo stub (cdylib, wasm32-wasip1)
+- [x] Copy DocType JSON files from `f:\Sources\erpnext` — **483 JSONs** across accounts(186), buying(20), selling(18), stock(77), assets(26), crm(27), manufacturing(47), projects(15), quality_management(16), subcontracting(13), setup(40)
+- [x] Implement `post_install_link_check()` in `crates/spotledger/src/install_app.rs` — graph query for unresolved Link fields, printed as warnings
+- [x] `cargo xtask check` passes clean
+- [ ] `cargo xtask wasm` — compile erpnext.wasm (requires `rustup target add wasm32-wasip1`)
+- [ ] `spotledger install-app erpnext --bench . --site ehsen` — seed all 483 DocTypes
+- [ ] Query SurrealDB: verify DocType count ≥ 483, spot-check Account/SalesInvoice/Item
+
+**Exit criterion**: `spotledger install-app erpnext` completes with 0 errors. SurrealDB contains graph nodes for all seeded DocTypes. `frappe.client.get_doc("DocType", "Sales Invoice")` returns the correct meta from the UI.
 
 ---
 

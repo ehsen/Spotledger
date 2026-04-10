@@ -216,8 +216,30 @@ pub async fn upsert_doc(
     ];
     bindings.extend_from_slice(set.bindings());
 
-    let row = adapter.run_one(&sql, bindings, doctype, name).await?;
-    value_to_document(row, doctype, name)
+    match adapter.run_one(&sql, bindings, doctype, name).await {
+        Ok(row) => value_to_document(row, doctype, name),
+        // SurrealDB v3 can fail to deserialize the UPSERT response when the
+        // returned record contains field names that match SQL keywords (e.g.
+        // tabDocPerm fields: submit, report, import, export).  The write
+        // itself SUCCEEDS — only reading the result back fails.  In that case
+        // we construct the returned Document from the supplied input fields so
+        // callers see a valid (though not DB-read-back) document.
+        Err(DbError::Surreal(ref e))
+            if e.to_string().contains("user generated conversion error") =>
+        {
+            let mut doc = Document::new(doctype);
+            doc.name = name.to_owned();
+            if let Value::Object(map) = fields {
+                for (k, v) in map {
+                    if k != "name" && k != "doctype" {
+                        doc.fields.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            Ok(doc)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Update a single field value on an existing document.

@@ -108,7 +108,7 @@ impl PermissionType {
             PermissionType::Read => "read",
             PermissionType::Write => "write",
             PermissionType::Create => "create",
-            PermissionType::Delete => "delete",
+            PermissionType::Delete => "perm_delete",
             PermissionType::Submit => "submit",
             PermissionType::Cancel => "cancel",
             PermissionType::Amend => "amend",
@@ -573,7 +573,7 @@ async fn get_doc_permissions_by_roles(
     let roles_json: Vec<Value> = roles_str.iter().map(|r| Value::String(r.clone())).collect();
 
     let surql = "SELECT \
-        select, read, write, create, delete, submit, cancel, amend, \
+        perm_select, read, write, perm_create, perm_delete, submit, perm_cancel, amend, \
         print, email, report, import, export, share \
         FROM tabDocPerm \
         WHERE parent = $doctype AND role IN $roles AND permlevel = 0";
@@ -591,13 +591,13 @@ async fn get_doc_permissions_by_roles(
     let mut merged = DocPermission::none();
     for row in rows {
         let perm = DocPermission {
-            select: extract_bool(&row, "select"),
+            select: extract_bool(&row, "perm_select"),
             read: extract_bool(&row, "read"),
             write: extract_bool(&row, "write"),
-            create: extract_bool(&row, "create"),
-            delete: extract_bool(&row, "delete"),
+            create: extract_bool(&row, "perm_create"),
+            delete: extract_bool(&row, "perm_delete"),
             submit: extract_bool(&row, "submit"),
-            cancel: extract_bool(&row, "cancel"),
+            cancel: extract_bool(&row, "perm_cancel"),
             amend: extract_bool(&row, "amend"),
             print: extract_bool(&row, "print"),
             email: extract_bool(&row, "email"),

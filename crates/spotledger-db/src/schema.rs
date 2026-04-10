@@ -29,9 +29,11 @@ use crate::error::DbError;
 /// are never stored in the DB.
 pub fn surql_type(ft: &FieldType) -> Option<&'static str> {
     match ft {
-        // Integer storage
-        FieldType::Check => Some("int"),
-        FieldType::Int   => Some("int"),
+        // Integer storage.
+        // Check and Int both use `none | int` so absent fields (NONE) pass SurrealDB v3
+        // strict schema validation. `option<int>` only covers null, not NONE (absent).
+        // System fields (docstatus, idx) use define_field() directly and are unaffected.
+        FieldType::Check | FieldType::Int => Some("none | int"),
 
         // Float storage
         FieldType::Float | FieldType::Currency | FieldType::Percent | FieldType::Rating
@@ -43,8 +45,9 @@ pub fn surql_type(ft: &FieldType) -> Option<&'static str> {
         FieldType::Date     => Some("option<string>"),
         FieldType::Time     => Some("option<string>"),
 
-        // Child table arrays — embedded JSON array of objects
-        FieldType::Table | FieldType::TableMultiSelect => Some("array<object>"),
+        // Child table arrays — embedded JSON array of arbitrary objects.
+        // array<any> avoids SCHEMAFULL hierarchical validation on nested keys.
+        FieldType::Table | FieldType::TableMultiSelect => Some("array<any>"),
 
         // Arbitrary JSON blob
         FieldType::Json => Some("any"),
@@ -67,8 +70,8 @@ const SYSTEM_FIELDS: &[(&str, &str)] = &[
     ("creation",    "option<datetime>"),
     ("modified",    "option<datetime>"),
     ("modified_by", "option<string>"),
-    ("docstatus",   "int"),
-    ("idx",         "int"),
+    ("docstatus",   "int DEFAULT 0"),
+    ("idx",         "int DEFAULT 0"),
 ];
 
 /// Extra fields added only to child-table documents.
@@ -82,13 +85,11 @@ const CHILD_FIELDS: &[(&str, &str)] = &[
 
 /// Idempotently ensure the SurrealDB table schema for one DocType.
 ///
-/// Emits:
-/// 1. `DEFINE TABLE IF NOT EXISTS … SCHEMAFULL`
-/// 2. `DEFINE FIELD IF NOT EXISTS …` for every system field
-/// 3. `DEFINE FIELD IF NOT EXISTS …` for every DocField in the meta
-/// 4. `DEFINE INDEX IF NOT EXISTS … UNIQUE` on `name` (non-child tables)
+/// **Phase 1** — DDL: emits `DEFINE TABLE/FIELD/INDEX` statements.
+/// **Phase 2** — Graph: upserts `doctype`/`docfield` graph nodes and
+///               `has_field` RELATE edges with provenance metadata.
 ///
-/// Nothing is ever removed — this call is fully additive.
+/// Both phases are fully additive — nothing is ever removed.
 pub async fn ensure_schema(adapter: &DbAdapter, meta: &DocTypeMeta) -> Result<(), DbError> {
     let table    = doctype_to_table(&meta.name);
     let safe_name = meta.name.replace([' ', '-'], "_").to_lowercase();
@@ -132,12 +133,12 @@ pub async fn ensure_schema(adapter: &DbAdapter, meta: &DocTypeMeta) -> Result<()
         };
 
         let mut sql = format!(
-            "DEFINE FIELD IF NOT EXISTS `{fn}` ON TABLE `{table}` TYPE {ty}",
+            "DEFINE FIELD IF NOT EXISTS `{fn}` ON TABLE `{table}` TYPE {ty} PERMISSIONS FULL",
             r#fn = df.fieldname,
             ty = effective_type,
         );
 
-        // Attach DEFAULT for not-nullable fields that have a default value
+        // Attach DEFAULT — explicit value wins; Check fields default to 0
         if let Some(ref dv) = df.default_value {
             match df.fieldtype {
                 FieldType::Int | FieldType::Check => {
@@ -152,6 +153,10 @@ pub async fn ensure_schema(adapter: &DbAdapter, meta: &DocTypeMeta) -> Result<()
                     sql.push_str(&format!(" DEFAULT '{escaped}'"));
                 }
             }
+        } else if df.fieldtype == FieldType::Check {
+            // Check (boolean flag) is always 0 when absent — avoids NONE
+            // coercion errors on SCHEMAFULL tables
+            sql.push_str(" DEFAULT 0");
         }
 
         sql.push(';');
@@ -192,7 +197,11 @@ pub async fn ensure_schema(adapter: &DbAdapter, meta: &DocTypeMeta) -> Result<()
         }
     }
 
-    tracing::info!(doctype = %meta.name, table = %table, "Schema synced");
+    tracing::info!(doctype = %meta.name, table = %table, "Schema DDL synced (Phase 1)");
+
+    // ── Phase 2: upsert graph nodes + edges ───────────────────────────────────
+    ensure_meta_records(adapter, meta, "spotledger", None).await?;
+
     Ok(())
 }
 
@@ -204,7 +213,7 @@ async fn define_field(
     ty: &str,
 ) -> Result<(), DbError> {
     let sql = format!(
-        "DEFINE FIELD IF NOT EXISTS `{fieldname}` ON TABLE `{table}` TYPE {ty};"
+        "DEFINE FIELD IF NOT EXISTS `{fieldname}` ON TABLE `{table}` TYPE {ty} PERMISSIONS FULL;"
     );
     adapter.execute(&sql, vec![]).await
 }
@@ -299,7 +308,7 @@ pub fn emit_schema_sql(meta: &DocTypeMeta) -> String {
         };
 
         let mut line = format!(
-            "DEFINE FIELD IF NOT EXISTS `{fn}` ON TABLE `{table}` TYPE {ty}",
+            "DEFINE FIELD IF NOT EXISTS `{fn}` ON TABLE `{table}` TYPE {ty} PERMISSIONS FULL",
             r#fn = df.fieldname,
             ty = effective_type,
         );
@@ -380,6 +389,114 @@ pub fn emit_all_schemas_sql() -> (String, usize) {
     (header + &body, count)
 }
 
+// ── Phase 2: Metadata-as-Graph ────────────────────────────────────────────────
+
+/// Phase 2 of `ensure_schema`: upsert `doctype` and `docfield` graph nodes and
+/// connect them with `has_field` RELATE edges.
+///
+/// This is idempotent — re-running after adding fields only creates the new
+/// edges; existing edges are left untouched.  The `introduced_by` value
+/// defaults to `"spotledger"` for compiled Tier 0 types.
+pub async fn ensure_meta_records(
+    adapter: &DbAdapter,
+    meta: &DocTypeMeta,
+    introduced_by: &str,
+    introduced_version: Option<&str>,
+) -> Result<(), DbError> {
+    let dt_node = meta.name.to_lowercase().replace([' ', '-'], "_");
+
+    // ── 1. Upsert the doctype graph node ─────────────────────────────────────
+    let upsert_dt = format!(
+        "UPSERT doctype:{dt_id} CONTENT $content;",
+        dt_id = dt_node,
+    );
+    adapter
+        .execute(
+            &upsert_dt,
+            vec![(
+                "content".into(),
+                serde_json::json!({
+                    "name":                meta.name,
+                    "module":              meta.module,
+                    "is_single":           if meta.is_single { 1 } else { 0 },
+                    "is_child":            if meta.is_child  { 1 } else { 0 },
+                    "is_submittable":      if meta.is_submittable { 1 } else { 0 },
+                    "is_tree":             if meta.is_tree { 1 } else { 0 },
+                    "introduced_by":       introduced_by,
+                    "introduced_version":  introduced_version,
+                }),
+            )],
+        )
+        .await?;
+
+    // ── 2. Upsert each docfield graph node + RELATE edge ─────────────────────
+    for (idx, df) in meta.fields.iter().enumerate().filter(|(_, f)| !f.fieldtype.is_layout()) {
+        let df_id = format!(
+            "{}_{}",
+            dt_node,
+            df.fieldname.to_lowercase()
+        );
+
+        // Upsert the docfield node
+        let upsert_df = format!("UPSERT docfield:{df_id} CONTENT $content;");
+        adapter
+            .execute(
+                &upsert_df,
+                vec![(
+                    "content".into(),
+                    serde_json::json!({
+                        "name":         format!("{}_{}", meta.name, df.fieldname),
+                        "fieldname":    df.fieldname,
+                        "label":        df.label,
+                        "fieldtype":    format!("{:?}", df.fieldtype),
+                        "reqd":         if df.reqd { 1 } else { 0 },
+                        "unique":       if df.unique { 1 } else { 0 },
+                        "read_only":    if df.read_only { 1 } else { 0 },
+                        "hidden":       if df.hidden { 1 } else { 0 },
+                        "in_list_view": if df.in_list_view { 1 } else { 0 },
+                        "in_standard_filter": if df.in_standard_filter { 1 } else { 0 },
+                        "bold":         if df.bold { 1 } else { 0 },
+                        "description":  df.description,
+                        "default_value": df.default_value,
+                    }),
+                )],
+            )
+            .await?;
+
+        // RELATE doctype -[has_field]-> docfield (IF NOT EXISTS semantics via
+        // the unique index on in+out; SurrealDB ignores duplicate RELATE).
+        let relate_sql = format!(
+            "IF NOT (SELECT * FROM has_field WHERE in = doctype:{dt_id} AND out = docfield:{df_id}) THEN \
+               RELATE doctype:{dt_id} -> has_field -> docfield:{df_id} CONTENT $edge; \
+             END;",
+            dt_id = dt_node,
+            df_id = &df_id,
+        );
+        adapter
+            .execute(
+                &relate_sql,
+                vec![(
+                    "edge".into(),
+                    serde_json::json!({
+                        "idx":                    idx,
+                        "introduced_by":          introduced_by,
+                        "introduced_version":     introduced_version,
+                        "is_custom":              0,
+                        "protected":              1,
+                        "removable_on_uninstall": 0,
+                    }),
+                )],
+            )
+            .await?;
+    }
+
+    tracing::debug!(
+        doctype = %meta.name,
+        "Graph meta records ensured (Phase 2)",
+    );
+    Ok(())
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -389,13 +506,13 @@ mod tests {
 
     #[test]
     fn surql_type_mapping() {
-        assert_eq!(surql_type(&FieldType::Check),    Some("int"));
-        assert_eq!(surql_type(&FieldType::Int),      Some("int"));
+        assert_eq!(surql_type(&FieldType::Check),    Some("none | int"));
+        assert_eq!(surql_type(&FieldType::Int),      Some("none | int"));
         assert_eq!(surql_type(&FieldType::Float),    Some("float"));
         assert_eq!(surql_type(&FieldType::Currency), Some("float"));
         assert_eq!(surql_type(&FieldType::Datetime), Some("option<datetime>"));
         assert_eq!(surql_type(&FieldType::Date),     Some("option<string>"));
-        assert_eq!(surql_type(&FieldType::Table),    Some("array<object>"));
+        assert_eq!(surql_type(&FieldType::Table),    Some("array<any>"));
         assert_eq!(surql_type(&FieldType::Json),     Some("any"));
         assert_eq!(surql_type(&FieldType::Data),     Some("option<string>"));
         assert_eq!(surql_type(&FieldType::SectionBreak), None);

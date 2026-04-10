@@ -4,12 +4,14 @@ members = [
     "crates/spotledger-db",
     "crates/spotledger-desk",
     "crates/spotledger-geo",
-    "crates/spotledger-accounting",
+    "crates/spotledger-contacts",
+    "crates/spotledger-printing",
     "crates/spotledger-automation",
     "crates/spotledger-http",
     "crates/spotledger-plugins",
     # spotledger-pdk excluded: targets wasm32, needs separate cargo config
     "crates/spotledger",
+    "crates/xtask",
 ]
 resolver = "2"
 
@@ -91,7 +93,8 @@ spotledger-core        = { path = "crates/spotledger-core" }
 spotledger-db          = { path = "crates/spotledger-db" }
 spotledger-desk        = { path = "crates/spotledger-desk" }
 spotledger-geo         = { path = "crates/spotledger-geo" }
-spotledger-accounting  = { path = "crates/spotledger-accounting" }
+spotledger-contacts    = { path = "crates/spotledger-contacts" }
+spotledger-printing    = { path = "crates/spotledger-printing" }
 spotledger-automation  = { path = "crates/spotledger-automation" }
 spotledger-http        = { path = "crates/spotledger-http" }
 spotledger-plugins     = { path = "crates/spotledger-plugins" }
