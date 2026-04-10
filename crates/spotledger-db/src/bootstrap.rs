@@ -15,6 +15,7 @@
 //! site is fully idempotent.
 
 use crate::adapter::DbAdapter;
+use crate::document::upsert_doc;
 use crate::error::DbError;
 use spotledger_core::registry::MetaEntry;
 
@@ -246,6 +247,32 @@ pub async fn seed_naming_rules(adapter: &DbAdapter) -> Result<(), DbError> {
     }
 
     adapter.execute(&sql, vec![]).await
+}
+
+/// Seed one `tabDocType` row for every compiled DocType (framework types like
+/// Currency, Country, Address, Contact, etc.).
+///
+/// This ensures `post_install_link_check` can find these types in `tabDocType`
+/// even though they are defined in Rust code rather than JSON files.
+pub async fn seed_framework_doctypes(adapter: &DbAdapter) -> Result<(), DbError> {
+    for entry in inventory::iter::<MetaEntry>() {
+        let meta = (entry.meta)();
+        let fields = serde_json::json!({
+            "module": meta.module,
+            "doctype": "DocType",
+            "issingle": if meta.is_single { 1 } else { 0 },
+            "is_child_table": if meta.is_child { 1 } else { 0 },
+            "issubmittable": if meta.is_submittable { 1 } else { 0 },
+            "owner": "Administrator",
+            "modified_by": "Administrator",
+            "fields": [],
+            "permissions": [],
+        });
+        if let Err(e) = upsert_doc(adapter, "DocType", &meta.name, &fields).await {
+            tracing::warn!("seed_framework_doctypes: failed to seed '{}': {}", meta.name, e);
+        }
+    }
+    Ok(())
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
