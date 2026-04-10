@@ -18,7 +18,7 @@
 //! No external `.surql` files are read. The binary is the sole source of truth.
 
 use anyhow::{bail, Context};
-use spotledger_db::bootstrap::{run_framework_tables, seed_default_records, seed_naming_rules};
+use spotledger_db::bootstrap::{run_framework_tables, seed_default_records, seed_framework_doctypes, seed_naming_rules};
 use spotledger_db::migrations::{current_batch, run_pending_migrations};
 use spotledger_db::auth::set_user_password;
 use spotledger_db::connection::connect;
@@ -114,6 +114,10 @@ pub async fn new_site(args: NewSiteArgs) -> anyhow::Result<()> {
     seed_naming_rules(&db)
         .await
         .context("Seeding DocumentNamingRule rows")?;
+
+    seed_framework_doctypes(&db)
+        .await
+        .context("Seeding tabDocType rows for framework types")?;
 
     run_pending_migrations(&db, current_batch())
         .await
