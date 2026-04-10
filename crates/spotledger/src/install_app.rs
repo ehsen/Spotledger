@@ -19,6 +19,10 @@ use serde_json::{json, Value};
 use spotledger_db::connection::connect;
 use spotledger_db::DbAdapter;
 use spotledger_db::document::upsert_doc;
+use spotledger_db::graph_ops::{
+    log_schema_change, relate_module_contains_doctype, upsert_app_node, upsert_docfield_graph,
+    upsert_module_node,
+};
 use spotledger_core::config::SiteConfig;
 
 use crate::cli::InstallAppArgs;
@@ -119,6 +123,12 @@ pub async fn install_app(args: InstallAppArgs) -> Result<()> {
         anyhow::bail!("App root not found: {}", app_root.display());
     }
 
+    // ── 0. Upsert app graph node ──────────────────────────────────────────────
+    println!("\n[0/4] Registering app node for '{}' …", args.app);
+    upsert_app_node(&db, &args.app, None, args.version.as_deref(), None)
+        .await
+        .context("Upserting app graph node")?;
+
     // ── 1. DocType definitions ────────────────────────────────────────────────
     println!("\n[1/4] Seeding DocType definitions for '{}' …", args.app);
     let (dt_seeded, dt_errors) = seed_doctypes_for_app(&db, &app_root, &args.app).await?;
@@ -142,11 +152,57 @@ pub async fn install_app(args: InstallAppArgs) -> Result<()> {
     let patch_count = seed_patch_log(&db, &app_root).await?;
     println!("      {} patches marked done.", patch_count);
 
+    // ── Post-install: link check ──────────────────────────────────────────────
+    post_install_link_check(&db).await;
+
     println!(
         "\n✓  App '{}' installed into site '{}'.",
         args.app, args.site
     );
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Post-install graph health check
+// ---------------------------------------------------------------------------
+
+/// Query SurrealDB graph for Link fields that reference a DocType not yet installed.
+/// Prints warnings — never fails the install.
+async fn post_install_link_check(db: &DbAdapter) {
+    // Query tabDocField (already populated by seed_doctypes_for_app) directly.
+    // No graph node tables needed — tabDocType is the source of truth for
+    // whether a DocType is installed.
+    let query = "
+        SELECT
+            parent AS source_doctype,
+            fieldname,
+            options AS links_to
+        FROM tabDocField
+        WHERE fieldtype = 'Link'
+          AND options != NONE
+          AND options != ''
+          AND NOT (SELECT 1 FROM tabDocType WHERE name = $parent.options LIMIT 1)
+    ";
+
+    match db.run(query, vec![]).await {
+        Ok(rows) => {
+            if rows.is_empty() {
+                println!("\n✓  Dependency check: all Link fields resolved.");
+                return;
+            }
+            println!("\n⚠  Dependency check: {} unresolved Link field(s):", rows.len());
+            for row in &rows {
+                let src    = row.get("source_doctype").and_then(|v| v.as_str()).unwrap_or("?");
+                let field  = row.get("fieldname").and_then(|v| v.as_str()).unwrap_or("?");
+                let target = row.get("links_to").and_then(|v| v.as_str()).unwrap_or("?");
+                println!("   {}.{} → '{}' (DocType not installed)", src, field, target);
+            }
+            println!("   Install the app that provides the missing DocTypes to resolve.");
+        }
+        Err(e) => {
+            eprintln!("WARN: post-install link check failed: {}", e);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +256,170 @@ async fn seed_module_defs(db: &DbAdapter, app_root: &Path, app_name: &str) -> Re
         }
     }
     Ok(count)
+}
+
+// ── Phase C: app/module/doctype graph edges ────────────────────────────────────
+
+/// Ensure that all modules listed in `modules.txt` have graph nodes and edges:
+///  `app -[provides_module]-> module -[contains]-> doctype`
+///
+/// Reads the doctype JSON files to discover which DocTypes belong to each module.
+/// Returns the total number of edges created.
+async fn seed_app_module_edges(
+    db:       &DbAdapter,
+    app_root: &Path,
+    app_name: &str,
+) -> Result<usize> {
+    use crate::seed_doctypes::collect_doctype_jsons_pub;
+
+    let json_files = collect_doctype_jsons_pub(app_root)?;
+    let mut edges = 0usize;
+
+    for path in &json_files {
+        let raw = match tokio::fs::read_to_string(path).await {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let doc: Value = match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        let doctype_name = match doc.get("name").and_then(Value::as_str) {
+            Some(n) => n.to_owned(),
+            None => continue,
+        };
+
+        if doc.get("doctype").and_then(Value::as_str) != Some("DocType") {
+            continue;
+        }
+
+        let module_name = match doc.get("module").and_then(Value::as_str) {
+            Some(m) if !m.is_empty() => m.to_owned(),
+            _ => continue,
+        };
+
+        // Ensure module graph node + app-[provides_module]-> module edge
+        if let Err(e) = upsert_module_node(db, &module_name, None, app_name).await {
+            eprintln!("WARN: module node '{}': {}", module_name, e);
+        } else {
+            edges += 1;
+        }
+
+        // Ensure module-[contains]-> doctype edge
+        if let Err(e) = relate_module_contains_doctype(db, &module_name, &doctype_name).await {
+            eprintln!("WARN: module-contains-doctype edge for '{}': {}", doctype_name, e);
+        } else {
+            edges += 1;
+        }
+    }
+
+    Ok(edges)
+}
+
+/// Upsert docfield graph nodes + has_field edges and write schema_change_log entries
+/// for every field that was added or modified in this install/upgrade run.
+///
+/// Returns the total number of change log entries written.
+async fn seed_docfield_graph(
+    db:          &DbAdapter,
+    app_root:    &Path,
+    app_name:    &str,
+    app_version: &str,
+) -> Result<usize> {
+    use crate::seed_doctypes::collect_doctype_jsons_pub;
+
+    let json_files = collect_doctype_jsons_pub(app_root)?;
+    let mut changes = 0usize;
+
+    for path in &json_files {
+        let raw = match tokio::fs::read_to_string(path).await {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let doc: Value = match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        if doc.get("doctype").and_then(Value::as_str) != Some("DocType") {
+            continue;
+        }
+
+        let doctype_name = match doc.get("name").and_then(Value::as_str) {
+            Some(n) => n.to_owned(),
+            None => continue,
+        };
+
+        let fields = match doc.get("fields").and_then(Value::as_array) {
+            Some(f) => f,
+            None => continue,
+        };
+
+        // Skip pure layout fields (Section Break, Column Break, Tab Break)
+        const LAYOUT_TYPES: &[&str] = &[
+            "Section Break", "Column Break", "Tab Break", "HTML",
+        ];
+
+        for (idx, field) in fields.iter().enumerate() {
+            let fieldtype = field
+                .get("fieldtype")
+                .and_then(Value::as_str)
+                .unwrap_or("Data");
+
+            if LAYOUT_TYPES.contains(&fieldtype) {
+                continue;
+            }
+
+            let fieldname = match field.get("fieldname").and_then(Value::as_str) {
+                Some(f) if !f.is_empty() => f,
+                _ => continue,
+            };
+
+            match upsert_docfield_graph(
+                db,
+                &doctype_name,
+                fieldname,
+                field,
+                idx,
+                app_name,
+                Some(app_version),
+                false, // is_custom = false for app-seeded fields
+            )
+            .await
+            {
+                Ok(is_new) if is_new => {
+                    let target_name = format!("{}-{}", doctype_name, fieldname);
+                    if let Err(e) = log_schema_change(
+                        db,
+                        "DocField",
+                        &target_name,
+                        "added",
+                        app_name,
+                        app_version,
+                        Some(json!({
+                            "after": field,
+                        })),
+                    )
+                    .await
+                    {
+                        eprintln!("WARN: schema_change_log '{}': {}", target_name, e);
+                    } else {
+                        changes += 1;
+                    }
+                }
+                Ok(_) => {} // existing edge — idx may have been updated, no log needed
+                Err(e) => {
+                    eprintln!(
+                        "WARN: docfield graph '{}-{}': {}",
+                        doctype_name, fieldname, e
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(changes)
 }
 
 /// Seed all importable fixture types (Workspace, Page, Report, …) for the app.
