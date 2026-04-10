@@ -82,6 +82,7 @@ pub fn docfield_meta() -> DocTypeMeta {
         is_submittable: false,
         track_changes: false,
         fields: vec![
+            // ── Linkage (system) ───────────────────────────────────────────
             DocField::new("parent", "Parent", FieldType::Link)
                 .options("DocType")
                 .hidden(),
@@ -91,30 +92,97 @@ pub fn docfield_meta() -> DocTypeMeta {
                 .hidden(),
             DocField::new("idx", "Index", FieldType::Int)
                 .hidden(),
+
+            // ── Identity ──────────────────────────────────────────────────
             DocField::new("fieldname", "Fieldname", FieldType::Data)
                 .required(),
-            DocField::new("label", "Label", FieldType::Data)
-                .required(),
+            DocField::new("label", "Label", FieldType::Data),
             DocField::new("fieldtype", "Fieldtype", FieldType::Select)
-                .select_options("Data\nLink\nSelect\nTable\nCheck\nInt\nFloat\nCurrency\nDate\nDatetime\nTime\nText\nLongText\nSmallText\nCode\nPassword\nJson\nHtml\nAttach\nAttachImage\nSignature\nColor\nRating"),
-            DocField::new("options", "Options", FieldType::Text),
-            DocField::new("reqd", "Required", FieldType::Check),
-            DocField::new("unique", "Unique", FieldType::Check),
-            DocField::new("read_only", "Read Only", FieldType::Check),
-            DocField::new("hidden", "Hidden", FieldType::Check),
-            DocField::new("in_list_view", "In List View", FieldType::Check),
-            DocField::new("in_standard_filter", "In Standard Filter", FieldType::Check),
-            DocField::new("bold", "Bold", FieldType::Check),
-            DocField::new("default_value", "Default Value", FieldType::Text),
-            DocField::new("description", "Description", FieldType::Text),
-            DocField::new("set_only_once", "Set Only Once", FieldType::Check),
-            DocField::new("allow_on_submit", "Allow On Submit", FieldType::Check),
-            DocField::new("ignore_xss_filter", "Ignore XSS Filter", FieldType::Check),
-            DocField::new("permlevel", "Permission Level", FieldType::Int),
-            DocField::new("fetch_from", "Fetch From", FieldType::Data),
-            DocField::new("fetch_if_empty", "Fetch If Empty", FieldType::Check),
+                .select_options("Autocomplete\nAttach\nAttach Image\nBarcode\nButton\nCheck\nCode\nColor\nColumn Break\nCurrency\nData\nDate\nDatetime\nDuration\nDynamic Link\nFloat\nFold\nGeolocation\nHeading\nHTML\nHTML Editor\nIcon\nImage\nInt\nJSON\nLink\nLong Text\nMarkdown Editor\nPassword\nPercent\nPhone\nRead Only\nRating\nSection Break\nSelect\nSignature\nSmall Text\nTab Break\nTable\nTable MultiSelect\nText\nText Editor\nTime"),
+            DocField::new("options", "Options", FieldType::SmallText),
+            DocField::new("default", "Default", FieldType::SmallText),
             DocField::new("precision", "Precision", FieldType::Int),
             DocField::new("length", "Length", FieldType::Int),
+
+            // ── Filtering / search ────────────────────────────────────────
+            DocField::new("search_index", "Search Index", FieldType::Check),
+            DocField::new("in_filter", "In Filter", FieldType::Check),
+            DocField::new("in_list_view", "In List View", FieldType::Check),
+            DocField::new("in_standard_filter", "In Standard Filter", FieldType::Check),
+            DocField::new("in_global_search", "In Global Search", FieldType::Check),
+            DocField::new("in_preview", "In Preview", FieldType::Check),
+
+            // ── Display ───────────────────────────────────────────────────
+            DocField::new("bold", "Bold", FieldType::Check),
+            DocField::new("translatable", "Translatable", FieldType::Check),
+            DocField::new("collapsible", "Collapsible", FieldType::Check),
+            DocField::new("collapsible_depends_on", "Collapsible Depends On", FieldType::Code),
+            DocField::new("hide_border", "Hide Border", FieldType::Check),
+            DocField::new("hide_days", "Hide Days", FieldType::Check),
+            DocField::new("hide_seconds", "Hide Seconds", FieldType::Check),
+            DocField::new("max_height", "Max Height", FieldType::Data),
+            DocField::new("placeholder", "Placeholder", FieldType::Data),
+            DocField::new("alignment", "Alignment", FieldType::Select)
+                .select_options("\nLeft\nCenter\nRight"),
+            DocField::new("button_color", "Button Color", FieldType::Select)
+                .select_options("\nDefault\nPrimary\nInfo\nSuccess\nWarning\nDanger"),
+            DocField::new("width", "Width", FieldType::Data),
+            DocField::new("columns", "Columns", FieldType::Int),
+
+            // ── Print ─────────────────────────────────────────────────────
+            DocField::new("no_copy", "No Copy", FieldType::Check),
+            DocField::new("print_hide", "Print Hide", FieldType::Check),
+            DocField::new("print_hide_if_no_value", "Print Hide If No Value", FieldType::Check),
+            DocField::new("print_width", "Print Width", FieldType::Data),
+            DocField::new("report_hide", "Report Hide", FieldType::Check),
+
+            // ── Behaviour / logic ─────────────────────────────────────────
+            DocField::new("depends_on", "Depends On", FieldType::Code),
+            DocField::new("mandatory_depends_on", "Mandatory Depends On", FieldType::Code),
+            DocField::new("read_only_depends_on", "Read Only Depends On", FieldType::Code),
+            DocField::new("hidden", "Hidden", FieldType::Check),
+            DocField::new("read_only", "Read Only", FieldType::Check),
+            DocField::new("reqd", "Required", FieldType::Check),
+            DocField::new("unique", "Unique", FieldType::Check),
+            DocField::new("set_only_once", "Set Only Once", FieldType::Check),
+            DocField::new("allow_on_submit", "Allow On Submit", FieldType::Check),
+            DocField::new("allow_bulk_edit", "Allow Bulk Edit", FieldType::Check),
+            DocField::new("allow_in_quick_entry", "Allow In Quick Entry", FieldType::Check),
+            DocField::new("non_negative", "Non Negative", FieldType::Check),
+            DocField::new("not_nullable", "Not Nullable", FieldType::Check),
+            DocField::new("is_virtual", "Is Virtual", FieldType::Check),
+            DocField::new("sort_options", "Sort Options", FieldType::Check),
+            DocField::new("link_filters", "Link Filters", FieldType::Json),
+
+            // ── Permissions ───────────────────────────────────────────────
+            DocField::new("permlevel", "Permission Level", FieldType::Int),
+            DocField::new("ignore_user_permissions", "Ignore User Permissions", FieldType::Check),
+            DocField::new("ignore_xss_filter", "Ignore XSS Filter", FieldType::Check),
+
+            // ── Fetch ─────────────────────────────────────────────────────
+            DocField::new("fetch_from", "Fetch From", FieldType::SmallText),
+            DocField::new("fetch_if_empty", "Fetch If Empty", FieldType::Check),
+
+            // ── Timeline / dashboard ──────────────────────────────────────
+            DocField::new("show_on_timeline", "Show On Timeline", FieldType::Check),
+            DocField::new("show_dashboard", "Show Dashboard", FieldType::Check),
+            DocField::new("show_description_on_click", "Show Description On Click", FieldType::Check),
+
+            // ── Attachment ────────────────────────────────────────────────
+            DocField::new("make_attachment_public", "Make Attachment Public", FieldType::Check),
+
+            // ── Style ─────────────────────────────────────────────────────
+            DocField::new("remember_last_selected_value", "Remember Last Selected Value", FieldType::Check),
+            DocField::new("sticky", "Sticky", FieldType::Check),
+            DocField::new("mask", "Mask", FieldType::Check),
+
+            // ── Misc / meta ───────────────────────────────────────────────
+            DocField::new("description", "Description", FieldType::SmallText),
+            DocField::new("documentation_url", "Documentation URL", FieldType::Data),
+            DocField::new("oldfieldname", "Old Fieldname", FieldType::Data),
+            DocField::new("oldfieldtype", "Old Fieldtype", FieldType::Data),
+            DocField::new("introduced_by", "Introduced By", FieldType::Data),
+            DocField::new("is_custom", "Is Custom", FieldType::Check),
         ],
         permissions: vec![Permission::full("System Manager")],
         title_field: Some("fieldname".into()),
@@ -156,12 +224,13 @@ pub fn docperm_meta() -> DocTypeMeta {
                 .options("Role")
                 .required(),
             DocField::new("permlevel", "Permission Level", FieldType::Int),
+            DocField::new("perm_select", "Select", FieldType::Check),  // 'select' is reserved in SurrealDB v3
             DocField::new("read", "Read", FieldType::Check),
             DocField::new("write", "Write", FieldType::Check),
-            DocField::new("create", "Create", FieldType::Check),
-            DocField::new("delete", "Delete", FieldType::Check),
+            DocField::new("perm_create", "Create", FieldType::Check),  // 'create' is reserved in SurrealDB v3
+            DocField::new("perm_delete", "Delete", FieldType::Check),  // 'delete' is reserved in SurrealDB v3
             DocField::new("submit", "Submit", FieldType::Check),
-            DocField::new("cancel", "Cancel", FieldType::Check),
+            DocField::new("perm_cancel", "Cancel", FieldType::Check),  // 'cancel' is reserved in SurrealDB v3
             DocField::new("amend", "Amend", FieldType::Check),
             DocField::new("report", "Report", FieldType::Check),
             DocField::new("import", "Import", FieldType::Check),

@@ -10,12 +10,12 @@ DEFINE FIELD name ON DocType TYPE string ASSERT $value != NONE;
 DEFINE FIELD module ON DocType TYPE string;
 DEFINE FIELD show_in_menu ON DocType TYPE int DEFAULT 1;
 DEFINE FIELD icon ON DocType TYPE option<string>;
-DEFINE FIELD issingle ON DocType TYPE int;
-DEFINE FIELD istree ON DocType TYPE int;
-DEFINE FIELD issubmittable ON DocType TYPE int;
-DEFINE FIELD custom ON DocType TYPE int;
-DEFINE FIELD is_child_table ON DocType TYPE int;
-DEFINE FIELD track_changes ON DocType TYPE int;
+DEFINE FIELD issingle ON DocType TYPE int DEFAULT 0;
+DEFINE FIELD istree ON DocType TYPE int DEFAULT 0;
+DEFINE FIELD issubmittable ON DocType TYPE int DEFAULT 0;
+DEFINE FIELD custom ON DocType TYPE int DEFAULT 0;
+DEFINE FIELD is_child_table ON DocType TYPE int DEFAULT 0;
+DEFINE FIELD track_changes ON DocType TYPE int DEFAULT 0;
 DEFINE FIELD title_field ON DocType TYPE option<string>;
 DEFINE FIELD search_fields ON DocType TYPE option<string>;
 DEFINE FIELD sort_field ON DocType TYPE option<string>;
@@ -35,26 +35,26 @@ DEFINE TABLE DocField SCHEMAFULL;
 DEFINE FIELD parent ON DocField TYPE string;
 DEFINE FIELD parenttype ON DocField TYPE string;
 DEFINE FIELD parentfield ON DocField TYPE string;
-DEFINE FIELD idx ON DocField TYPE int;
+DEFINE FIELD idx ON DocField TYPE int DEFAULT 0;
 DEFINE FIELD fieldname ON DocField TYPE string ASSERT $value != NONE;
 DEFINE FIELD label ON DocField TYPE string ASSERT $value != NONE;
 DEFINE FIELD fieldtype ON DocField TYPE string;
 DEFINE FIELD options ON DocField TYPE option<string>;
-DEFINE FIELD reqd ON DocField TYPE int;
-DEFINE FIELD unique ON DocField TYPE int;
-DEFINE FIELD read_only ON DocField TYPE int;
-DEFINE FIELD hidden ON DocField TYPE int;
-DEFINE FIELD in_list_view ON DocField TYPE int;
-DEFINE FIELD in_standard_filter ON DocField TYPE int;
-DEFINE FIELD bold ON DocField TYPE int;
+DEFINE FIELD reqd ON DocField TYPE int DEFAULT 0;
+DEFINE FIELD unique ON DocField TYPE int DEFAULT 0;
+DEFINE FIELD read_only ON DocField TYPE int DEFAULT 0;
+DEFINE FIELD hidden ON DocField TYPE int DEFAULT 0;
+DEFINE FIELD in_list_view ON DocField TYPE int DEFAULT 0;
+DEFINE FIELD in_standard_filter ON DocField TYPE int DEFAULT 0;
+DEFINE FIELD bold ON DocField TYPE int DEFAULT 0;
 DEFINE FIELD default_value ON DocField TYPE option<string>;
 DEFINE FIELD description ON DocField TYPE option<string>;
-DEFINE FIELD set_only_once ON DocField TYPE int;
-DEFINE FIELD allow_on_submit ON DocField TYPE int;
-DEFINE FIELD ignore_xss_filter ON DocField TYPE int;
-DEFINE FIELD permlevel ON DocField TYPE int;
+DEFINE FIELD set_only_once ON DocField TYPE int DEFAULT 0;
+DEFINE FIELD allow_on_submit ON DocField TYPE int DEFAULT 0;
+DEFINE FIELD ignore_xss_filter ON DocField TYPE int DEFAULT 0;
+DEFINE FIELD permlevel ON DocField TYPE int DEFAULT 0;
 DEFINE FIELD fetch_from ON DocField TYPE option<string>;
-DEFINE FIELD fetch_if_empty ON DocField TYPE int;
+DEFINE FIELD fetch_if_empty ON DocField TYPE int DEFAULT 0;
 DEFINE FIELD precision ON DocField TYPE option<int>;
 DEFINE FIELD length ON DocField TYPE option<int>;
 
@@ -64,23 +64,24 @@ DEFINE TABLE DocPerm SCHEMAFULL;
 DEFINE FIELD parent ON DocPerm TYPE string;
 DEFINE FIELD parenttype ON DocPerm TYPE string;
 DEFINE FIELD parentfield ON DocPerm TYPE string;
-DEFINE FIELD idx ON DocPerm TYPE int;
+DEFINE FIELD idx ON DocPerm TYPE int DEFAULT 0;
 DEFINE FIELD role ON DocPerm TYPE string ASSERT $value != NONE;
-DEFINE FIELD permlevel ON DocPerm TYPE int;
-DEFINE FIELD read ON DocPerm TYPE int;
-DEFINE FIELD write ON DocPerm TYPE int;
-DEFINE FIELD create ON DocPerm TYPE int;
-DEFINE FIELD delete ON DocPerm TYPE int;
-DEFINE FIELD submit ON DocPerm TYPE int;
-DEFINE FIELD cancel ON DocPerm TYPE int;
-DEFINE FIELD amend ON DocPerm TYPE int;
-DEFINE FIELD report ON DocPerm TYPE int;
-DEFINE FIELD import ON DocPerm TYPE int;
-DEFINE FIELD export ON DocPerm TYPE int;
-DEFINE FIELD print ON DocPerm TYPE int;
-DEFINE FIELD email ON DocPerm TYPE int;
-DEFINE FIELD share ON DocPerm TYPE int;
-DEFINE FIELD if_owner ON DocPerm TYPE int;
+DEFINE FIELD permlevel ON DocPerm TYPE int DEFAULT 0;
+DEFINE FIELD perm_select ON DocPerm TYPE int DEFAULT 0;  -- 'select' is reserved in SurrealDB v3
+DEFINE FIELD read ON DocPerm TYPE int DEFAULT 0;
+DEFINE FIELD write ON DocPerm TYPE int DEFAULT 0;
+DEFINE FIELD perm_create ON DocPerm TYPE int DEFAULT 0;  -- 'create' is reserved in SurrealDB v3
+DEFINE FIELD perm_delete ON DocPerm TYPE int DEFAULT 0;  -- 'delete' is reserved in SurrealDB v3
+DEFINE FIELD submit ON DocPerm TYPE int DEFAULT 0;
+DEFINE FIELD perm_cancel ON DocPerm TYPE int DEFAULT 0;  -- 'cancel' is reserved in SurrealDB v3
+DEFINE FIELD amend ON DocPerm TYPE int DEFAULT 0;
+DEFINE FIELD report ON DocPerm TYPE int DEFAULT 0;
+DEFINE FIELD import ON DocPerm TYPE int DEFAULT 0;
+DEFINE FIELD export ON DocPerm TYPE int DEFAULT 0;
+DEFINE FIELD print ON DocPerm TYPE int DEFAULT 0;
+DEFINE FIELD email ON DocPerm TYPE int DEFAULT 0;
+DEFINE FIELD share ON DocPerm TYPE int DEFAULT 0;
+DEFINE FIELD if_owner ON DocPerm TYPE int DEFAULT 0;
 
 CREATE INDEX idx_docperm_parent ON DocPerm (parent);
 
@@ -90,11 +91,11 @@ DEFINE FIELD fieldname ON CustomField TYPE string ASSERT $value != NONE;
 DEFINE FIELD label ON CustomField TYPE option<string>;
 DEFINE FIELD fieldtype ON CustomField TYPE option<string>;
 DEFINE FIELD options ON CustomField TYPE option<string>;
-DEFINE FIELD reqd ON CustomField TYPE int;
-DEFINE FIELD unique ON CustomField TYPE int;
-DEFINE FIELD read_only ON CustomField TYPE int;
-DEFINE FIELD hidden ON CustomField TYPE int;
-DEFINE FIELD in_list_view ON CustomField TYPE int;
+DEFINE FIELD reqd ON CustomField TYPE int DEFAULT 0;
+DEFINE FIELD unique ON CustomField TYPE int DEFAULT 0;
+DEFINE FIELD read_only ON CustomField TYPE int DEFAULT 0;
+DEFINE FIELD hidden ON CustomField TYPE int DEFAULT 0;
+DEFINE FIELD in_list_view ON CustomField TYPE int DEFAULT 0;
 DEFINE FIELD default_value ON CustomField TYPE option<string>;
 DEFINE FIELD description ON CustomField TYPE option<string>;
 DEFINE FIELD owner ON CustomField TYPE option<string>;
@@ -124,8 +125,8 @@ CREATE INDEX idx_propertysetter_doc_type ON PropertySetter (doc_type);
 
 DEFINE TABLE Role SCHEMAFULL;
 DEFINE FIELD role_name ON Role TYPE string ASSERT $value != NONE;
-DEFINE FIELD disabled ON Role TYPE int;
-DEFINE FIELD desk_access ON Role TYPE int;
+DEFINE FIELD disabled ON Role TYPE int DEFAULT 0;
+DEFINE FIELD desk_access ON Role TYPE int DEFAULT 0;
 DEFINE FIELD description ON Role TYPE option<string>;
 DEFINE FIELD role_type ON Role TYPE option<string>;
 DEFINE FIELD owner ON Role TYPE option<string>;
@@ -160,8 +161,8 @@ DEFINE FIELD password ON User TYPE option<string>;
 DEFINE FIELD phone ON User TYPE option<string>;
 DEFINE FIELD mobile_no ON User TYPE option<string>;
 DEFINE FIELD bio ON User TYPE option<string>;
-DEFINE FIELD mute_sounds ON User TYPE int;
-DEFINE FIELD send_welcome_email ON User TYPE int;
+DEFINE FIELD mute_sounds ON User TYPE int DEFAULT 0;
+DEFINE FIELD send_welcome_email ON User TYPE int DEFAULT 0;
 DEFINE FIELD owner ON User TYPE option<string>;
 DEFINE FIELD creation ON User TYPE option<datetime>;
 DEFINE FIELD modified ON User TYPE option<datetime>;
@@ -174,7 +175,7 @@ DEFINE TABLE HasRole SCHEMAFULL;
 DEFINE FIELD parent ON HasRole TYPE string;
 DEFINE FIELD parenttype ON HasRole TYPE string;
 DEFINE FIELD parentfield ON HasRole TYPE string;
-DEFINE FIELD idx ON HasRole TYPE int;
+DEFINE FIELD idx ON HasRole TYPE int DEFAULT 0;
 DEFINE FIELD role ON HasRole TYPE string ASSERT $value != NONE;
 
 CREATE INDEX idx_hasrole_parent ON HasRole (parent);
@@ -183,7 +184,7 @@ DEFINE TABLE UserPermission SCHEMAFULL;
 DEFINE FIELD parent ON UserPermission TYPE string;
 DEFINE FIELD parenttype ON UserPermission TYPE string;
 DEFINE FIELD parentfield ON UserPermission TYPE string;
-DEFINE FIELD idx ON UserPermission TYPE int;
+DEFINE FIELD idx ON UserPermission TYPE int DEFAULT 0;
 DEFINE FIELD user ON UserPermission TYPE string ASSERT $value != NONE;
 DEFINE FIELD ptype ON UserPermission TYPE string ASSERT $value != NONE;
 DEFINE FIELD doc ON UserPermission TYPE string ASSERT $value != NONE;
@@ -207,7 +208,7 @@ DEFINE TABLE UserGroupMember SCHEMAFULL;
 DEFINE FIELD parent ON UserGroupMember TYPE string;
 DEFINE FIELD parenttype ON UserGroupMember TYPE string;
 DEFINE FIELD parentfield ON UserGroupMember TYPE string;
-DEFINE FIELD idx ON UserGroupMember TYPE int;
+DEFINE FIELD idx ON UserGroupMember TYPE int DEFAULT 0;
 DEFINE FIELD user ON UserGroupMember TYPE string ASSERT $value != NONE;
 
 CREATE INDEX idx_usergroupmember_parent ON UserGroupMember (parent);
@@ -218,25 +219,25 @@ CREATE INDEX idx_usergroupmember_parent ON UserGroupMember (parent);
 
 DEFINE TABLE SystemSettings SCHEMAFULL;
 DEFINE FIELD name ON SystemSettings TYPE string ASSERT $value != NONE;
-DEFINE FIELD setup_complete ON SystemSettings TYPE int;
+DEFINE FIELD setup_complete ON SystemSettings TYPE int DEFAULT 0;
 DEFINE FIELD system_default_locale ON SystemSettings TYPE option<string>;
 DEFINE FIELD country ON SystemSettings TYPE option<string>;
 DEFINE FIELD timezone ON SystemSettings TYPE option<string> DEFAULT "UTC";
-DEFINE FIELD enable_password_user_creation ON SystemSettings TYPE int;
-DEFINE FIELD disable_user_import ON SystemSettings TYPE int;
-DEFINE FIELD allow_on_submit ON SystemSettings TYPE int;
+DEFINE FIELD enable_password_user_creation ON SystemSettings TYPE int DEFAULT 0;
+DEFINE FIELD disable_user_import ON SystemSettings TYPE int DEFAULT 0;
+DEFINE FIELD allow_on_submit ON SystemSettings TYPE int DEFAULT 0;
 DEFINE FIELD incomplete_days ON SystemSettings TYPE option<int>;
-DEFINE FIELD setup_wizard_redirect ON SystemSettings TYPE int;
+DEFINE FIELD setup_wizard_redirect ON SystemSettings TYPE int DEFAULT 0;
 DEFINE FIELD mail_server ON SystemSettings TYPE option<string>;
 DEFINE FIELD mail_port ON SystemSettings TYPE option<int>;
-DEFINE FIELD use_ssl ON SystemSettings TYPE int;
+DEFINE FIELD use_ssl ON SystemSettings TYPE int DEFAULT 0;
 DEFINE FIELD mail_login ON SystemSettings TYPE option<string>;
 DEFINE FIELD mail_password ON SystemSettings TYPE option<string>;
 DEFINE FIELD auto_email_id ON SystemSettings TYPE option<string>;
 DEFINE FIELD default_company ON SystemSettings TYPE option<string>;
 DEFINE FIELD default_currency ON SystemSettings TYPE option<string>;
 DEFINE FIELD default_doc_title ON SystemSettings TYPE option<string>;
-DEFINE FIELD enable_two_factor_auth ON SystemSettings TYPE int;
+DEFINE FIELD enable_two_factor_auth ON SystemSettings TYPE int DEFAULT 0;
 DEFINE FIELD file_upload_size_limit ON SystemSettings TYPE option<int>;
 DEFINE FIELD session_expiry_timeout ON SystemSettings TYPE option<int>;
 DEFINE FIELD owner ON SystemSettings TYPE option<string>;
@@ -252,7 +253,7 @@ DEFINE FIELD fieldname ON DefaultValue TYPE string ASSERT $value != NONE;
 DEFINE FIELD value ON DefaultValue TYPE option<string>;
 DEFINE FIELD defvalue ON DefaultValue TYPE option<string>;
 DEFINE FIELD user ON DefaultValue TYPE option<string>;
-DEFINE FIELD is_standard ON DefaultValue TYPE int;
+DEFINE FIELD is_standard ON DefaultValue TYPE int DEFAULT 0;
 DEFINE FIELD owner ON DefaultValue TYPE option<string>;
 DEFINE FIELD creation ON DefaultValue TYPE option<datetime>;
 DEFINE FIELD modified ON DefaultValue TYPE option<datetime>;
@@ -271,9 +272,9 @@ DEFINE FIELD rule_type ON DocumentNamingRule TYPE string ASSERT $value != NONE;
 DEFINE FIELD field_value ON DocumentNamingRule TYPE option<string>;
 DEFINE FIELD expression ON DocumentNamingRule TYPE option<string>;
 DEFINE FIELD series_pattern ON DocumentNamingRule TYPE option<string>;
-DEFINE FIELD next_id ON DocumentNamingRule TYPE int;
-DEFINE FIELD is_default ON DocumentNamingRule TYPE int;
-DEFINE FIELD is_standard ON DocumentNamingRule TYPE int;
+DEFINE FIELD next_id ON DocumentNamingRule TYPE int DEFAULT 0;
+DEFINE FIELD is_default ON DocumentNamingRule TYPE int DEFAULT 0;
+DEFINE FIELD is_standard ON DocumentNamingRule TYPE int DEFAULT 0;
 DEFINE FIELD docstatus ON DocumentNamingRule TYPE int DEFAULT 0;
 DEFINE FIELD owner ON DocumentNamingRule TYPE option<string>;
 DEFINE FIELD creation ON DocumentNamingRule TYPE option<datetime>;
@@ -284,10 +285,10 @@ CREATE INDEX idx_docnamingrule_doctype ON DocumentNamingRule (doctype);
 
 DEFINE TABLE DocumentNamingSettings SCHEMAFULL;
 DEFINE FIELD name ON DocumentNamingSettings TYPE string ASSERT $value != NONE;
-DEFINE FIELD prefix_series_based_on_document_field ON DocumentNamingSettings TYPE int;
-DEFINE FIELD apply_series_on_submit_only ON DocumentNamingSettings TYPE int;
-DEFINE FIELD allow_custom_naming ON DocumentNamingSettings TYPE int;
-DEFINE FIELD allow_duplicate_series ON DocumentNamingSettings TYPE int;
+DEFINE FIELD prefix_series_based_on_document_field ON DocumentNamingSettings TYPE int DEFAULT 0;
+DEFINE FIELD apply_series_on_submit_only ON DocumentNamingSettings TYPE int DEFAULT 0;
+DEFINE FIELD allow_custom_naming ON DocumentNamingSettings TYPE int DEFAULT 0;
+DEFINE FIELD allow_duplicate_series ON DocumentNamingSettings TYPE int DEFAULT 0;
 DEFINE FIELD naming_rules ON DocumentNamingSettings TYPE array<object>;
 DEFINE FIELD owner ON DocumentNamingSettings TYPE option<string>;
 DEFINE FIELD creation ON DocumentNamingSettings TYPE option<datetime>;
@@ -330,8 +331,124 @@ DEFINE TABLE UserModule SCHEMAFULL;
 DEFINE FIELD parent ON UserModule TYPE string ASSERT $value != NONE;
 DEFINE FIELD parenttype ON UserModule TYPE string;
 DEFINE FIELD parentfield ON UserModule TYPE string;
-DEFINE FIELD idx ON UserModule TYPE int;
+DEFINE FIELD idx ON UserModule TYPE int DEFAULT 0;
 DEFINE FIELD module ON UserModule TYPE string ASSERT $value != NONE;
 
 CREATE INDEX idx_usermodule_parent ON UserModule (parent);
 CREATE INDEX idx_usermodule_module ON UserModule (module);
+
+-- ============================================================================
+-- Phase A — Metadata-as-Graph Foundation
+-- DocType and DocField as graph nodes; has_field as a relation edge.
+-- These are live queryable records — separate from the Frappe-compat
+-- DocType/DocField tables used by the desk UI above.
+-- ============================================================================
+
+-- Graph node: one record per DocType known to the system.
+DEFINE TABLE doctype SCHEMAFULL;
+DEFINE FIELD name             ON doctype TYPE string ASSERT $value != NONE;
+DEFINE FIELD module           ON doctype TYPE option<string>;
+DEFINE FIELD is_single        ON doctype TYPE int DEFAULT 0;
+DEFINE FIELD is_child         ON doctype TYPE int DEFAULT 0;
+DEFINE FIELD is_submittable   ON doctype TYPE int DEFAULT 0;
+DEFINE FIELD is_tree          ON doctype TYPE int DEFAULT 0;
+DEFINE FIELD introduced_by    ON doctype TYPE option<string>; -- app/plugin that owns this type
+DEFINE FIELD introduced_version ON doctype TYPE option<string>;
+DEFINE FIELD owner            ON doctype TYPE option<string>;
+DEFINE FIELD creation         ON doctype TYPE option<datetime>;
+DEFINE FIELD modified         ON doctype TYPE option<datetime>;
+
+DEFINE INDEX idx_graph_doctype_name ON doctype FIELDS name UNIQUE;
+
+-- Graph node: one record per DocField (globally unique by DocType+fieldname).
+DEFINE TABLE docfield SCHEMAFULL;
+DEFINE FIELD name             ON docfield TYPE string ASSERT $value != NONE; -- "{DocType}_{fieldname}"
+DEFINE FIELD fieldname        ON docfield TYPE string ASSERT $value != NONE;
+DEFINE FIELD label            ON docfield TYPE option<string>;
+DEFINE FIELD fieldtype        ON docfield TYPE string;
+DEFINE FIELD options          ON docfield TYPE option<string>;
+DEFINE FIELD reqd             ON docfield TYPE int DEFAULT 0;
+DEFINE FIELD unique           ON docfield TYPE int DEFAULT 0;
+DEFINE FIELD read_only        ON docfield TYPE int DEFAULT 0;
+DEFINE FIELD hidden           ON docfield TYPE int DEFAULT 0;
+DEFINE FIELD in_list_view     ON docfield TYPE int DEFAULT 0;
+DEFINE FIELD in_standard_filter ON docfield TYPE int DEFAULT 0;
+DEFINE FIELD bold             ON docfield TYPE int DEFAULT 0;
+DEFINE FIELD description      ON docfield TYPE option<string>;
+DEFINE FIELD default_value    ON docfield TYPE option<string>;
+
+DEFINE INDEX idx_graph_docfield_name ON docfield FIELDS name UNIQUE;
+
+-- Relation edge: doctype -[has_field]-> docfield
+-- Carries provenance metadata so the full lineage of every field is traceable.
+DEFINE TABLE has_field SCHEMAFULL TYPE RELATION IN doctype OUT docfield;
+DEFINE FIELD idx                    ON has_field TYPE int DEFAULT 0;
+DEFINE FIELD introduced_by          ON has_field TYPE string; -- app/plugin that added this edge
+DEFINE FIELD introduced_version     ON has_field TYPE option<string>;
+DEFINE FIELD is_custom              ON has_field TYPE int DEFAULT 0; -- 1 = admin-added via UI
+DEFINE FIELD protected              ON has_field TYPE int DEFAULT 0; -- 1 = cannot be overridden by other plugins
+DEFINE FIELD removable_on_uninstall ON has_field TYPE int DEFAULT 1; -- 0 for is_custom fields
+
+DEFINE INDEX idx_has_field_in  ON has_field FIELDS in;
+DEFINE INDEX idx_has_field_out ON has_field FIELDS out;
+
+-- ============================================================================
+-- Phase B — Save Pipeline Outbox
+-- pending_notification: outbox table written by SurrealDB DEFINE EVENT handlers.
+-- Rust subscribes via LIVE SELECT and processes external side effects
+-- (email, webhooks, message queue) before deleting each row.
+-- ============================================================================
+
+DEFINE TABLE pending_notification SCHEMAFULL;
+DEFINE FIELD notification_type ON pending_notification TYPE string ASSERT $value != NONE;
+DEFINE FIELD doctype           ON pending_notification TYPE option<string>;
+DEFINE FIELD doc_name          ON pending_notification TYPE option<string>;
+DEFINE FIELD payload           ON pending_notification TYPE option<object>;
+DEFINE FIELD created_at        ON pending_notification TYPE datetime VALUE time::now();
+DEFINE FIELD processed         ON pending_notification TYPE int DEFAULT 0;
+
+DEFINE INDEX idx_pending_notification_processed ON pending_notification FIELDS processed;
+
+-- ============================================================================
+-- Phase C — App/Module Graph + Schema Versioning
+-- app and module are graph nodes; schema_change_log is the audit trail.
+-- ============================================================================
+
+-- Graph node: one record per installed app.
+DEFINE TABLE app SCHEMAFULL;
+DEFINE FIELD name             ON app TYPE string ASSERT $value != NONE;
+DEFINE FIELD title            ON app TYPE option<string>;
+DEFINE FIELD version          ON app TYPE option<string>;
+DEFINE FIELD logo_url         ON app TYPE option<string>;
+DEFINE FIELD installed_at     ON app TYPE datetime VALUE time::now();
+DEFINE FIELD updated_at       ON app TYPE option<datetime>;
+
+DEFINE INDEX idx_app_name ON app FIELDS name UNIQUE;
+
+-- Graph node: one record per module (logical grouping within an app).
+DEFINE TABLE module SCHEMAFULL;
+DEFINE FIELD name             ON module TYPE string ASSERT $value != NONE;
+DEFINE FIELD label            ON module TYPE option<string>;
+DEFINE FIELD app              ON module TYPE string; -- owning app name
+
+DEFINE INDEX idx_module_name ON module FIELDS name UNIQUE;
+
+-- Relation edge: app -[provides_module]-> module
+DEFINE TABLE provides_module SCHEMAFULL TYPE RELATION IN app OUT module;
+
+-- Relation edge: module -[contains]-> doctype
+DEFINE TABLE contains SCHEMAFULL TYPE RELATION IN module OUT doctype;
+
+-- Schema audit log — written by install_app on every field-level change.
+-- Replaces traditional SQL migration files.
+DEFINE TABLE schema_change_log SCHEMAFULL;
+DEFINE FIELD target_type    ON schema_change_log TYPE string; -- "DocType" | "DocField"
+DEFINE FIELD target_name    ON schema_change_log TYPE string; -- e.g. "Account-account_type"
+DEFINE FIELD change_type    ON schema_change_log TYPE string; -- "added" | "modified" | "removed"
+DEFINE FIELD app            ON schema_change_log TYPE string;
+DEFINE FIELD app_version    ON schema_change_log TYPE string;
+DEFINE FIELD changed_at     ON schema_change_log TYPE datetime VALUE time::now();
+DEFINE FIELD diff           ON schema_change_log TYPE option<object>; -- before/after snapshot
+
+DEFINE INDEX idx_schema_change_log_app_version ON schema_change_log FIELDS app, app_version;
+DEFINE INDEX idx_schema_change_log_target      ON schema_change_log FIELDS target_name;

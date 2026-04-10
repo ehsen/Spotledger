@@ -112,7 +112,7 @@ inventory::submit!(MetaEntry {
 
 pub fn moduledef_meta() -> DocTypeMeta {
     DocTypeMeta {
-        name: "ModuleDef".into(),
+        name: "Module Def".into(),
         module: "Core".into(),
         is_single: false,
         is_tree: false,
@@ -158,7 +158,7 @@ pub fn moduledef_meta() -> DocTypeMeta {
 }
 
 inventory::submit!(MetaEntry {
-    name: "ModuleDef",
+    name: "Module Def",
     meta: moduledef_meta,
 });
 
@@ -187,7 +187,7 @@ pub fn usermodule_meta() -> DocTypeMeta {
             DocField::new("idx", "Index", FieldType::Int)
                 .hidden(),
             DocField::new("module", "Module", FieldType::Link)
-                .options("ModuleDef")
+                .options("Module Def")
                 .required()
                 .in_list(),
         ],
