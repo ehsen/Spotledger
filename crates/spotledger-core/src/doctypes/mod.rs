@@ -7,6 +7,7 @@ pub mod doctype;
 pub mod user;
 pub mod system;
 pub mod naming;
+pub mod error_log;
 
 // Re-exports for convenience
 pub use doctype::*;
