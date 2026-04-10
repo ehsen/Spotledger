@@ -1,0 +1,12 @@
+[package]
+name        = "spotledger-printing"
+description = "Spotledger — Printing module (Letter Head, Print Heading)"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+
+[dependencies]
+spotledger-core = { workspace = true }
+inventory       = { workspace = true }
