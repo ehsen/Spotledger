@@ -15,7 +15,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::middleware::site_middleware;
 use crate::methods::{get_logged_user_handler, getdoc_handler, getdoctype_handler, getpage_handler, login_handler, logout_handler};
-use crate::routes::{call_method, ping, resource_get, resource_get_value, resource_list};
+use crate::routes::{call_method, ping, resource_get, resource_get_value, resource_list, resource_create, resource_update};
 use crate::state::{AppState, SiteState};
 use spotledger_db::connection::connect;
 use spotledger_db::migrations::{current_batch, run_pending_migrations};
@@ -75,8 +75,8 @@ pub async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     // ── router ───────────────────────────────────────────────────────────────
     let api_routes = Router::new()
         // REST resource API
-        .route("/api/resource/{doctype}", get(resource_list))
-        .route("/api/resource/{doctype}/{name}", get(resource_get))
+        .route("/api/resource/{doctype}", get(resource_list).post(resource_create))
+        .route("/api/resource/{doctype}/{name}", get(resource_get).put(resource_update))
         .route(
             "/api/resource/{doctype}/{name}/{fieldname}",
             get(resource_get_value),
@@ -143,11 +143,11 @@ pub async fn serve(args: ServeArgs) -> anyhow::Result<()> {
 /// Intended for use in integration tests.  The caller must populate
 /// `app_state` with at least one site before calling this function.
 pub fn build_app(app_state: AppState) -> axum::Router {
-    use axum::routing::{get, post};
+    use axum::routing::{get, post, put};
 
     let api_routes = axum::Router::new()
-        .route("/api/resource/{doctype}", get(resource_list))
-        .route("/api/resource/{doctype}/{name}", get(resource_get))
+        .route("/api/resource/{doctype}", get(resource_list).post(resource_create))
+        .route("/api/resource/{doctype}/{name}", get(resource_get).put(resource_update))
         .route(
             "/api/resource/{doctype}/{name}/{fieldname}",
             get(resource_get_value),

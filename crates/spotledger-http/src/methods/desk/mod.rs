@@ -1401,9 +1401,10 @@ async fn build_modules(
     user_allowed: &[String],
 ) -> (serde_json::Map<String, Value>, Vec<String>) {
     // Fetch all modules that should appear in the menu
+    // NOTE: DocType name is "Module Def" (with space) → table tabModule_Def
     let filter = json!({"show_in_menu": 1});
     let module_rows = get_list(
-        db, "ModuleDef",
+        db, "Module Def",
         Some(&["name", "module_name", "app_name", "label", "icon", "order", "show_in_menu"]),
         Some(&filter), 200, 0,
     ).await.unwrap_or_default();
@@ -1434,11 +1435,11 @@ async fn build_modules(
         let icon = row.get("icon").cloned().unwrap_or(Value::Null);
         let order = row.get("order").and_then(|v| v.as_i64()).unwrap_or(0);
 
-        // Query doctypes for this module with show_in_menu = 1
-        let dt_filter = json!({"module": module_name, "show_in_menu": 1});
+        // Query navigable DocTypes for this module: exclude child tables (istable=1)
+        let dt_filter = json!({"module": module_name, "istable": 0});
         let dt_rows = get_list(
             db, "DocType",
-            Some(&["name", "icon", "issingle", "issubmittable"]),
+            Some(&["name", "icon", "issingle", "issubmittable", "istable"]),
             Some(&dt_filter), 500, 0,
         ).await.unwrap_or_default();
 

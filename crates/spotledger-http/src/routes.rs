@@ -18,6 +18,10 @@ use std::sync::Arc;
 
 use spotledger_db::document::{get_doc, get_list, get_value};
 use spotledger_db::permissions::{has_permission, PermissionType};
+use spotledger_db::controller::get_compiled_meta;
+use spotledger_db::save_proxy::save_doc_proxy;
+use spotledger_db::controller::save_doc;
+use spotledger_core::document::Document;
 use spotledger_core::response::{DocResponse, ErrorResponse, ListResponse, MethodResponse};
 
 use crate::methods::parse_form_params;
@@ -207,6 +211,131 @@ pub async fn resource_get_value(
                 StatusCode::from_u16(spot_err.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             let body = ErrorResponse::new(error_type(&spot_err), spot_err.to_string());
             (status, Json(body)).into_response()
+        }
+    }
+}
+
+// ── resource_create (POST /api/resource/{doctype}) ─────────────────────────
+
+pub async fn resource_create(
+    Extension(site): Extension<Arc<SiteState>>,
+    Extension(current_user): Extension<CurrentUser>,
+    Path(doctype): Path<String>,
+    Json(mut body): Json<Value>,
+) -> impl IntoResponse {
+    match has_permission(&site.db, current_user.name(), &doctype, PermissionType::Create).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse::new("PermissionError", format!("No create permission for {doctype}"))),
+            ).into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("InternalError", e.to_string())),
+            ).into_response();
+        }
+    }
+
+    // Ensure doctype field is set in the body
+    if let Value::Object(ref mut map) = body {
+        map.entry("doctype".to_owned()).or_insert_with(|| Value::String(doctype.clone()));
+        // Mark as new so naming series kicks in
+        map.remove("name");
+        map.insert("__islocal".into(), Value::Number(1.into()));
+    }
+
+    let user = current_user.name().to_owned();
+    let result = if let Some(meta) = get_compiled_meta(&doctype) {
+        let mut doc = Document::new(&doctype);
+        if let Value::Object(map) = &body {
+            for (k, v) in map {
+                if k != "doctype" { doc.set(k.clone(), v.clone()); }
+            }
+        }
+        doc.name.clear();
+        doc.fields.insert("__islocal".into(), Value::Number(1.into()));
+        save_doc(&site.db, &site.hook_registry, &meta, doc, &user)
+            .await
+            .map(|d| d.as_dict())
+            .map_err(spotledger_core::error::SpotError::from)
+    } else {
+        save_doc_proxy(&site.db, &site.meta_cache, &user, &doctype, body)
+            .await
+            .map_err(|e| spotledger_core::error::SpotError::Validation(e.to_string()))
+    };
+
+    match result {
+        Ok(doc) => {
+            let _ = site.doc_cache.remove(&(doctype.clone(), doc.get("name").and_then(Value::as_str).unwrap_or("").to_owned())).await;
+            (StatusCode::OK, Json(DocResponse { data: doc })).into_response()
+        }
+        Err(e) => {
+            let status = StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            (status, Json(ErrorResponse::new(error_type(&e), e.to_string()))).into_response()
+        }
+    }
+}
+
+// ── resource_update (PUT /api/resource/{doctype}/{name}) ─────────────────────
+
+pub async fn resource_update(
+    Extension(site): Extension<Arc<SiteState>>,
+    Extension(current_user): Extension<CurrentUser>,
+    Path((doctype, name)): Path<(String, String)>,
+    Json(mut body): Json<Value>,
+) -> impl IntoResponse {
+    match has_permission(&site.db, current_user.name(), &doctype, PermissionType::Write).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse::new("PermissionError", format!("No write permission for {doctype}"))),
+            ).into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("InternalError", e.to_string())),
+            ).into_response();
+        }
+    }
+
+    // Ensure doctype and name are set in the body
+    if let Value::Object(ref mut map) = body {
+        map.entry("doctype".to_owned()).or_insert_with(|| Value::String(doctype.clone()));
+        map.entry("name".to_owned()).or_insert_with(|| Value::String(name.clone()));
+    }
+
+    let user = current_user.name().to_owned();
+    let result = if let Some(meta) = get_compiled_meta(&doctype) {
+        let mut doc = Document::new(&doctype);
+        doc.name = name.clone();
+        if let Value::Object(map) = &body {
+            for (k, v) in map {
+                if k != "doctype" && k != "name" { doc.set(k.clone(), v.clone()); }
+            }
+        }
+        save_doc(&site.db, &site.hook_registry, &meta, doc, &user)
+            .await
+            .map(|d| d.as_dict())
+            .map_err(spotledger_core::error::SpotError::from)
+    } else {
+        save_doc_proxy(&site.db, &site.meta_cache, &user, &doctype, body)
+            .await
+            .map_err(|e| spotledger_core::error::SpotError::Validation(e.to_string()))
+    };
+
+    match result {
+        Ok(doc) => {
+            site.doc_cache.remove(&(doctype.clone(), name.clone())).await;
+            (StatusCode::OK, Json(DocResponse { data: doc })).into_response()
+        }
+        Err(e) => {
+            let status = StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            (status, Json(ErrorResponse::new(error_type(&e), e.to_string()))).into_response()
         }
     }
 }

@@ -7,6 +7,10 @@ authors.workspace     = true
 license.workspace     = true
 repository.workspace  = true
 
+[features]
+# Enable handler integration tests (requires live SurrealDB on ws://127.0.0.1:8500)
+integration = []
+
 [dependencies]
 spotledger-core        = { workspace = true }
 spotledger-db          = { workspace = true }
@@ -26,3 +30,4 @@ http-body-util         = "0.1"
 clap                   = { workspace = true }
 anyhow                 = { workspace = true }
 chrono                 = { workspace = true }
+base64                 = { workspace = true }
