@@ -17,8 +17,10 @@ SurrealDB.  This guide walks you through four topics:
 | Requirement | Notes |
 |---|---|
 | Rust toolchain (stable) | `rustup show` |
-| SurrealDB v2+ running | `surreal start --bind 127.0.0.1:8000 --user root --pass root memory` |
+| SurrealDB v2+ running | `surreal start --bind 127.0.0.1:8001 --user root --pass root memory` |
 | `cargo` in PATH | Comes with Rust |
+
+> **Ports**: SurrealDB listens on `:8001`; the Spotledger HTTP server on `:8000`.
 
 ### 1.1 Build the binary
 
@@ -49,32 +51,60 @@ cargo run -- new-site my-company \
 | 2 | `sites/my-company/site_config.toml` written |
 | 3 | Connect to SurrealDB; use namespace `my-company` |
 | 4 | Framework tables created: `__Auth`, `tabSessions`, `tabSeries`, `tabSingles` |
-| 5 | All compiled DocType schemas synced (`DEFINE TABLE … SCHEMAFULL`) |
+| 5 | All compiled Tier 0 DocType schemas synced (`DEFINE TABLE … SCHEMAFULL`) |
 | 6 | Seed records inserted: roles, user types, Administrator user |
 | 6b| `tabDocumentNamingRule` seeded from every compiled `DocTypeMeta.autoname` |
 | 7 | Administrator password written to `__Auth` |
 
-After this completes you have a fully functional site in SurrealDB namespace
-`my-company`.
+After this completes you have the kernel tables ready in SurrealDB namespace
+`my-company`.  Domain DocTypes (Account, Customer, Item, etc.) are seeded in
+the next step via `install-app`.
 
-### 1.3 Start the HTTP server
+### 1.3 Install apps
+
+Spotledger ships two apps: `frappe` (framework DocTypes, ~272) and `erpnext`
+(domain DocTypes, ~489).  Install them in order:
 
 ```powershell
-cargo run -- serve --bench .
+cargo run -- install-app frappe my-company --bench .
+cargo run -- install-app erpnext my-company --bench .
+```
+
+**What `install-app` does for each DocType JSON it finds:**
+
+| Step | What runs |
+|---|---|
+| 1 | Upserts an `app` graph node and each `module` node |
+| 2 | Inserts rows into `tabDocType` + `tabDocField` (the source of truth) |
+| 3 | Emits `DEFINE TABLE IF NOT EXISTS <tab> SCHEMALESS` so the table is visible in Surrealist immediately |
+| 4 | Registers `fn::pipeline::*` SurrealDB functions on first install |
+| 5 | Runs a post-install Link check and prints any unresolved references as warnings |
+
+After both installs `tabDocType` will have 761 rows (272 frappe + 489 erpnext)
+and all DocType tables will be visible in the schema.
+
+### 1.4 Set the default site and start
+
+```powershell
+cargo run -- use my-company        # writes "my-company" to sites/currentsite
+cargo run -- start                 # reads sites/currentsite and starts the server
 # listening on 127.0.0.1:8000
 ```
+
+`spotledger use` is a one-time step per bench — once set, `spotledger start`
+knows which site to boot without extra flags.
 
 The server reads every `sites/*/site_config.toml` it finds and registers each
 as a virtual site, distinguished by the `Host:` header.
 
-### 1.4 Verify the site is up
+### 1.5 Verify the site is up
 
 ```powershell
 curl http://127.0.0.1:8000/api/ping -H "Host: my-company"
 # {"message":"pong"}
 ```
 
-### 1.5 Log in
+### 1.6 Log in
 
 ```powershell
 curl -X POST http://127.0.0.1:8000/api/method/login \
@@ -84,7 +114,7 @@ curl -X POST http://127.0.0.1:8000/api/method/login \
 # Response includes a Set-Cookie: sid=<token>
 ```
 
-### 1.6 Who am I?
+### 1.7 Who am I?
 
 ```powershell
 curl http://127.0.0.1:8000/api/method/frappe.auth.get_logged_user \
@@ -93,13 +123,33 @@ curl http://127.0.0.1:8000/api/method/frappe.auth.get_logged_user \
 # {"message":"Administrator"}
 ```
 
+### Typical daily workflow
+
+```powershell
+# First-time setup (once per bench):
+cargo run -- new-site my-company --db-url ws://127.0.0.1:8001 --admin-password changeme123
+cargo run -- install-app frappe  my-company --bench .
+cargo run -- install-app erpnext my-company --bench .
+cargo run -- use my-company
+
+# Every subsequent session (SurrealDB must already be running):
+cargo run -- start
+```
+
 ---
 
 ## 2. Creating a New DocType
 
-All DocTypes are defined in Rust code as `DocTypeMeta` structs and registered
-with the `inventory` crate.  There is **no JSON file** — the binary is the
-single source of truth for structure.
+> **When to use this section**: This approach — defining a `DocTypeMeta` struct
+> in Rust — is for **Tier 0 kernel types** that the engine itself must know at
+> compile time (User, Role, SystemSettings, etc.).  If you are building a
+> domain feature (Customer, SalesOrder, Item, …), define a Frappe-compatible
+> JSON file and deploy it via `install-app` instead (see §3).  The binary does
+> not need to be recompiled to add a domain DocType.
+
+All Tier 0 DocTypes are defined in Rust code as `DocTypeMeta` structs and
+registered with the `inventory` crate.  There is **no JSON file** — the binary
+is the single source of truth for their structure.
 
 ### 2.1 Decide where the DocType lives
 
@@ -369,31 +419,55 @@ crates/spotledger-geo/
 ### Metadata tiers
 
 ```
-┌──────────────────────────────────────────────────────┐
-│ Tier 1 — Compiled into the binary (code only)        │
-│                                                      │
-│  DocTypeMeta { fields, is_single, is_tree, … }       │
-│  Resolved via:  inventory::iter::<MetaEntry>()       │
-│  Never stored in tabDocType — the binary IS the meta │
-└──────────────────────────────────────────────────────┘
-                          │ seeded on new-site
+┌──────────────────────────────────────────────────────────────┐
+│ Tier 0 — Compiled into the binary (Rust code only)           │
+│                                                              │
+│  DocTypeMeta { fields, is_single, is_tree, … }               │
+│  ~16 kernel types: DocType, DocField, User, Role, Session, … │
+│  Resolved via:  inventory::iter::<MetaEntry>()               │
+│  Never stored in tabDocType — the binary IS the meta         │
+└──────────────────────────────────────────────────────────────┘
+                          │ seeded on install-app
                           ▼
-┌──────────────────────────────────────────────────────┐
-│ Tier 2 — Seeded to DB, admin-editable at runtime     │
-│                                                      │
-│  tabDocumentNamingRule  → naming strategy per type   │
-│  tabDocPerm             → role permissions per type  │
-└──────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ Domain DocTypes — JSON-seeded into SurrealDB at install time │
+│                                                              │
+│  tabDocType   — one row per DocType (name, module,           │
+│                 issingle, issubmittable, …)                  │
+│  tabDocField  — one row per field  (parent = DocType name)   │
+│                                                              │
+│  Source of truth for all ~761 Frappe/ERPNext DocTypes.       │
+│  Adding a field = edit the JSON + re-run install-app.        │
+│  No binary recompile needed.                                 │
+└──────────────────────────────────────────────────────────────┘
                           │ created by users/admins
                           ▼
-┌──────────────────────────────────────────────────────┐
-│ Tier 3 — DB only (never in code)                     │
-│                                                      │
-│  tabCustomField         → extra fields added at UI   │
-│  tabPropertySetter      → field property overrides   │
-│  tabUserPermission      → document-level ACL         │
-└──────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ Admin-only — DB only (never in code)                         │
+│                                                              │
+│  tabCustomField      → extra fields added at UI              │
+│  tabPropertySetter   → field property overrides              │
+│  tabUserPermission   → document-level ACL                    │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+### Save pipeline
+
+Rust owns only auth; all validation, computed fields, and side-effects run
+inside SurrealDB via `DEFINE FUNCTION` statements registered by `install-app`:
+
+```
+POST /api/resource/Account/ACC-001
+  │
+  ├─ Rust: session check + permission check  (always in Rust)
+  └─ SurrealDB: UPSERT → fn::pipeline::run() fires
+                         → validates mandatory fields
+                         → checks issubmittable / docstatus rules
+                         → fires DEFINE EVENT hooks
+```
+
+The `fn::pipeline::run($doctype, $doc, $action)` function reads
+`tabDocType.issubmittable` directly — no separate metadata table exists.
 
 ### Document naming flow (`naming::resolve_name`)
 
@@ -503,6 +577,18 @@ cargo run -- migrate my-company --dry-run
 ```
 
 ### Adding a new app crate
+
+**For a domain app (JSON-based — no Rust required):**
+
+1. Create `apps/my-app/my-app/` following the Frappe convention.
+2. Add a `{doctype_name}/{doctype_name}.json` file for each DocType under
+   the appropriate module directory.
+3. Run `cargo run -- install-app my-app <site> --bench .`.
+
+No binary recompile.  `tabDocType`, `tabDocField`, and all `DEFINE TABLE`
+statements are written automatically.
+
+**For a Tier 0 compiled crate** (engine types only — rarely needed):
 
 1. Create `apps/my-app/Cargo.toml` (see any existing app for the template).
 2. Add it to the workspace `Cargo.toml` under `[workspace] members`.

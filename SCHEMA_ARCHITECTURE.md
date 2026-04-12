@@ -11,6 +11,11 @@ Everything flows in one direction — from Rust definitions, into the database.
 
 ---
 
+## Syncfusion License Key
+For UI, You need to register Syncfusion license key for version 33.xx
+this is Essential Studio Enterprise Edition. 
+key is : Ngo9BigBOggjHTQxAR8/V1JHaF5cWWdCf1FpRmJGdld5fUVHYVZUTXxaS00DNHVRdkdlWXtfcXRWRmldWUJ0WkRWYEo=
+
 ## The Problem This Solves
 
 Traditional metadata-driven systems (like Frappe) store schema in the database itself.

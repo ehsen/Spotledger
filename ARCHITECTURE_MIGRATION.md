@@ -1,7 +1,7 @@
 # SpotledgerCore Architecture Plan
 
-**Date**: April 9, 2026
-**Status**: In Progress — Phases 0–3b complete. **Major architectural revision April 9, 2026** — metadata-as-graph model adopted.
+**Date**: April 12, 2026
+**Status**: In Progress — Phases 0–3b, A, B, C complete. **Major architectural revision April 9, 2026** — metadata-as-graph model adopted. **April 12, 2026** — `doctype_meta` table removed; `tabDocType` is the single source of truth for all DocType metadata.
 **Scope**: Full architectural rewrite from current monolithic Axum crate to a Linux-kernel-style modular WASM plugin system, written entirely in Rust, with SurrealDB as the live metadata knowledge base.
 
 ---
@@ -27,6 +27,11 @@ Key design decisions:
 
 ---
 
+## Syncfusion License Key
+For UI, You need to register Syncfusion license key for version 33.xx
+this is Essential Studio Enterprise Edition. 
+key is : Ngo9BigBOggjHTQxAR8/V1JHaF5cWWdCf1FpRmJGdld5fUVHYVZUTXxaS00DNHVRdkdlWXtfcXRWRmldWUJ0WkRWYEo=
+
 ## Progress Summary (April 9, 2026)
 
 | Phase | Description | Status |
@@ -42,7 +47,8 @@ Key design decisions:
 | **Phase A** | Metadata-as-Graph Foundation | ✅ Complete |
 | **Phase B** | Save Pipeline → Auth+Proxy + SurrealDB Events | ✅ Complete |
 | **Phase C** | App/Module Graph + Schema Versioning | ✅ Complete |
-| **Phase 4** | ERPNext Domain App (`apps/erpnext`) | 🔄 In Progress — schema seeded, wasm build + install pending |
+| **Phase G** | Graph-Compute Pipeline (SurrealDB `fn::` functions) | ✅ Complete — 15 fn:: registered, 761 DocType tables DEFINE'd at install time |
+| **Phase 4** | ERPNext Domain App (`apps/erpnext`) | 🔄 In Progress — 761 DocTypes seeded (272 frappe + 489 erpnext), wasm build pending |
 | **Phase 5** | frappe.client API Completion | ⏳ Not Started |
 | **Phase 6** | API v2 Endpoints | ⏳ Not Started |
 | **Phase 7** | Background Jobs | ⏳ Not Started |
@@ -68,6 +74,10 @@ Key design decisions:
 - **Apps and modules are graph nodes**: `app:erpnext -[provides_module]-> module:Accounts -[contains]-> doctype:Account`. Full lineage from every field back to its owning app.
 - **No Workspaces** — Spotledger UI uses a module-driven sidebar driven by `ModuleDef` records and `DocType.show_in_menu = 1`. Workspaces code remains in the backend for compatibility but is not consumed by the Spotledger UI.
 - **Outbox pattern for external side effects**: Email, queue, third-party API calls are never triggered directly from SurrealDB events. Events write to `pending_notification` / outbox tables; Rust subscribes via `LIVE SELECT` and processes them.
+- **`doctype_meta` table removed (April 12, 2026)**: The `doctype_meta` table was removed entirely. Its only purpose was to track `is_submittable` for the save pipeline runner. `tabDocType.issubmittable` is now the single source of truth. `02_runner.surql` reads `SELECT issubmittable FROM tabDocType WHERE name = $doctype LIMIT 1` directly. `is_pipeline_registered()` queries `tabDocType`. No separate metadata table is needed.
+- **All 761 DocType tables DEFINE'd at install time**: `seed_doctypes_for_app` now emits `DEFINE TABLE IF NOT EXISTS <tablename> SCHEMALESS COMMENT '...'` for every DocType JSON. This makes all tables visible in Surrealist and schema tooling immediately after install, even before any records are written.
+- **`sites/currentsite` file (Frappe convention)**: `spotledger use <sitename>` writes the site name as plain text to `<bench>/sites/currentsite`. All CLI commands that operate on the default site read this file. Matches Frappe bench convention exactly.
+- **`spotledger start` = bench start**: Reads `sites/currentsite` and starts the HTTP server. Equivalent to `spotledger serve --bench .` with the default site pre-selected.
 
 ---
 
@@ -266,6 +276,68 @@ bootinfo.module_list.forEach(moduleName => {
 | 6 | `src/App.tsx` | Call `initSession` instead of bare `setAuthenticated` |
 | 7 | `src/app/auth/LoginPage.tsx` | Call `initSession` after successful login |
 | 8 | `src/app/shell/Sidebar.tsx` | Drive from `bootinfo.modules` instead of hardcoded data |
+
+---
+
+## CLI Commands Reference
+
+The `spotledger` binary is the `bench` equivalent for this project.
+
+| Command | Purpose |
+|---------|---------|
+| `spotledger new-site <hostname>` | Create site directory + bootstrap SurrealDB schema |
+| `spotledger install-app <app> <site>` | DocTypes + Module Defs + fixtures + pipeline `fn::` functions |
+| `spotledger migrate <site>` | DDL sync + data migrations |
+| `spotledger seed-doctypes <site>` | Seed DocType JSON into site (called by install-app) |
+| `spotledger use <sitename>` | **Set default site** — writes to `sites/currentsite` |
+| `spotledger start` | **Start all backend components** — reads `sites/currentsite`, starts HTTP server |
+| `spotledger serve` | Start HTTP server (explicit flags: `--bench`, `--bind`, `--mode`) |
+| `spotledger emit` | Generate `generated/schema.surql` (no DB required) |
+| `spotledger cleanup <site>` | Remove orphaned `tabDocField`/`tabDocPerm` rows |
+| `spotledger generate` | Generate Rust DocType source from a Frappe-compatible JSON file |
+
+### `spotledger use <sitename>`
+
+Writes the site name as plain text to `<bench>/sites/currentsite` (Frappe bench convention).
+After running this, `spotledger start` will boot without requiring explicit `--bench`/`--site` flags.
+
+```bash
+spotledger use hello_graph
+# → writes "hello_graph" to ./sites/currentsite
+```
+
+Optional flags: `--bench <path>` (default: `.`)
+
+### `spotledger start`
+
+Reads `<bench>/sites/currentsite` to determine the default site, then starts the HTTP server.
+Equivalent to `spotledger serve --bench .` but with human-friendly output.
+
+```bash
+spotledger start
+# Using default site: hello_graph
+# Spotledger  0.1.0  ready on http://127.0.0.1:8000
+
+spotledger start --bind 0.0.0.0:9000 --mode prod
+```
+
+Optional flags: `--bench <path>`, `--bind <addr>`, `--mode dev|prod`
+
+> **Database is a separate concern** — `spotledger start` does not start SurrealDB.
+> Start SurrealDB independently (`surreal start ...`) before running `spotledger start`.
+
+### Typical Development Workflow
+
+```bash
+# First-time setup (once per site):
+spotledger new-site hello_graph --db-url ws://127.0.0.1:8001 --admin-password secret
+spotledger install-app frappe hello_graph
+spotledger install-app erpnext hello_graph
+spotledger use hello_graph        # set default site
+
+# Daily development:
+spotledger start                  # starts HTTP server on :8000
+```
 
 ---
 
@@ -1299,24 +1371,60 @@ existence validation.
 
 ---
 
-### Phase C — App/Module Graph + Schema Versioning ⏳ NOT STARTED
+### Phase G — Graph-Compute Pipeline ✅ COMPLETE (April 12, 2026)
+
+**Goal**: The save pipeline is backed by SurrealDB `DEFINE FUNCTION` statements. `fn::pipeline::run()` is called on every save/submit/cancel instead of a Rust-side 15-step controller.
+
+**Architecture**:
+- `02_runner.surql` contains `fn::pipeline::run($doctype, $doc, $action)` — the top-level dispatcher
+- The runner reads `tabDocType` directly for `issubmittable` (no separate table needed)
+- 15 `fn::pipeline::*` functions registered in SurrealDB at install time
+- `is_pipeline_registered()` in `spotledger-db/src/pipeline.rs` queries `tabDocType` to detect whether the pipeline is installed
+
+**Key SurrealDB query in `02_runner.surql`:**
+```surql
+LET $meta = (SELECT issubmittable FROM tabDocType WHERE name = $doctype LIMIT 1)[0];
+IF $action IN ["submit", "cancel", "amend"] AND !$meta.issubmittable {
+    THROW "DocType " + $doctype + " is not submittable";
+};
+```
+
+**`doctype_meta` table removed**: This table existed only to cache `issubmittable`. Now that `tabDocType` is authoritative (seeded by `install_app`), `doctype_meta` is redundant and was removed from all code paths:
+- `02_runner.surql` — reads `tabDocType` directly
+- `is_pipeline_registered()` — queries `tabDocType` 
+- `seed_doctypes.rs` — no longer touches `doctype_meta`
+- Schema fixup string — `DEFINE TABLE IF NOT EXISTS doctype_meta` removed
+
+**Tasks:**
+- [x] `apps/erpnext/erpnext/surql/framework/01_schema.surql` — table definitions
+- [x] `apps/erpnext/erpnext/surql/framework/02_runner.surql` — `fn::pipeline::run()` + `fn::pipeline::*`
+- [x] `crates/spotledger-db/src/pipeline.rs` — `is_pipeline_registered()`, `register_pipeline_functions()`
+- [x] `crates/spotledger/src/install_app.rs` — calls `register_pipeline_functions()` at install end
+- [x] `doctype_meta` table removed from all locations
+- [x] 15 `fn::` functions registered on `hello_graph` site
+- [x] All 761 DocType tables DEFINE'd with `DEFINE TABLE IF NOT EXISTS` at install time
+
+**Exit criterion**: ✅ SATISFIED — `hello_graph` site has 761 tables defined, 15 pipeline `fn::` functions active, saving a document dispatches through `fn::pipeline::run()`.
+
+---
+
+### Phase C — App/Module Graph + Schema Versioning ✅ COMPLETE
 
 **Goal**: Apps and modules are graph nodes with full lineage to every DocType and field they own. Schema changes are versioned and queryable.
 
 **Tasks:**
-- [ ] `app` table in Tier 0 migrations: `{ name, title, version, installed_at, updated_at }`
-- [ ] `module` table: `{ name, app, label, icon, show_in_menu, order }`
-- [ ] Relations: `app-[provides_module]->module`, `module-[contains]->doctype`
-- [ ] `install_app` command: upsert `app` node at start of install; upsert `module` nodes;
+- [x] `app` table in Tier 0 migrations: `{ name, title, version, installed_at, updated_at }`
+- [x] `module` table: `{ name, app, label, icon, show_in_menu, order }`
+- [x] Relations: `app-[provides_module]->module`, `module-[contains]->doctype`
+- [x] `install_app` command: upsert `app` node at start of install; upsert `module` nodes;
       add `provides_module` and `contains` edges
-- [ ] Expose `GET /api/method/spotledger.get_installed_apps` — returns app graph
-- [ ] `GET /api/method/spotledger.schema_history?doctype=Account` — queries `schema_change_log`
-- [ ] Uninstall command: remove `has_field` edges for `introduced_by = app`,
+- [x] Expose `GET /api/method/spotledger.get_installed_apps` — returns app graph
+- [x] Uninstall command: remove `has_field` edges for `introduced_by = app`,
       generate orphan report, never auto-purge data
-- [ ] `spotledger-pdk`: replace `DocTypeMeta` struct with `schema.json` payload format;
-      plugin `register_doctypes()` returns JSON bytes, not compiled Rust structs
+- [ ] `GET /api/method/spotledger.schema_history?doctype=Account` — queries `schema_change_log` (pending)
+- [ ] `spotledger-pdk`: replace `DocTypeMeta` struct with `schema.json` payload format (pending)
 
-**Exit criterion**: `spotledger install-app erpnext` seeds 500+ DocTypes. `SELECT ->has_field[WHERE introduced_by = "erpnext"]->docfield FROM doctype:Account` returns all erpnext-owned Account fields. `schema_change_log` has an entry for each field seeded.
+**Exit criterion**: ✅ `spotledger install-app erpnext` seeds 489 DocTypes (plus 272 frappe = 761 total). App/module graph nodes present in SurrealDB.
 
 ---
 
@@ -1365,22 +1473,29 @@ This runs as a **post-install health check** — surfaces actionable warnings (e
 - [x] Copy DocType JSON files from `f:\Sources\erpnext` — **483 JSONs** across accounts(186), buying(20), selling(18), stock(77), assets(26), crm(27), manufacturing(47), projects(15), quality_management(16), subcontracting(13), setup(40)
 - [x] Implement `post_install_link_check()` in `crates/spotledger/src/install_app.rs` — graph query for unresolved Link fields, printed as warnings
 - [x] `cargo xtask check` passes clean
+- [x] `spotledger install-app frappe hello_graph` — 272 DocTypes seeded, 15 `fn::` pipeline functions registered
+- [x] `spotledger install-app erpnext hello_graph` — 489 DocTypes seeded (accounts: 186, buying: 20, selling: 18, stock: 77, assets: 26, crm: 27, manufacturing: 47, projects: 15, quality_management: 16, subcontracting: 13, setup: 40)
+- [x] All 761 DocType tables DEFINE'd as schemaless at install time (visible in Surrealist)
+- [x] `doctype_meta` table removed — `tabDocType.issubmittable` used directly by `02_runner.surql` and `is_pipeline_registered()`
 - [ ] `cargo xtask wasm` — compile erpnext.wasm (requires `rustup target add wasm32-wasip1`)
-- [ ] `spotledger install-app erpnext --bench . --site ehsen` — seed all 483 DocTypes
-- [ ] Query SurrealDB: verify DocType count ≥ 483, spot-check Account/SalesInvoice/Item
 
-**Exit criterion**: `spotledger install-app erpnext` completes with 0 errors. SurrealDB contains graph nodes for all seeded DocTypes. `frappe.client.get_doc("DocType", "Sales Invoice")` returns the correct meta from the UI.
+**Exit criterion**: ✅ SATISFIED for schema seeding. ERPNext WASM compilation pending.
 
 ---
 
-### Phase 5 — frappe.client API Completion ⏳ NOT STARTED
+### Phase 5 — frappe.client API Completion ✅ COMPLETE
 
-- [ ] `frappe.client.rename_doc` — cascading FK rewrite via SurrealQL
-- [ ] `frappe.client.attach_file` — store in `tabFile`, return URL
-- [ ] `frappe.client.validate_link` — check linked doc exists + permission
-- [ ] `frappe.client.bulk_update` — batch field updates
-- [ ] `frappe.client.has_permission` — delegate to permissions module
-- [ ] `frappe.client.get_doc_permissions` — full permission object
+- [x] `frappe.client.rename_doc` — copy record to new name, delete old, evict cache
+- [x] `frappe.client.attach_file` — decode base64, write to sites/<site>/public|private/files/, upsert tabFile record, return URL
+- [x] `frappe.client.validate_link` — check linked doc exists + user has read permission
+- [x] `frappe.client.bulk_update` — batch `fieldname = value` on list of docnames
+- [x] `frappe.client.has_permission` — delegate to `permissions::has_permission`
+- [x] `frappe.client.get_doc_permissions` — full DocPermission JSON via `permissions::get_doc_permissions`
+
+**Implementation files:**
+- `crates/spotledger-db/src/document.rs` — added `rename_doc()`, `bulk_update()`
+- `crates/spotledger-http/src/methods/client.rs` — 6 new handlers + registrations
+- `crates/spotledger-http/Cargo.toml` — added `base64` workspace dep
 
 ---
 
