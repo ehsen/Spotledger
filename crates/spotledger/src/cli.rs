@@ -30,6 +30,10 @@ pub enum Commands {
     Cleanup(CleanupArgs),
     /// Generate Rust DocType source from a Frappe-compatible JSON file
     Generate(GenerateArgs),
+    /// Set the default site for this bench (writes sites/currentsite)
+    Use(UseSiteArgs),
+    /// Start all backend components (reads default site from sites/currentsite)
+    Start(StartArgs),
 }
 
 #[derive(Debug, clap::Args, Clone)]
@@ -134,4 +138,31 @@ pub struct GenerateArgs {
     /// Output file path for the generated Rust source (default: print to stdout)
     #[arg(long, short)]
     pub out: Option<PathBuf>,
+}
+
+/// Arguments for the `use` subcommand.
+#[derive(Debug, clap::Args, Clone)]
+pub struct UseSiteArgs {
+    /// Name of the site to set as default (e.g. hello_graph)
+    pub sitename: String,
+
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: PathBuf,
+}
+
+/// Arguments for the `start` subcommand.
+#[derive(Debug, clap::Args, Clone)]
+pub struct StartArgs {
+    /// Run mode: dev or prod
+    #[arg(long, env = "SPOTLEDGER_MODE")]
+    pub mode: Option<RunMode>,
+
+    /// Override bind address (e.g. 0.0.0.0:8000)
+    #[arg(long, env = "SPOTLEDGER_BIND")]
+    pub bind: Option<String>,
+
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: PathBuf,
 }

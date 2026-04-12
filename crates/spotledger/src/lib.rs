@@ -8,6 +8,8 @@ pub mod install_app;
 pub mod migrate;
 pub mod new_site;
 pub mod seed_doctypes;
+pub mod start;
+pub mod use_site;
 
 // Re-export HTTP layer from spotledger-http
 pub use spotledger_http::{serve, server};
