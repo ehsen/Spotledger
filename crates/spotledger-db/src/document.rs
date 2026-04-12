@@ -332,11 +332,99 @@ pub async fn cancel_doc(
     transition_docstatus(adapter, doctype, name, 1, 2).await
 }
 
+// -- rename -------------------------------------------------------------------
+
+/// Rename a document: copies all fields to a new name, then deletes the old record.
+///
+/// Returns the newly created document.  Does NOT rewrite Link field references
+/// in other tables — call `rename_doc_cascade` for that (Phase 6+).
+///
+/// Errors if `new_name` already exists in the table.
+pub async fn rename_doc(
+    adapter: &DbAdapter,
+    doctype: &str,
+    old_name: &str,
+    new_name: &str,
+) -> Result<Document, DbError> {
+    let table = doctype_to_table(doctype);
+
+    // Guard: new name must not already exist.
+    let check_sql = format!("SELECT count() FROM `{table}` WHERE name = $n GROUP ALL");
+    let check_rows = adapter.run(&check_sql, vec![("n".into(), Value::String(new_name.to_owned()))]).await?;
+    let existing = check_rows
+        .first()
+        .and_then(|r| r.get("count"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if existing > 0 {
+        return Err(DbError::Other(format!(
+            "{doctype} '{new_name}' already exists"
+        )));
+    }
+
+    // Read the old document (errors if it doesn't exist).
+    let old_doc = get_doc(adapter, doctype, old_name).await?;
+
+    // Upsert at the new name — reuses upsert_doc which handles creation timestamp.
+    let new_doc = upsert_doc(adapter, doctype, new_name, &old_doc.as_dict()).await?;
+
+    // Remove the old record.
+    delete_doc(adapter, doctype, old_name).await?;
+
+    Ok(new_doc)
+}
+
+/// Returns `true` if `fieldname` contains only ASCII alphanumeric characters or
+/// underscores.  Used to prevent SQL injection via dynamic fieldname interpolation.
+///
+/// An empty string is considered unsafe (it would produce invalid SurrealQL).
+pub(crate) fn is_safe_fieldname(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
+// -- bulk update --------------------------------------------------------------
+
+/// Set `fieldname = value` on every document in `names` for the given doctype.
+///
+/// Returns the number of records updated.
+pub async fn bulk_update(
+    adapter: &DbAdapter,
+    doctype: &str,
+    names: &[String],
+    fieldname: &str,
+    value: Value,
+) -> Result<u64, DbError> {
+    if names.is_empty() {
+        return Ok(0);
+    }
+    let table  = doctype_to_table(doctype);
+    let names_json: Vec<Value> = names.iter().map(|n| Value::String(n.clone())).collect();
+    // Sanitise fieldname (alphanumeric + underscore only).
+    if !is_safe_fieldname(fieldname) {
+        return Err(DbError::Other(format!("Invalid fieldname: '{fieldname}'")));
+    }
+    let sql = format!(
+        "UPDATE `{table}` SET `{fieldname}` = $val, modified = time::now() WHERE name IN $names"
+    );
+    adapter
+        .execute(
+            &sql,
+            vec![
+                ("val".into(),   value),
+                ("names".into(), Value::Array(names_json)),
+            ],
+        )
+        .await?;
+    Ok(names.len() as u64)
+}
+
 // -- tests --------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── doctype_to_table ─────────────────────────────────────────────────────
 
     #[test]
     fn doctype_to_table_variants() {
@@ -344,4 +432,212 @@ mod tests {
         assert_eq!(doctype_to_table("Sales Order"), "tabSales_Order");
         assert_eq!(doctype_to_table("DocType"),     "tabDocType");
     }
+
+    // ── is_safe_fieldname ────────────────────────────────────────────────────
+
+    #[test]
+    fn is_safe_fieldname_accepts_alphanumeric_and_underscore() {
+        assert!(is_safe_fieldname("account_type"));
+        assert!(is_safe_fieldname("field1"));
+        assert!(is_safe_fieldname("FIELD_NAME"));
+        assert!(is_safe_fieldname("a"));
+        assert!(is_safe_fieldname("_private"));
+        assert!(is_safe_fieldname("mix3d_NaMe"));
+    }
+
+    #[test]
+    fn is_safe_fieldname_rejects_empty() {
+        assert!(!is_safe_fieldname(""));
+    }
+
+    #[test]
+    fn is_safe_fieldname_rejects_special_characters() {
+        assert!(!is_safe_fieldname("field-name"));          // hyphen
+        assert!(!is_safe_fieldname("field.name"));          // dot
+        assert!(!is_safe_fieldname("field name"));          // space
+        assert!(!is_safe_fieldname("field;DROP TABLE"));    // SQL injection attempt
+        assert!(!is_safe_fieldname("field`"));              // backtick
+        assert!(!is_safe_fieldname("field$name"));          // dollar sign
+        assert!(!is_safe_fieldname("field/name"));          // slash
+    }
+
+    #[test]
+    fn is_safe_fieldname_rejects_surql_keywords_with_special_chars() {
+        // These should still be blocked because they contain non-safe chars.
+        assert!(!is_safe_fieldname("SElect*"));
+        assert!(!is_safe_fieldname("DROP;"));
+    }
+
+    // ── integration tests (require live SurrealDB on ws://127.0.0.1:8500) ───
+
+    #[cfg(feature = "integration")]
+    mod integration {
+        use super::super::*;
+        use crate::adapter::DbAdapter;
+        use spotledger_core::config::DatabaseConfig;
+
+        async fn test_adapter() -> DbAdapter {
+            let cfg = DatabaseConfig {
+                url:  "ws://127.0.0.1:8500".into(),
+                ns:   "test_phase5".into(),
+                db:   "documents".into(),
+                user: "root".into(),
+                pass: "root".into(),
+            };
+            DbAdapter::connect(&cfg).await.expect("connect to test DB")
+        }
+
+        async fn setup_table(adapter: &DbAdapter, table: &str) {
+            let _ = adapter
+                .execute(&format!("DEFINE TABLE IF NOT EXISTS `{table}` SCHEMALESS;"), vec![])
+                .await;
+            let _ = adapter
+                .execute(&format!("DELETE `{table}`;"), vec![])
+                .await;
+        }
+
+        // ── rename_doc ───────────────────────────────────────────────────────
+
+        #[tokio::test]
+        async fn rename_doc_basic_round_trip() {
+            let adapter = test_adapter().await;
+            let table   = "tabTestRenameDoc";
+            setup_table(&adapter, table).await;
+
+            // Seed the source document.
+            upsert_doc(
+                &adapter,
+                "TestRenameDoc",
+                "OLD-001",
+                &serde_json::json!({ "status": "Draft", "amount": 42 }),
+            )
+            .await
+            .expect("seed source doc");
+
+            // Rename it.
+            let result = rename_doc(&adapter, "TestRenameDoc", "OLD-001", "NEW-001").await;
+            let new_doc = result.expect("rename_doc should succeed");
+            assert_eq!(new_doc.name, "NEW-001");
+
+            // New name must exist.
+            let fetched = get_doc(&adapter, "TestRenameDoc", "NEW-001")
+                .await
+                .expect("new doc must be readable");
+            assert_eq!(
+                fetched.fields.get("status").and_then(|v| v.as_str()),
+                Some("Draft"),
+                "fields must be preserved"
+            );
+
+            // Old name must be gone.
+            let gone = get_doc(&adapter, "TestRenameDoc", "OLD-001").await;
+            assert!(gone.is_err(), "old doc must be deleted after rename");
+        }
+
+        #[tokio::test]
+        async fn rename_doc_fails_when_target_exists() {
+            let adapter = test_adapter().await;
+            let table   = "tabTestRenameConflict";
+            setup_table(&adapter, table).await;
+
+            upsert_doc(&adapter, "TestRenameConflict", "A",
+                &serde_json::json!({"x": 1})).await.unwrap();
+            upsert_doc(&adapter, "TestRenameConflict", "B",
+                &serde_json::json!({"x": 2})).await.unwrap();
+
+            let err = rename_doc(&adapter, "TestRenameConflict", "A", "B")
+                .await
+                .expect_err("should error when target already exists");
+            assert!(err.to_string().contains("already exists"));
+        }
+
+        #[tokio::test]
+        async fn rename_doc_fails_when_source_missing() {
+            let adapter = test_adapter().await;
+            let table   = "tabTestRenameGhost";
+            setup_table(&adapter, table).await;
+
+            let err = rename_doc(&adapter, "TestRenameGhost", "GHOST", "NEW")
+                .await
+                .expect_err("should error when source does not exist");
+            // DbError::NotFound (wrapped) or similar.
+            let _ = err; // just assert it errored
+        }
+
+        // ── bulk_update ──────────────────────────────────────────────────────
+
+        #[tokio::test]
+        async fn bulk_update_sets_field_on_all_named_docs() {
+            let adapter = test_adapter().await;
+            let table   = "tabTestBulkUpdate";
+            setup_table(&adapter, table).await;
+
+            for (name, status) in [("BU-01", "Draft"), ("BU-02", "Draft"), ("BU-03", "Open")] {
+                upsert_doc(
+                    &adapter,
+                    "TestBulkUpdate",
+                    name,
+                    &serde_json::json!({ "status": status }),
+                )
+                .await
+                .unwrap();
+            }
+
+            let names: Vec<String> = vec!["BU-01".into(), "BU-02".into()];
+            let n = bulk_update(
+                &adapter,
+                "TestBulkUpdate",
+                &names,
+                "status",
+                serde_json::Value::String("Submitted".into()),
+            )
+            .await
+            .expect("bulk_update should succeed");
+            assert_eq!(n, 2);
+
+            // Verify the two updated docs.
+            for name in &["BU-01", "BU-02"] {
+                let doc = get_doc(&adapter, "TestBulkUpdate", name).await.unwrap();
+                assert_eq!(
+                    doc.fields.get("status").and_then(|v| v.as_str()),
+                    Some("Submitted"),
+                    "{name} must have status=Submitted"
+                );
+            }
+
+            // BU-03 must remain Draft.
+            let doc03 = get_doc(&adapter, "TestBulkUpdate", "BU-03").await.unwrap();
+            assert_eq!(
+                doc03.fields.get("status").and_then(|v| v.as_str()),
+                Some("Open"),
+                "BU-03 must not be touched"
+            );
+        }
+
+        #[tokio::test]
+        async fn bulk_update_empty_names_returns_zero() {
+            let adapter = test_adapter().await;
+            let n = bulk_update(&adapter, "TestBulkUpdate", &[], "status", "x".into())
+                .await
+                .expect("empty bulk_update should return Ok(0)");
+            assert_eq!(n, 0, "empty names must return 0 without touching DB");
+        }
+
+        #[tokio::test]
+        async fn bulk_update_rejects_unsafe_fieldname() {
+            let adapter = test_adapter().await;
+            let names   = vec!["DOC-1".to_owned()];
+            let err = bulk_update(
+                &adapter,
+                "TestBulkUpdate",
+                &names,
+                "status; DROP TABLE tabTestBulkUpdate",
+                "x".into(),
+            )
+            .await
+            .expect_err("unsafe fieldname must be rejected");
+            assert!(err.to_string().contains("Invalid fieldname"));
+        }
+    }
 }
+

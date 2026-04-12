@@ -1,4 +1,5 @@
 pub mod adapter;
+pub mod apply_surql;
 pub mod auth;
 pub mod bootstrap;
 pub mod connection;
@@ -11,6 +12,7 @@ pub mod meta_cache;
 pub mod migrations;
 pub mod naming;
 pub mod permissions;
+pub mod pipeline;
 pub mod query;
 pub mod save_proxy;
 pub mod schema;

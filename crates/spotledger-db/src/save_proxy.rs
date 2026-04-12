@@ -24,10 +24,12 @@
 use serde_json::{json, Value};
 
 use crate::adapter::DbAdapter;
-use crate::document::doctype_to_table;
+use crate::document::{doctype_to_table, get_doc};
 use crate::error::DbError;
 use crate::meta_cache::MetaCache;
+use crate::naming::resolve_name;
 use crate::permissions::{has_permission, PermissionType};
+use crate::pipeline::{run_pipeline, PipelineResult};
 
 // ── SaveProxyError ───────────────────────────────────────────────────────────
 
@@ -40,6 +42,9 @@ pub enum SaveProxyError {
         ptype:   PermissionType,
         doctype: String,
     },
+
+    #[error("Pipeline error: {0}")]
+    Pipeline(String),
 
     #[error(transparent)]
     Db(#[from] DbError),
@@ -124,6 +129,18 @@ pub async fn save_doc_proxy(
         }
     }
 
+    // ── 3b. Resolve name for new documents ───────────────────────────────────
+    // type::record() requires an explicit name; resolve it from doc fields /
+    // DocumentNamingRule / UUID fallback, matching the Tier-0 path.
+    if is_new && name.is_empty() {
+        let resolved = resolve_name(adapter, doctype, &doc, None)
+            .await
+            .map_err(|e| SaveProxyError::Db(e))?;
+        if let Value::Object(ref mut map) = doc {
+            map.insert("name".into(), Value::String(resolved));
+        }
+    }
+
     // ── 4. Strip internal meta fields before writing ──────────────────────────
     if let Value::Object(ref mut map) = doc {
         map.remove("__islocal");
@@ -131,23 +148,33 @@ pub async fn save_doc_proxy(
         map.remove("doctype"); // SurrealDB record type already encodes this
     }
 
-    // ── 5. DB write — single UPSERT; SurrealDB events fire here ──────────────
+    // ── 5. DB write ────────────────────────────────────────────────────────────
+    // Use the same type::record(table, name) pattern as document.rs so that
+    // both the compiled (Tier-0) and proxy (Tier-3+) paths share one SQL dialect
+    // compatible with SurrealDB v3.
     let table = doctype_to_table(doctype);
     let result = if is_new {
-        // INSERT: let SurrealDB generate the record id if name is absent
-        let sql = "INSERT INTO type::table($table) $doc RETURN AFTER;";
+        // For new docs the name was already resolved by save_doc_proxy caller
+        // or is present in the doc itself.  Ensure it is in the doc.
+        let doc_name = doc
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        let sql = "CREATE type::record($table, $name) CONTENT $doc RETURN AFTER;";
         adapter
             .run(
                 sql,
                 vec![
                     ("table".into(), json!(table)),
-                    ("doc".into(), doc),
+                    ("name".into(),  json!(doc_name)),
+                    ("doc".into(),   doc),
                 ],
             )
             .await?
     } else {
         // UPSERT by record id
-        let sql = "UPSERT type::thing($table, $name) CONTENT $doc RETURN AFTER;";
+        let sql = "UPSERT type::record($table, $name) CONTENT $doc RETURN AFTER;";
         adapter
             .run(
                 sql,
@@ -160,10 +187,45 @@ pub async fn save_doc_proxy(
             .await?
     };
 
-    Ok(result
-        .into_iter()
-        .next()
-        .unwrap_or(Value::Null))
+    let saved = result.into_iter().next().unwrap_or(Value::Null);
+
+    // ── 6. Pipeline (graph-compute) ────────────────────────────────────────────
+    // Wired doctypes run validation + compute + side-effects in SurrealDB.
+    // Unwired doctypes return Skipped; we keep the already-saved result.
+    let doc_name = saved
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or(if is_new { "" } else { &name })
+        .to_owned();
+
+    match run_pipeline(adapter, &table, &doc_name, doctype, "save").await {
+        Ok(PipelineResult::Skipped) => {
+            // No pipeline registered — keep the saved document as-is.
+            return Ok(saved);
+        }
+        Ok(PipelineResult::Ok) => {
+            // Pipeline may have mutated computed fields — re-read the record.
+            match get_doc(adapter, doctype, &doc_name).await {
+                Ok(doc) => return Ok(serde_json::to_value(doc).unwrap_or(Value::Null)),
+                Err(_)  => return Ok(saved), // fallback: return what was already saved
+            }
+        }
+        Err(e) => {
+            // Pipeline validation/logic failure — roll back new inserts.
+            if is_new && !doc_name.is_empty() {
+                let _ = adapter
+                    .execute(
+                        "DELETE type::record($t, $n);",
+                        vec![
+                            ("t".into(), json!(table)),
+                            ("n".into(), json!(doc_name)),
+                        ],
+                    )
+                    .await;
+            }
+            return Err(SaveProxyError::Pipeline(e.to_string()));
+        }
+    }
 }
 
 // ── submit_doc_proxy ──────────────────────────────────────────────────────────
@@ -189,18 +251,32 @@ pub async fn submit_doc_proxy(
     }
 
     let table = doctype_to_table(doctype);
-    let sql = "UPDATE type::thing($table, $name) SET docstatus = 1 RETURN AFTER;";
-    let rows = adapter
-        .run(
-            sql,
-            vec![
-                ("table".into(), json!(table)),
-                ("name".into(),  json!(name)),
-            ],
-        )
-        .await?;
 
-    Ok(rows.into_iter().next().unwrap_or(Value::Null))
+    // Run the submit pipeline (validates + posts GL entries, etc.).
+    // For unwired doctypes, fall back to direct docstatus update.
+    match run_pipeline(adapter, &table, name, doctype, "submit").await {
+        Ok(PipelineResult::Ok) => {
+            match get_doc(adapter, doctype, name).await {
+                Ok(doc) => return Ok(serde_json::to_value(doc).unwrap_or(Value::Null)),
+                Err(e)  => return Err(SaveProxyError::Db(e)),
+            }
+        }
+        Ok(PipelineResult::Skipped) => {
+            // No pipeline → plain docstatus flip.
+            let sql = "UPDATE type::record($table, $name) SET docstatus = 1 RETURN AFTER;";
+            let rows = adapter
+                .run(
+                    sql,
+                    vec![
+                        ("table".into(), json!(table)),
+                        ("name".into(),  json!(name)),
+                    ],
+                )
+                .await?;
+            return Ok(rows.into_iter().next().unwrap_or(Value::Null));
+        }
+        Err(e) => return Err(SaveProxyError::Pipeline(e.to_string())),
+    }
 }
 
 // ── cancel_doc_proxy ──────────────────────────────────────────────────────────
@@ -226,16 +302,30 @@ pub async fn cancel_doc_proxy(
     }
 
     let table = doctype_to_table(doctype);
-    let sql = "UPDATE type::thing($table, $name) SET docstatus = 2 RETURN AFTER;";
-    let rows = adapter
-        .run(
-            sql,
-            vec![
-                ("table".into(), json!(table)),
-                ("name".into(),  json!(name)),
-            ],
-        )
-        .await?;
 
-    Ok(rows.into_iter().next().unwrap_or(Value::Null))
+    // Run the cancel pipeline (reverses GL entries, marks cancelled, cascades).
+    // For unwired doctypes, fall back to direct docstatus update.
+    match run_pipeline(adapter, &table, name, doctype, "cancel").await {
+        Ok(PipelineResult::Ok) => {
+            match get_doc(adapter, doctype, name).await {
+                Ok(doc) => return Ok(serde_json::to_value(doc).unwrap_or(Value::Null)),
+                Err(e)  => return Err(SaveProxyError::Db(e)),
+            }
+        }
+        Ok(PipelineResult::Skipped) => {
+            // No pipeline → plain docstatus flip.
+            let sql = "UPDATE type::record($table, $name) SET docstatus = 2 RETURN AFTER;";
+            let rows = adapter
+                .run(
+                    sql,
+                    vec![
+                        ("table".into(), json!(table)),
+                        ("name".into(),  json!(name)),
+                    ],
+                )
+                .await?;
+            return Ok(rows.into_iter().next().unwrap_or(Value::Null));
+        }
+        Err(e) => return Err(SaveProxyError::Pipeline(e.to_string())),
+    }
 }

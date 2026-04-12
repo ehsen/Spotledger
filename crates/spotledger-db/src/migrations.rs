@@ -62,7 +62,7 @@ pub type MigrationFuture = Pin<Box<dyn Future<Output = Result<(), DbError>> + Se
 /// A single versioned data migration.
 ///
 /// Register one at module top-level with:
-/// ```rust
+/// ```rust,ignore
 /// inventory::submit!(MigrationEntry { name: "0001_...", run: my_fn });
 /// ```
 pub struct MigrationEntry {

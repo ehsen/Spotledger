@@ -116,6 +116,11 @@ pub async fn seed_doctypes_for_app(
          DEFINE FIELD IF NOT EXISTS subject_field ON tabDocType TYPE none | string; \
          DEFINE FIELD IF NOT EXISTS timeline_field ON tabDocType TYPE none | string; \
          DEFINE FIELD IF NOT EXISTS track_seen ON tabDocType TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS route ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS is_published_field ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS published_document_title ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS website_search_field ON tabDocType TYPE none | string; \
+         DEFINE FIELD IF NOT EXISTS list_query ON tabDocType TYPE none | string; \
          DEFINE FIELD OVERWRITE translated_doctype ON tabDocType TYPE any; \
          DEFINE FIELD IF NOT EXISTS doctype      ON tabModule_Def TYPE none | string; \
          DEFINE FIELD IF NOT EXISTS doctype      ON tabDocField TYPE none | string; \
@@ -167,7 +172,9 @@ pub async fn seed_doctypes_for_app(
          DEFINE FIELD IF NOT EXISTS export      ON tabDocPerm TYPE none | bool | int; \
          DEFINE FIELD IF NOT EXISTS print       ON tabDocPerm TYPE none | bool | int; \
          DEFINE FIELD IF NOT EXISTS email       ON tabDocPerm TYPE none | bool | int; \
-         DEFINE FIELD IF NOT EXISTS share       ON tabDocPerm TYPE none | bool | int;",
+         DEFINE FIELD IF NOT EXISTS share       ON tabDocPerm TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS set_user_permissions ON tabDocPerm TYPE none | bool | int; \
+         DEFINE FIELD IF NOT EXISTS amend       ON tabDocPerm TYPE none | bool | int;",
         vec![],
     )
     .await
@@ -233,6 +240,20 @@ pub async fn seed_doctypes_for_app(
                 eprintln!("ERROR seeding DocType '{}': {}", doctype_name, e);
                 errors += 1;
                 continue;
+            }
+        }
+
+        // ── 4a'. DEFINE TABLE so the doctype is visible in schema tooling ────
+        // No separate pipeline registration needed — every row in tabDocType
+        // participates automatically; the runner reads issubmittable from there.
+        {
+            let table = spotledger_db::document::doctype_to_table(&doctype_name);
+            let ddl = format!(
+                "DEFINE TABLE IF NOT EXISTS `{table}` SCHEMALESS \
+                 COMMENT 'SpotLedger DocType: {doctype_name}';"
+            );
+            if let Err(e) = db.execute(&ddl, vec![]).await {
+                eprintln!("WARN: DEFINE TABLE '{}': {}", doctype_name, e);
             }
         }
 
@@ -373,13 +394,16 @@ fn build_doctype_row(doc: &Value) -> Value {
 
         // Normalize ERPNext v15 field name aliases → our schema field names.
         // ERPNext 15 uses underscored variants; older Frappe omitted the underscore.
-        for (new_key, alias) in &[
+        // Each tuple is (canonical_field_name, legacy_alias_to_absorb).
+        // The JSON value from `alias` is moved into `canonical` if present.
+        for (canonical, alias) in &[
             ("issubmittable", "is_submittable"),
             ("istree",        "is_tree"),
-            ("is_child_table","istable"),
+            ("istable",       "is_child_table"),   // older Frappe used is_child_table
         ] {
             if let Some(v) = map.remove(*alias) {
-                map.entry(new_key.to_string()).or_insert(v);
+                // Only set canonical if not already populated by the JSON
+                map.entry(canonical.to_string()).or_insert(v);
             }
         }
 
@@ -388,8 +412,8 @@ fn build_doctype_row(doc: &Value) -> Value {
         // as JSON booleans; coerce to 0/1 for consistency.
         const INT_FIELDS: &[&str] = &[
             "docstatus", "idx",
-            "custom", "issingle", "istree", "issubmittable",
-            "is_child_table", "track_changes", "show_in_menu",
+            "custom", "issingle", "istable", "istree", "issubmittable",
+            "track_changes", "show_in_menu",
             "in_create", "has_web_view", "allow_guest_to_view",
             "email_append_to", "notify_on_update", "editable_grid",
         ];
@@ -508,8 +532,10 @@ mod tests {
             "permissions": [{"role": "Administrator"}],
         });
         let row = build_doctype_row(&doc);
-        assert!(row.get("fields").is_none());
-        assert!(row.get("permissions").is_none());
+        // build_doctype_row strips inline child arrays then re-inserts them as
+        // empty arrays (SurrealDB SCHEMAFULL requires the column to be present).
+        assert_eq!(row["fields"], serde_json::json!([]));
+        assert_eq!(row["permissions"], serde_json::json!([]));
         assert_eq!(row["module"], "Core");
     }
 

@@ -4,6 +4,7 @@
 //! 2.  Module Def records                   (from `{app}/modules.txt`)
 //! 3.  Importable fixture records           (Workspace, Page, Report, …)
 //! 4.  Patch Log "done" entries             (from `{app}/patches.txt`)
+//! 5.  Pipeline framework functions + wiring seed  (graph compute)
 //!
 //! This mirrors the sequence in `frappe/installer.py::install_app()`:
 //!   - `sync_for(name)`         → steps 1 + 3   (DocTypes + importable fixture records)
@@ -23,6 +24,7 @@ use spotledger_db::graph_ops::{
     log_schema_change, relate_module_contains_doctype, upsert_app_node, upsert_docfield_graph,
     upsert_module_node,
 };
+use spotledger_db::pipeline::{apply_pipeline_functions, seed_tier_a_wiring};
 use spotledger_core::config::SiteConfig;
 
 use crate::cli::InstallAppArgs;
@@ -148,9 +150,22 @@ pub async fn install_app(args: InstallAppArgs) -> Result<()> {
     println!("      {} fixture records seeded.", fixture_count);
 
     // ── 4. Patch Log — mark all patches as completed ──────────────────────────
-    println!("\n[4/4] Marking patches as completed …");
+    println!("\n[4/5] Marking patches as completed …");
     let patch_count = seed_patch_log(&db, &app_root).await?;
     println!("      {} patches marked done.", patch_count);
+
+    // ── 5. Pipeline framework — fn:: files + Tier A wiring ──────────────────
+    // doctype_meta records are created automatically by seed_doctypes_for_app.
+    // This step only applies the surql function definitions and Tier A stage wiring.
+    println!("\n[5/5] Applying pipeline fn:: functions …");
+    match seed_pipeline_for_app(&db, &app_root).await {
+        Ok(fn_count) => {
+            println!("      {} fn:: registered.", fn_count);
+        }
+        Err(e) => {
+            eprintln!("WARN: pipeline seeding failed (non-fatal): {:?}", e);
+        }
+    }
 
     // ── Post-install: link check ──────────────────────────────────────────────
     post_install_link_check(&db).await;
@@ -247,6 +262,9 @@ async fn seed_module_defs(db: &DbAdapter, app_root: &Path, app_name: &str) -> Re
             "doctype":     "Module Def",
             "module_name": module_name,
             "app_name":    app_name,
+            "label":       module_name,
+            "show_in_menu": 1,
+            "order":       count as i64,
             "owner":       "Administrator",
             "modified_by": "Administrator",
         });
@@ -611,4 +629,27 @@ fn build_top_level(mut doc: Value, doctype_name: &str, child_field_keys: &[&str]
             .or_insert_with(|| json!("Administrator"));
     }
     doc
+}
+
+// ---------------------------------------------------------------------------
+// Step 5: pipeline seeding
+// ---------------------------------------------------------------------------
+
+/// Apply pipeline fn:: files to SurrealDB and seed Tier A stage wiring.
+///
+/// doctype_meta records are auto-created by seed_doctypes_for_app, so there
+/// is no separate "wiring" step for basic opt-in. This just loads the domain
+/// functions and the Tier A (accounting) stage/node graph.
+async fn seed_pipeline_for_app(db: &DbAdapter, app_root: &Path) -> Result<usize> {
+    // Apply schema DDL → shared fn:: → domain fn:: → registry → runner
+    let fn_count = apply_pipeline_functions(db, app_root)
+        .await
+        .context("Applying pipeline fn:: files")?;
+
+    // Tier A hardcoded stage wiring (account, gl_entry, journal_entry, purchase_invoice)
+    seed_tier_a_wiring(db)
+        .await
+        .context("Seeding Tier A wiring")?;
+
+    Ok(fn_count)
 }
