@@ -97,12 +97,44 @@ async fn increment_series(adapter: &DbAdapter, name: &str) -> Result<u64, DbErro
 /// 3. Fall back to the `doctype` itself (singleton pattern) or a hash-based name.
 ///
 /// For Phase 2, we rely on the caller passing a `naming_series` field or we
-/// inspect the `tabDocType` record's `autoname` column.
+/// Determine the name for a new document.
+///
+/// Priority:
+/// 1. If `fields["name"]` is non-empty, use it as-is (user-supplied name).
+/// 2. If `fields["naming_series"]` is set, use the next series value.
+/// 3. Compiled meta autoname hint (primary source — Frappe analogue: `meta.autoname`).
+/// 4. DB-stored DocumentNamingRule (admin-editable override).
+/// 5. UUID fallback.
+///
+/// `autoname_hint` should be `meta.autoname.as_deref()` for compiled (Tier-0) DocTypes.
 pub async fn resolve_name(
     adapter: &DbAdapter,
     doctype: &str,
     fields: &Value,
+    autoname_hint: Option<&str>,
 ) -> Result<String, DbError> {
+    // ── helper: apply a single autoname pattern ──────────────────────────────
+    let apply = |autoname: &str| -> Option<String> {
+        if autoname.starts_with("field:") {
+            let fieldname = &autoname["field:".len()..];
+            fields.get(fieldname).and_then(Value::as_str)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned)
+        } else { None } // series templates require the counter — handled below
+    };
+    let apply_series = async |autoname: &str| -> Result<Option<String>, DbError> {
+        if !autoname.is_empty()
+            && autoname != "Prompt"
+            && autoname != "hash"
+            && autoname != "UUID"
+            && !autoname.starts_with("field:")
+        {
+            Ok(Some(next_name(adapter, autoname).await?))
+        } else {
+            Ok(None)
+        }
+    };
+
     // 1. Explicit name in fields
     if let Some(name) = fields.get("name").and_then(Value::as_str) {
         if !name.is_empty() {
@@ -117,9 +149,16 @@ pub async fn resolve_name(
         }
     }
 
-    // 3. Inspect tabDocumentNamingRule — the admin-editable naming config for
-    //    this DocType.  Seeded from compiled DocTypeMeta.autoname on new-site
-    //    but freely editable afterwards without recompiling.
+    // 3. Compiled meta autoname hint (Frappe: meta.autoname is the primary source).
+    //    DocumentNamingRule rows in the DB are admin-editable overrides — but if the
+    //    DB is not yet seeded (first run, migration pending) the compiled value guarantees
+    //    correctness.
+    if let Some(hint) = autoname_hint {
+        if let Some(name) = apply(hint) { return Ok(name); }
+        if let Some(name) = apply_series(hint).await? { return Ok(name); }
+    }
+
+    // 4. DB-stored DocumentNamingRule (admin override path).
     let rows = adapter
         .run(
             "SELECT autoname FROM tabDocumentNamingRule WHERE document_type = $dt LIMIT 1",
@@ -128,26 +167,12 @@ pub async fn resolve_name(
         .await?;
     if let Some(row) = rows.into_iter().next() {
         if let Some(autoname) = row.get("autoname").and_then(Value::as_str) {
-            if autoname.starts_with("field:") {
-                // field:fieldname — use the value of that field
-                let fieldname = &autoname["field:".len()..];
-                if let Some(v) = fields.get(fieldname).and_then(Value::as_str) {
-                    if !v.is_empty() {
-                        return Ok(v.to_owned());
-                    }
-                }
-            } else if !autoname.is_empty()
-                && autoname != "Prompt"
-                && autoname != "hash"
-                && autoname != "UUID"
-            {
-                // It's a naming series template
-                return next_name(adapter, autoname).await;
-            }
+            if let Some(name) = apply(autoname) { return Ok(name); }
+            if let Some(name) = apply_series(autoname).await? { return Ok(name); }
         }
     }
 
-    // 4. UUID fallback
+    // 5. UUID fallback
     Ok(uuid_name())
 }
 

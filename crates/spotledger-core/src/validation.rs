@@ -16,9 +16,18 @@
 
 use serde_json::Value;
 
+use once_cell::sync::Lazy;
+use regex::Regex;
 use crate::document::{DocStatus, Document};
 use crate::error::CoreError;
 use crate::meta::{DocTypeMeta, FieldType};
+
+/// Regex matching one `on*=…` event-handler attribute inside an HTML tag.
+/// Matches:  ` onerror="…"`,  ` onclick='…'`,  ` onload=foo`  etc.
+static ON_HANDLER_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?i)\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)"#)
+        .expect("ON_HANDLER_RE")
+});
 
 // ── validate_constants ────────────────────────────────────────────────────────
 
@@ -283,6 +292,11 @@ fn strip_scripts(input: &str) -> String {
             .replace("javascript:", "")
             .replace("JAVASCRIPT:", "")
             .replace("Javascript:", "");
+    }
+
+    // Remove on* event-handler attributes (e.g. onerror=…, onclick=…)
+    if out.to_lowercase().contains(" on") {
+        out = ON_HANDLER_RE.replace_all(&out, "").into_owned();
     }
 
     out

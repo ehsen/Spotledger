@@ -164,7 +164,7 @@ pub fn role_meta() -> DocTypeMeta {
         search_fields: vec!["role_name".into()],
         sort_field: Some("role_name".into()),
         sort_order: Some("asc".into()),
-        autoname: Some("role_name".into()),
+        autoname: Some("field:role_name".into()),
         naming_series: None,
     }
 }
@@ -286,7 +286,7 @@ pub fn usergroup_meta() -> DocTypeMeta {
         search_fields: vec!["name".into()],
         sort_field: Some("name".into()),
         sort_order: Some("asc".into()),
-        autoname: Some("name".into()),
+        autoname: Some("Prompt".into()),
         naming_series: None,
     }
 }
@@ -361,7 +361,7 @@ pub fn usertype_meta() -> DocTypeMeta {
         search_fields: vec!["name".into()],
         sort_field: Some("name".into()),
         sort_order: Some("asc".into()),
-        autoname: Some("name".into()),
+        autoname: Some("Prompt".into()),
         naming_series: None,
     }
 }

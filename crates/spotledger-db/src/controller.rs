@@ -58,13 +58,18 @@ pub async fn save_doc(
     let is_new = doc.name.is_empty()
         || doc.fields.get("__islocal").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
 
+    // Strip internal UI-only meta fields — these must not reach the DB.
+    doc.fields.remove("__islocal");
+    doc.fields.remove("__unsaved");
+    doc.fields.remove("doctype"); // redundant: doc.doctype already holds this
+
     // ── 1. Coerce numeric field types ─────────────────────────────────────────
     doc.fix_numeric_types(meta);
 
     // ── 2. Resolve name (new documents only) ──────────────────────────────────
     if is_new && doc.name.is_empty() {
         let doc_val = doc.as_dict();
-        let name = resolve_name(adapter, &meta.name, &doc_val)
+        let name = resolve_name(adapter, &meta.name, &doc_val, meta.autoname.as_deref())
             .await
             .map_err(|e| CoreError::Other(e.to_string()))?;
         doc.name = name;
