@@ -98,3 +98,15 @@ spotledger-printing    = { path = "crates/spotledger-printing" }
 spotledger-automation  = { path = "crates/spotledger-automation" }
 spotledger-http        = { path = "crates/spotledger-http" }
 spotledger-plugins     = { path = "crates/spotledger-plugins" }
+
+# ── Build size / speed optimisations ────────────────────────────────────────
+# Keep debug builds lean:
+#   - debug = 1  →  line tables only (no variable DWARF), ~30-50% smaller binaries
+#   - Dependencies compiled at opt-level=1 with no debug info — they don't need
+#     stepping through; this alone can cut target/debug by 60%+.
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+opt-level = 1
+debug = false

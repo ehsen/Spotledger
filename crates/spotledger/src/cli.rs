@@ -34,6 +34,8 @@ pub enum Commands {
     Use(UseSiteArgs),
     /// Start all backend components (reads default site from sites/currentsite)
     Start(StartArgs),
+    /// Apply pipeline wiring.surql files to a site without a full reinstall
+    WireApp(WireAppArgs),
 }
 
 #[derive(Debug, clap::Args, Clone)]
@@ -161,6 +163,19 @@ pub struct StartArgs {
     /// Override bind address (e.g. 0.0.0.0:8000)
     #[arg(long, env = "SPOTLEDGER_BIND")]
     pub bind: Option<String>,
+
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: PathBuf,
+}
+
+#[derive(Debug, clap::Args, Clone)]
+pub struct WireAppArgs {
+    /// Name of the app whose wiring.surql files to apply (e.g. erpnext)
+    pub app: String,
+
+    /// Hostname of the site to wire into (must already exist via new-site)
+    pub site: String,
 
     /// Path to the bench root (default: current directory)
     #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]

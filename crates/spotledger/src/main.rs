@@ -16,5 +16,6 @@ async fn main() -> anyhow::Result<()> {
         Commands::Generate(args)     => spotledger::generate::generate(args).await,
         Commands::Use(args)          => spotledger::use_site::use_site(args).await,
         Commands::Start(args)        => spotledger::start::start(args).await,
+        Commands::WireApp(args)      => spotledger::wire_app::wire_app(args).await,
     }
 }

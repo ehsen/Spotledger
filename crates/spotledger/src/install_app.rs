@@ -24,7 +24,7 @@ use spotledger_db::graph_ops::{
     log_schema_change, relate_module_contains_doctype, upsert_app_node, upsert_docfield_graph,
     upsert_module_node,
 };
-use spotledger_db::pipeline::{apply_pipeline_functions, seed_tier_a_wiring};
+use spotledger_db::pipeline::apply_pipeline_functions;
 use spotledger_core::config::SiteConfig;
 
 use crate::cli::InstallAppArgs;
@@ -635,21 +635,13 @@ fn build_top_level(mut doc: Value, doctype_name: &str, child_field_keys: &[&str]
 // Step 5: pipeline seeding
 // ---------------------------------------------------------------------------
 
-/// Apply pipeline fn:: files to SurrealDB and seed Tier A stage wiring.
+/// Apply pipeline fn:: files and wiring.surql files to SurrealDB.
 ///
-/// doctype_meta records are auto-created by seed_doctypes_for_app, so there
-/// is no separate "wiring" step for basic opt-in. This just loads the domain
-/// functions and the Tier A (accounting) stage/node graph.
+/// Order: schema DDL → shared fn:: → domain functions → registry → runner →
+///        universal nodes → wire_generic helper → domain wiring.
+/// All wiring lives in surql/doctypes/*/wiring.surql — no Rust wiring code.
 async fn seed_pipeline_for_app(db: &DbAdapter, app_root: &Path) -> Result<usize> {
-    // Apply schema DDL → shared fn:: → domain fn:: → registry → runner
-    let fn_count = apply_pipeline_functions(db, app_root)
+    apply_pipeline_functions(db, app_root)
         .await
-        .context("Applying pipeline fn:: files")?;
-
-    // Tier A hardcoded stage wiring (account, gl_entry, journal_entry, purchase_invoice)
-    seed_tier_a_wiring(db)
-        .await
-        .context("Seeding Tier A wiring")?;
-
-    Ok(fn_count)
+        .context("Applying pipeline surql files")
 }

@@ -4,6 +4,7 @@
 mod auth;
 mod client;
 mod desk;
+mod designer;
 pub use auth::{get_logged_user_handler, login_handler, logout_handler};
 pub use client::register_client_methods;
 pub use desk::{getdoc_handler, getdoctype_handler, getpage_handler, register_desk_methods};
@@ -48,7 +49,29 @@ pub fn build_registry() -> Arc<MethodRegistry> {
     let registry = Arc::new(MethodRegistry::new());
     register_client_methods(&registry);
     register_desk_methods(&registry);
+    register_designer_methods(&registry);
     registry
+}
+
+fn register_designer_methods(registry: &Arc<MethodRegistry>) {
+    macro_rules! reg {
+        ($path:expr, $fn:ident) => {
+            registry.register(
+                $path,
+                Arc::new(|site: Arc<SiteState>, params: HashMap<String, Value>| -> BoxFuture {
+                    Box::pin(async move { designer::$fn(site, params).await })
+                }),
+            );
+        };
+    }
+
+    reg!("spotledger.designer.get_meta",          handle_get_meta);
+    reg!("spotledger.designer.save",              handle_save);
+    reg!("spotledger.designer.generate_surql",    handle_generate_surql);
+    reg!("spotledger.designer.get_pipeline",      handle_get_pipeline);
+    reg!("spotledger.designer.save_function",     handle_save_function);
+    reg!("spotledger.designer.delete_function",   handle_delete_function);
+    reg!("spotledger.designer.reorder_functions", handle_reorder_functions);
 }
 
 /// Parse a form/JSON parameter map into `HashMap<String, Value>`.
