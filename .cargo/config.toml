@@ -1,0 +1,9 @@
+[alias]
+# Build host workspace + all WASM apps in one command.
+# Usage:
+#   cargo xtask build            (debug)
+#   cargo xtask build --release  (release)
+#   cargo xtask wasm             (WASM apps only)
+#   cargo xtask host             (host only)
+#   cargo xtask check            (fast check, no WASM)
+xtask = "run --package xtask --"
