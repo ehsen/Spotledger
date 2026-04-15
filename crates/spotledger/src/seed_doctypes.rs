@@ -259,7 +259,20 @@ pub async fn seed_doctypes_for_app(
 
         // ── 4b. Upsert DocField child rows ───────────────────────────────────
         if let Some(Value::Array(fields)) = doc.get("fields") {
-            for (idx, field) in fields.iter().enumerate() {
+            // Build an idx map from field_order when present.
+            // field_order is the authoritative display order (array of fieldnames);
+            // the fields array itself may be in a different (historical) order.
+            let field_order_map: std::collections::HashMap<&str, usize> =
+                if let Some(Value::Array(fo)) = doc.get("field_order") {
+                    fo.iter()
+                        .enumerate()
+                        .filter_map(|(i, v)| v.as_str().map(|s| (s, i)))
+                        .collect()
+                } else {
+                    std::collections::HashMap::new()
+                };
+
+            for (fallback_idx, field) in fields.iter().enumerate() {
                 let fieldname = field
                     .get("fieldname")
                     .and_then(Value::as_str)
@@ -267,6 +280,9 @@ pub async fn seed_doctypes_for_app(
                 if fieldname.is_empty() {
                     continue;
                 }
+                // idx = position in field_order (authoritative display order).
+                // Fall back to the fields array position for any field absent from field_order.
+                let idx = field_order_map.get(fieldname).copied().unwrap_or(fallback_idx);
                 // Deterministic, unique name: ParentName-fieldname
                 let row_name = format!("{}-{}", doctype_name, fieldname);
                 let mut row = build_child_row(

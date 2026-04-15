@@ -345,10 +345,16 @@ pub fn register_desk_methods(registry: &Arc<MethodRegistry>) {
 async fn append_doctype_children(db: &DbAdapter, dt_name: &str, doc_obj: &mut Value) {
     let child_filter = json!({"parent": dt_name, "parenttype": "DocType"});
 
-    // fields
-    let fields_val: Vec<Value> = get_list(db, "DocField", None, Some(&child_filter), 500, 0)
+    // fields — sort by idx ascending so the layout engine receives them in display order
+    let mut fields_val: Vec<Value> = get_list(db, "DocField", None, Some(&child_filter), 500, 0)
         .await.unwrap_or_default().into_iter()
         .map(|r| serde_json::to_value(r).unwrap_or(Value::Null)).collect();
+    fields_val.sort_by_key(|v| {
+        // idx was seeded as the 0-based position in the source JSON fields array
+        v.get("idx")
+            .and_then(Value::as_i64)
+            .unwrap_or(i64::MAX)
+    });
 
     // permissions (DocPerm) — critical: creates rights_without_if_owner Set in perm.js
     let perms_val: Vec<Value> = get_list(db, "DocPerm", None, Some(&child_filter), 100, 0)

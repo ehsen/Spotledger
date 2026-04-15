@@ -26,7 +26,7 @@ pub async fn handle_search_link(
         .unwrap_or("")
         .to_string();
     if doctype.is_empty() {
-        return Ok(json!({"results": []}));
+        return Ok(json!([]));
     }
 
     let txt = params
@@ -38,6 +38,16 @@ pub async fn handle_search_link(
         .get("page_length")
         .and_then(|v| v.as_u64())
         .unwrap_or(10) as usize;
+
+    // ── server-side cache (avoids repeated DB round-trips for same query) ──
+    // Cache key includes page_length so different limit calls don't collide.
+    let cache_key = (
+        doctype.clone(),
+        format!("{txt}:{page_length}"),
+    );
+    if let Some(cached) = site.search_cache.get(&cache_key).await {
+        return Ok(cached);
+    }
 
     // Determine the title field so we can return a useful label.
     let (title_field, search_fields) = resolve_search_fields(&site, &doctype).await;
@@ -104,7 +114,10 @@ pub async fn handle_search_link(
         .collect();
 
     // Frappe returns the array directly as r.message (link.js calls results.reduce on it)
-    Ok(json!(results))
+    let response = json!(results);
+    // Store in cache for subsequent identical queries
+    site.search_cache.insert(cache_key, response.clone()).await;
+    Ok(response)
 }
 
 // search_widget is identical to search_link in its response shape

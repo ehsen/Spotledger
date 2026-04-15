@@ -11,6 +11,11 @@ use std::time::Duration;
 
 use crate::methods::{build_registry, MethodRegistry};
 
+/// How many distinct (doctype, txt) pairs to keep in the search cache.
+const SEARCH_CACHE_CAPACITY: u64 = 2_000;
+/// Search results expire after this many seconds.
+const SEARCH_CACHE_TTL_SECS: u64 = 60;
+
 /// Site-level state: one `SiteState` per live site.
 #[derive(Clone)]
 pub struct SiteState {
@@ -18,6 +23,9 @@ pub struct SiteState {
     pub db: DbAdapter,
     /// Document cache keyed by `(doctype, name)` → Document as Value.
     pub doc_cache: Cache<(String, String), serde_json::Value>,
+    /// Search-link cache keyed by `(doctype, txt)` → results JSON array.
+    /// Short TTL (60 s) so stale data is never shown for long.
+    pub search_cache: Cache<(String, String), serde_json::Value>,
     /// Registered `/api/method/` handlers (built-in Tier 1 + app-installed handlers).
     pub method_registry: Arc<MethodRegistry>,
     /// Document lifecycle hook registry.
@@ -32,10 +40,15 @@ impl SiteState {
             .max_capacity(config.cache.max_documents)
             .time_to_live(Duration::from_secs(config.cache.ttl_seconds))
             .build();
+        let search_cache = Cache::builder()
+            .max_capacity(SEARCH_CACHE_CAPACITY)
+            .time_to_live(Duration::from_secs(SEARCH_CACHE_TTL_SECS))
+            .build();
         Self {
             config,
             db,
             doc_cache,
+            search_cache,
             method_registry: build_registry(),
             hook_registry: Arc::new(HookRegistry::new()),
             meta_cache: MetaCache::new(),
