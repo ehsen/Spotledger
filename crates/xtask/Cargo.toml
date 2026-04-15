@@ -1,0 +1,13 @@
+[package]
+name        = "xtask"
+description = "Build orchestrator — `cargo xtask build` compiles host + all WASM apps"
+version     = "0.1.0"
+edition     = "2021"
+publish     = false
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+# intentionally empty — std only, stays fast to compile
