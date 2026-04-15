@@ -1,0 +1,1939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SurrealERP — DocType Designer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════
+   TOKENS
+═══════════════════════════════════════════ */
+:root {
+  --bg0:   #0E0F11;
+  --bg1:   #141519;
+  --bg2:   #1A1C22;
+  --bg3:   #21242C;
+  --bg4:   #272B35;
+  --line:  #2C3040;
+  --line2: #353A4A;
+  --tx0:   #E8EAF0;
+  --tx1:   #B0B5C8;
+  --tx2:   #6B7190;
+  --tx3:   #424760;
+
+  --pur:   #7F77DD;
+  --pur-l: #AFA9EC;
+  --pur-d: #534AB7;
+  --pur-bg:#1C1B32;
+  --pur-bgl:#26245A;
+
+  --teal:  #3FBFA0;
+  --teal-l:#7DD6C3;
+  --teal-d:#1E8C72;
+  --teal-bg:#0D2420;
+
+  --amb:   #E09445;
+  --amb-l: #F2BB80;
+  --amb-d: #A0621E;
+  --amb-bg:#281A08;
+
+  --blue:  #4E9BDE;
+  --blue-l:#85BEF0;
+  --blue-d:#2260A0;
+  --blue-bg:#0D1E30;
+
+  --coral: #E0765A;
+  --coral-l:#F0A892;
+  --coral-d:#9E3D22;
+  --coral-bg:#28100A;
+
+  --green: #72B84E;
+  --green-l:#A8D48A;
+  --green-d:#3E7A24;
+  --green-bg:#111D0A;
+
+  --red:   #D05050;
+  --red-l: #E89090;
+  --red-bg:#200C0C;
+
+  --radius-sm: 4px;
+  --radius:    6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  --font-sans: 'IBM Plex Sans', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --shadow: 0 4px 24px rgba(0,0,0,.5);
+  --shadow-sm: 0 2px 8px rgba(0,0,0,.35);
+}
+
+/* ═══════════════════════════════════════════
+   RESET
+═══════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--tx0);
+  background: var(--bg0);
+  line-height: 1.5;
+}
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; }
+select { appearance: none; -webkit-appearance: none; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 99px; }
+
+/* ═══════════════════════════════════════════
+   APP SHELL
+═══════════════════════════════════════════ */
+.app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════
+   SIDEBAR
+═══════════════════════════════════════════ */
+.sidebar {
+  width: 200px;
+  min-width: 200px;
+  background: var(--bg1);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width .2s ease;
+}
+
+.sb-brand {
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.sb-logo {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--pur), var(--teal));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  flex-shrink: 0;
+}
+.sb-brand-text { font-size: 12px; font-weight: 600; color: var(--tx0); letter-spacing: .02em; }
+.sb-brand-sub  { font-size: 10px; color: var(--tx2); margin-top: 1px; }
+
+.sb-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+}
+.sb-tab {
+  flex: 1;
+  padding: 8px 0;
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+  color: var(--tx2);
+  border-bottom: 2px solid transparent;
+  transition: color .15s, border-color .15s;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+}
+.sb-tab:hover { color: var(--tx1); }
+.sb-tab.on { color: var(--pur-l); border-bottom-color: var(--pur); }
+
+.sb-search {
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.sb-search input {
+  width: 100%;
+  padding: 5px 9px;
+  font-size: 11px;
+  background: var(--bg3);
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  color: var(--tx0);
+  outline: none;
+  transition: border-color .15s;
+}
+.sb-search input::placeholder { color: var(--tx3); }
+.sb-search input:focus { border-color: var(--pur); }
+
+.sb-scroll { flex: 1; overflow-y: auto; padding: 8px; }
+
+.pal-group { margin-bottom: 10px; }
+.pal-lbl {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--tx3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  padding: 3px 5px 4px;
+}
+.pal-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  cursor: grab;
+  font-size: 12px;
+  color: var(--tx1);
+  border: 1px solid transparent;
+  margin-bottom: 1px;
+  transition: background .1s, border-color .1s, color .1s;
+  user-select: none;
+}
+.pal-item:hover {
+  background: var(--bg3);
+  border-color: var(--line2);
+  color: var(--tx0);
+}
+.pal-item:active { cursor: grabbing; opacity: .7; }
+
+.pi {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+/* stage nav (logic sidebar) */
+.stage-nav { flex: 1; overflow-y: auto; padding: 8px; }
+.stage-group-lbl {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--tx3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  padding: 6px 5px 3px;
+}
+.stage-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  border: 1px solid transparent;
+  margin-bottom: 1px;
+  transition: background .1s, border-color .1s;
+}
+.stage-nav-item:hover { background: var(--bg3); }
+.stage-nav-item.on { background: var(--bg3); border-color: var(--line2); }
+.sni-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.sni-name { font-size: 12px; font-weight: 500; flex: 1; }
+.sni-count {
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  padding: 1px 6px;
+  border-radius: 99px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.sb-bottom {
+  padding: 8px;
+  border-top: 1px solid var(--line);
+}
+.sb-ask-btn {
+  width: 100%;
+  padding: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--pur-bg);
+  border: 1px solid var(--pur-d);
+  border-radius: var(--radius);
+  color: var(--pur-l);
+  transition: background .15s, border-color .15s;
+}
+.sb-ask-btn:hover { background: var(--pur-bgl); border-color: var(--pur); }
+
+/* ═══════════════════════════════════════════
+   MAIN AREA
+═══════════════════════════════════════════ */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* TOPBAR */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-bottom: 1px solid var(--line);
+  height: 44px;
+  padding: 0 16px;
+  flex-shrink: 0;
+  background: var(--bg1);
+}
+.topbar-doc {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-right: 14px;
+}
+.topbar-docname {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tx0);
+  font-family: var(--font-mono);
+}
+.topbar-doctype {
+  font-size: 11px;
+  color: var(--tx2);
+}
+
+.main-tabs { display: flex; gap: 0; }
+.main-tab {
+  padding: 0 14px;
+  height: 44px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  color: var(--tx2);
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  transition: color .15s, border-color .15s;
+}
+.main-tab:hover { color: var(--tx1); }
+.main-tab.on { color: var(--tx0); border-bottom-color: var(--pur); }
+
+.topbar-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+
+.btn {
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius);
+  border: 1px solid var(--line2);
+  background: var(--bg3);
+  color: var(--tx1);
+  transition: background .15s, border-color .15s, color .15s;
+}
+.btn:hover { background: var(--bg4); color: var(--tx0); border-color: var(--tx3); }
+.btn.pri {
+  background: var(--pur);
+  border-color: var(--pur);
+  color: #fff;
+}
+.btn.pri:hover { background: var(--pur-d); border-color: var(--pur-d); }
+
+.dirty-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--amb);
+  display: none;
+  margin-right: 2px;
+}
+.dirty-dot.show { display: block; }
+
+/* PANEL VISIBILITY */
+.panel { display: none; flex: 1; overflow: hidden; }
+.panel.on { display: flex; }
+
+/* ═══════════════════════════════════════════
+   DOC DESIGN
+═══════════════════════════════════════════ */
+.design-panel { flex-direction: row; }
+.canvas-scroll {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg0);
+  padding: 16px;
+}
+
+.dt-switcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 7px 10px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+.dt-switcher label { font-size: 11px; color: var(--tx2); }
+.dt-switcher-select {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  background: var(--bg3);
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  color: var(--tx0);
+  padding: 4px 8px;
+  outline: none;
+  cursor: pointer;
+}
+.dt-switcher-select:focus { border-color: var(--pur); }
+.dt-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+
+.doc-canvas {
+  background: var(--bg1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  min-height: 480px;
+  padding: 14px;
+}
+
+.sec-label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 6px;
+}
+.sec-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--tx2);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-family: var(--font-mono);
+}
+.sec-label-row .add-col-btn {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 2px 7px;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--tx2);
+}
+.sec-label-row .add-col-btn:hover { color: var(--pur-l); border-color: var(--pur-d); }
+
+.sec-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.sec-col {
+  flex: 1;
+  border: 1px dashed var(--line2);
+  border-radius: var(--radius-lg);
+  padding: 7px;
+  min-height: 52px;
+  position: relative;
+  transition: border-color .15s, background .15s;
+}
+.sec-col:hover { border-color: var(--tx3); }
+.sec-col.drag-over { border-color: var(--pur); background: var(--pur-bg); }
+.col-tag {
+  position: absolute;
+  top: -9px;
+  left: 9px;
+  background: var(--bg1);
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--tx3);
+  letter-spacing: .04em;
+  font-family: var(--font-mono);
+}
+
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--bg2);
+  margin-bottom: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--tx1);
+  transition: border-color .12s, background .12s, color .12s;
+  user-select: none;
+}
+.field-row:hover { border-color: var(--pur-d); background: var(--bg3); color: var(--tx0); }
+.field-row.sel { border-color: var(--pur); background: var(--pur-bg); color: var(--tx0); }
+.grip { color: var(--tx3); font-size: 11px; cursor: grab; }
+.field-name { flex: 1; font-family: var(--font-mono); font-size: 11px; }
+.ftype {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 99px;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+/* Child table inline */
+.child-wrap {
+  border: 1px solid var(--pur-d);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-top: 6px;
+}
+.child-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--pur-bg);
+  border-bottom: 1px solid var(--pur-d);
+}
+.child-title { font-size: 11px; font-weight: 500; color: var(--pur-l); flex: 1; font-family: var(--font-mono); }
+.child-open-btn {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid var(--pur-d);
+  color: var(--pur-l);
+  transition: background .12s;
+}
+.child-open-btn:hover { background: var(--pur-bgl); }
+
+.child-fields { padding: 7px 10px; background: var(--bg1); }
+.child-field-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--bg2);
+  margin-bottom: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--tx1);
+  transition: border-color .1s, background .1s;
+}
+.child-field-row:hover { border-color: var(--pur-d); background: var(--bg3); color: var(--tx0); }
+.child-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--pur-l);
+  background: none;
+  border: none;
+  padding: 4px 2px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+.child-add-btn:hover { color: var(--pur); }
+
+.add-section-btn {
+  width: 100%;
+  margin-top: 6px;
+  padding: 7px;
+  font-size: 11px;
+  color: var(--tx3);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color .15s, color .15s;
+}
+.add-section-btn:hover { border-color: var(--pur-d); color: var(--pur-l); }
+
+/* ═══════════════════════════════════════════
+   RIGHT PROPS PANEL (design)
+═══════════════════════════════════════════ */
+.props-panel {
+  width: 220px;
+  min-width: 220px;
+  border-left: 1px solid var(--line);
+  background: var(--bg1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.pp-head {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.pp-name { font-size: 12px; font-weight: 600; font-family: var(--font-mono); color: var(--tx0); }
+.pp-sub  { font-size: 11px; color: var(--tx2); margin-top: 2px; }
+.pp-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
+.pp-section { margin-bottom: 12px; }
+.pp-sec-lbl {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--tx3);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  margin-bottom: 7px;
+}
+.pp-row { margin-bottom: 7px; }
+.pp-lbl { font-size: 11px; color: var(--tx2); margin-bottom: 3px; }
+.pp-input {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: var(--bg3);
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  color: var(--tx0);
+  outline: none;
+  transition: border-color .15s;
+}
+.pp-input:focus { border-color: var(--pur); }
+.pp-input.mono { font-family: var(--font-mono); font-size: 11px; }
+.pp-select {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: var(--bg3);
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  color: var(--tx0);
+  outline: none;
+  cursor: pointer;
+}
+.pp-select:focus { border-color: var(--pur); }
+.tag-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.tag {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 99px;
+  cursor: pointer;
+  border: 1px solid;
+  transition: background .1s, color .1s;
+  user-select: none;
+}
+.tag.on  { background: var(--teal-bg); color: var(--teal-l); border-color: var(--teal-d); }
+.tag.off { background: var(--bg3); color: var(--tx2); border-color: var(--line2); }
+.tag:hover { opacity: .8; }
+
+/* ═══════════════════════════════════════════
+   DOC LOGIC
+═══════════════════════════════════════════ */
+.logic-panel { flex-direction: row; }
+.logic-sidebar {
+  width: 200px;
+  min-width: 200px;
+  border-right: 1px solid var(--line);
+  background: var(--bg1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.logic-sb-head {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.logic-sb-title { font-size: 11px; font-weight: 600; color: var(--tx0); }
+.logic-sb-sub   { font-size: 10px; color: var(--tx2); margin-top: 1px; }
+
+/* fn list area */
+.fn-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+.fn-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+  background: var(--bg1);
+}
+.fn-stage-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-family: var(--font-mono);
+}
+.fn-stage-desc { font-size: 11px; color: var(--tx2); flex: 1; }
+.fn-add-btn {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  background: var(--bg3);
+  border: 1px solid var(--line2);
+  color: var(--tx1);
+  transition: background .15s, color .15s;
+}
+.fn-add-btn:hover { background: var(--bg4); color: var(--tx0); }
+
+.fn-order-hint {
+  padding: 6px 16px;
+  font-size: 10px;
+  color: var(--tx3);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.fn-list-scroll { flex: 1; overflow-y: auto; padding: 12px 16px; }
+
+.fn-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  margin-bottom: 8px;
+  background: var(--bg1);
+  cursor: pointer;
+  transition: border-color .12s, background .12s;
+  overflow: hidden;
+}
+.fn-card:hover { border-color: var(--pur-d); background: var(--bg2); }
+.fn-card.sel { border-color: var(--pur); background: var(--bg2); }
+
+.fc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.fc-num {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.fc-name { font-size: 11px; font-weight: 500; font-family: var(--font-mono); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-tags { display: flex; gap: 4px; }
+.fc-tag {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 99px;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.fc-actions { display: flex; gap: 4px; opacity: 0; transition: opacity .12s; flex-shrink: 0; }
+.fn-card:hover .fc-actions { opacity: 1; }
+.fc-action-btn {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line2);
+  background: var(--bg3);
+  color: var(--tx2);
+  transition: background .1s, color .1s, border-color .1s;
+}
+.fc-action-btn:hover { background: var(--pur-bg); border-color: var(--pur-d); color: var(--pur-l); }
+.fc-action-btn.del:hover { background: var(--red-bg); border-color: var(--red); color: var(--red-l); }
+
+.fc-body { padding: 8px 12px; }
+.fc-desc { font-size: 11px; color: var(--tx2); margin-bottom: 6px; }
+.fc-preview {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--tx2);
+  background: var(--bg0);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow: hidden;
+  max-height: 44px;
+  position: relative;
+}
+.fc-preview::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 18px;
+  background: linear-gradient(transparent, var(--bg0));
+}
+.fn-card.sel .fc-preview,
+.fn-card.sel .fc-preview::after { background: var(--bg0); }
+.fn-card:hover .fc-preview::after { background: linear-gradient(transparent, var(--bg0)); }
+.fc-meta { display: flex; gap: 12px; margin-top: 6px; }
+.fc-meta-item { font-size: 10px; color: var(--tx3); font-family: var(--font-mono); }
+
+.fn-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--tx3);
+  font-size: 12px;
+}
+.fn-empty-icon { font-size: 28px; margin-bottom: 8px; opacity: .3; }
+.fn-empty-add {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--pur-l);
+  cursor: pointer;
+  background: none;
+  border: none;
+  font-family: var(--font-sans);
+}
+.fn-empty-add:hover { color: var(--pur); }
+
+/* ═══════════════════════════════════════════
+   CODE EDITOR PANEL
+═══════════════════════════════════════════ */
+.editor-panel {
+  width: 420px;
+  min-width: 420px;
+  border-left: 1px solid var(--line);
+  background: var(--bg1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ep-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--tx3);
+  gap: 8px;
+}
+.ep-empty-icon { font-size: 32px; opacity: .2; }
+.ep-empty-txt { font-size: 12px; }
+
+#ep-ui {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.ep-head {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.ep-fname {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--tx0);
+  word-break: break-all;
+}
+.ep-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 3px;
+}
+.ep-meta-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.ep-stage-name { font-size: 11px; color: var(--tx2); }
+.ep-fn-desc { font-size: 11px; color: var(--tx2); }
+
+.ep-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg2);
+  flex-shrink: 0;
+}
+.ep-tb-btn {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line2);
+  background: var(--bg3);
+  color: var(--tx1);
+  transition: background .12s, color .12s, border-color .12s;
+}
+.ep-tb-btn:hover { background: var(--pur-bg); color: var(--pur-l); border-color: var(--pur-d); }
+.ep-ctx-vars {
+  margin-left: auto;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--tx3);
+  letter-spacing: .02em;
+}
+
+.ep-editor-wrap {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+.ep-gutter {
+  width: 38px;
+  background: var(--bg2);
+  border-right: 1px solid var(--line);
+  padding: 12px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx3);
+  text-align: right;
+  padding-right: 8px;
+  line-height: 1.65;
+  overflow: hidden;
+  flex-shrink: 0;
+  user-select: none;
+}
+.ep-editor {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 12px 14px;
+  border: none;
+  background: var(--bg0);
+  color: var(--tx0);
+  resize: none;
+  outline: none;
+  line-height: 1.65;
+  overflow-y: auto;
+  tab-size: 2;
+  caret-color: var(--pur-l);
+}
+.ep-editor::selection { background: var(--pur-bgl); }
+
+.ep-foot {
+  padding: 7px 12px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--bg2);
+  flex-shrink: 0;
+}
+.ep-status { font-size: 10px; font-family: var(--font-mono); color: var(--tx3); flex: 1; }
+
+/* ═══════════════════════════════════════════
+   SURREALQL VIEW
+═══════════════════════════════════════════ */
+.surql-panel { flex-direction: column; }
+.surql-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg1);
+  flex-shrink: 0;
+}
+.surql-bar-title { font-size: 12px; font-weight: 500; color: var(--tx1); flex: 1; font-family: var(--font-mono); }
+.surql-readonly-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--bg3);
+  border: 1px solid var(--line2);
+  color: var(--tx2);
+  font-family: var(--font-mono);
+}
+.surql-code {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 16px 20px;
+  border: none;
+  background: var(--bg0);
+  color: var(--tx1);
+  resize: none;
+  outline: none;
+  line-height: 1.7;
+  overflow-y: auto;
+  tab-size: 2;
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ═══════════════════════════════════════
+     SIDEBAR
+═══════════════════════════════════════ -->
+<div class="sidebar" id="sidebar">
+  <div class="sb-brand">
+    <div class="sb-logo">S~</div>
+    <div>
+      <div class="sb-brand-text">SurrealERP</div>
+      <div class="sb-brand-sub">DocType Designer</div>
+    </div>
+  </div>
+
+  <!-- Field palette sidebar (shown on design tab) -->
+  <div id="sb-design">
+    <div class="sb-tabs">
+      <button class="sb-tab on" id="sbt-fields" onclick="sbTab('fields')">Fields</button>
+      <button class="sb-tab"   id="sbt-fns"    onclick="sbTab('fns')">Functions</button>
+    </div>
+    <div class="sb-search"><input placeholder="Search palette…" oninput="filterPalette(this.value)" id="pal-search"></div>
+    <div class="sb-scroll">
+
+      <!-- Fields -->
+      <div id="pal-fields">
+        <div class="pal-group">
+          <div class="pal-lbl">Link / Relation</div>
+          <div class="pal-item" draggable="true" data-ftype="Link"><span class="pi" style="background:var(--pur-bg);color:var(--pur-l)">⛓</span>Link</div>
+          <div class="pal-item" draggable="true" data-ftype="Table"><span class="pi" style="background:var(--pur-bg);color:var(--pur-l)">⊞</span>Table</div>
+        </div>
+        <div class="pal-group">
+          <div class="pal-lbl">Text</div>
+          <div class="pal-item" draggable="true" data-ftype="Data"><span class="pi" style="background:var(--teal-bg);color:var(--teal-l)">T</span>Data</div>
+          <div class="pal-item" draggable="true" data-ftype="Text"><span class="pi" style="background:var(--teal-bg);color:var(--teal-l)">¶</span>Text</div>
+          <div class="pal-item" draggable="true" data-ftype="Code"><span class="pi" style="background:var(--teal-bg);color:var(--teal-l)">{}</span>Code</div>
+          <div class="pal-item" draggable="true" data-ftype="Long Text"><span class="pi" style="background:var(--teal-bg);color:var(--teal-l)">≡</span>Long Text</div>
+        </div>
+        <div class="pal-group">
+          <div class="pal-lbl">Number</div>
+          <div class="pal-item" draggable="true" data-ftype="Int"><span class="pi" style="background:var(--amb-bg);color:var(--amb-l)">1</span>Int</div>
+          <div class="pal-item" draggable="true" data-ftype="Float"><span class="pi" style="background:var(--amb-bg);color:var(--amb-l)">~</span>Float</div>
+          <div class="pal-item" draggable="true" data-ftype="Currency"><span class="pi" style="background:var(--amb-bg);color:var(--amb-l)">$</span>Currency</div>
+          <div class="pal-item" draggable="true" data-ftype="Percent"><span class="pi" style="background:var(--amb-bg);color:var(--amb-l)">%</span>Percent</div>
+        </div>
+        <div class="pal-group">
+          <div class="pal-lbl">Date / Time</div>
+          <div class="pal-item" draggable="true" data-ftype="Date"><span class="pi" style="background:var(--blue-bg);color:var(--blue-l)">d</span>Date</div>
+          <div class="pal-item" draggable="true" data-ftype="Datetime"><span class="pi" style="background:var(--blue-bg);color:var(--blue-l)">dt</span>Datetime</div>
+          <div class="pal-item" draggable="true" data-ftype="Time"><span class="pi" style="background:var(--blue-bg);color:var(--blue-l)">t</span>Time</div>
+        </div>
+        <div class="pal-group">
+          <div class="pal-lbl">Select / Bool</div>
+          <div class="pal-item" draggable="true" data-ftype="Select"><span class="pi" style="background:var(--teal-bg);color:var(--teal-l)">▾</span>Select</div>
+          <div class="pal-item" draggable="true" data-ftype="Check"><span class="pi" style="background:var(--teal-bg);color:var(--teal-l)">✓</span>Check</div>
+        </div>
+        <div class="pal-group">
+          <div class="pal-lbl">Layout</div>
+          <div class="pal-item" draggable="true" data-ftype="Section Break"><span class="pi" style="background:var(--bg3);color:var(--tx2)">—</span>Section Break</div>
+          <div class="pal-item" draggable="true" data-ftype="Column Break"><span class="pi" style="background:var(--bg3);color:var(--tx2)">|</span>Column Break</div>
+          <div class="pal-item" draggable="true" data-ftype="HTML"><span class="pi" style="background:var(--coral-bg);color:var(--coral-l)">&lt;/&gt;</span>HTML</div>
+        </div>
+      </div>
+
+      <!-- Functions palette -->
+      <div id="pal-fns" style="display:none">
+        <div class="pal-group">
+          <div class="pal-lbl">Traversal</div>
+          <div class="pal-item" data-fn="SELECT"><span class="pi" style="background:var(--pur-bg);color:var(--pur-l)">→</span>SELECT</div>
+          <div class="pal-item" data-fn="RELATE"><span class="pi" style="background:var(--pur-bg);color:var(--pur-l)">⟷</span>RELATE</div>
+          <div class="pal-item" data-fn="UPDATE"><span class="pi" style="background:var(--pur-bg);color:var(--pur-l)">✎</span>UPDATE</div>
+          <div class="pal-item" data-fn="edge-traverse"><span class="pi" style="background:var(--pur-bg);color:var(--pur-l)">⊳</span>→ edge</div>
+        </div>
+        <div class="pal-group">
+          <div class="pal-lbl">Math</div>
+          <div class="pal-item" data-fn="math::sum"><span class="pi" style="background:var(--amb-bg);color:var(--amb-l)">Σ</span>math::sum</div>
+          <div class="pal-item" data-fn="math::mean"><span class="pi" style="background:var(--amb-bg);color:var(--amb-l)">μ</span>math::mean</div>
+          <div class="pal-item" data-fn="math::max"><span class="pi" style="background:var(--amb-bg);color:var(--amb-l)">↑</span>math::max</div>
+          <div class="pal-item" data-fn="math::min"><span class="pi" style="background:var(--amb-bg);color:var(--amb-l)">↓</span>math::min</div>
+        </div>
+        <div class="pal-group">
+          <div class="pal-lbl">String</div>
+          <div class="pal-item" data-fn="string::concat"><span class="pi" style="background:var(--teal-bg);color:var(--teal-l)">+</span>string::concat</div>
+          <div class="pal-item" data-fn="string::uppercase"><span class="pi" style="background:var(--teal-bg);color:var(--teal-l)">AA</span>string::uppercase</div>
+          <div class="pal-item" data-fn="string::trim"><span class="pi" style="background:var(--teal-bg);color:var(--teal-l)">⌧</span>string::trim</div>
+        </div>
+        <div class="pal-group">
+          <div class="pal-lbl">Logic / Validate</div>
+          <div class="pal-item" data-fn="IF/ELSE"><span class="pi" style="background:var(--coral-bg);color:var(--coral-l)">?</span>IF / ELSE</div>
+          <div class="pal-item" data-fn="ASSERT"><span class="pi" style="background:var(--blue-bg);color:var(--blue-l)">!</span>ASSERT</div>
+          <div class="pal-item" data-fn="PERMISSIONS"><span class="pi" style="background:var(--blue-bg);color:var(--blue-l)">🔒</span>PERMISSIONS</div>
+          <div class="pal-item" data-fn="fn::custom"><span class="pi" style="background:var(--green-bg);color:var(--green-l)">λ</span>fn::custom</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logic stage nav sidebar (shown on logic tab) -->
+  <div id="sb-logic" style="display:none; flex:1; flex-direction:column; overflow:hidden;">
+    <div class="logic-sb-head">
+      <div class="logic-sb-title">Lifecycle Stages</div>
+      <div class="logic-sb-sub">sales_invoice</div>
+    </div>
+    <div class="stage-nav" id="stage-nav">
+      <div class="stage-group-lbl">Before action</div>
+      <div class="stage-nav-item on" id="snav-validate"    onclick="setStage('validate')">
+        <div class="sni-dot" style="background:var(--blue)"></div>
+        <span class="sni-name" style="color:var(--blue-l)">Validate</span>
+        <span class="sni-count" style="background:var(--blue-bg);color:var(--blue-l)" id="sc-validate">3</span>
+      </div>
+      <div class="stage-nav-item" id="snav-before_save"  onclick="setStage('before_save')">
+        <div class="sni-dot" style="background:var(--pur)"></div>
+        <span class="sni-name" style="color:var(--pur-l)">Before Save</span>
+        <span class="sni-count" style="background:var(--pur-bg);color:var(--pur-l)" id="sc-before_save">2</span>
+      </div>
+      <div class="stage-group-lbl">After action</div>
+      <div class="stage-nav-item" id="snav-on_save"      onclick="setStage('on_save')">
+        <div class="sni-dot" style="background:var(--teal)"></div>
+        <span class="sni-name" style="color:var(--teal-l)">On Save</span>
+        <span class="sni-count" style="background:var(--teal-bg);color:var(--teal-l)" id="sc-on_save">2</span>
+      </div>
+      <div class="stage-nav-item" id="snav-on_submit"    onclick="setStage('on_submit')">
+        <div class="sni-dot" style="background:var(--green)"></div>
+        <span class="sni-name" style="color:var(--green-l)">On Submit</span>
+        <span class="sni-count" style="background:var(--green-bg);color:var(--green-l)" id="sc-on_submit">2</span>
+      </div>
+      <div class="stage-nav-item" id="snav-on_cancel"    onclick="setStage('on_cancel')">
+        <div class="sni-dot" style="background:var(--coral)"></div>
+        <span class="sni-name" style="color:var(--coral-l)">On Cancel</span>
+        <span class="sni-count" style="background:var(--coral-bg);color:var(--coral-l)" id="sc-on_cancel">1</span>
+      </div>
+      <div class="stage-nav-item" id="snav-on_amend"     onclick="setStage('on_amend')">
+        <div class="sni-dot" style="background:var(--amb)"></div>
+        <span class="sni-name" style="color:var(--amb-l)">On Amend</span>
+        <span class="sni-count" style="background:var(--amb-bg);color:var(--amb-l)" id="sc-on_amend">1</span>
+      </div>
+      <div class="stage-group-lbl">Scheduled</div>
+      <div class="stage-nav-item" id="snav-scheduled"    onclick="setStage('scheduled')">
+        <div class="sni-dot" style="background:var(--tx2)"></div>
+        <span class="sni-name" style="color:var(--tx2)">Scheduled</span>
+        <span class="sni-count" style="background:var(--bg3);color:var(--tx2)" id="sc-scheduled">0</span>
+      </div>
+    </div>
+    <div class="sb-bottom">
+      <button class="sb-ask-btn">Ask Claude ↗</button>
+    </div>
+  </div>
+
+</div><!-- /sidebar -->
+
+<!-- ═══════════════════════════════════════
+     MAIN
+═══════════════════════════════════════ -->
+<div class="main">
+
+  <div class="topbar">
+    <div class="topbar-doc">
+      <span class="topbar-docname">sales_invoice</span>
+      <span class="topbar-doctype">/ DocType Designer</span>
+    </div>
+    <div class="main-tabs">
+      <button class="main-tab on" id="mt-design" onclick="mainTab('design')">Doc Design</button>
+      <button class="main-tab"    id="mt-logic"  onclick="mainTab('logic')">Doc Logic</button>
+      <button class="main-tab"    id="mt-surql"  onclick="mainTab('surql')">SurrealQL</button>
+    </div>
+    <div class="topbar-actions">
+      <span class="dirty-dot" id="dirty-dot"></span>
+      <button class="btn" onclick="alert('Documentation opened')">Docs ↗</button>
+      <button class="btn pri" onclick="save()">Save</button>
+    </div>
+  </div>
+
+  <!-- ── DOC DESIGN ── -->
+  <div class="panel design-panel on" id="panel-design">
+
+    <div class="canvas-scroll">
+      <!-- Doctype switcher -->
+      <div class="dt-switcher">
+        <label>Editing:</label>
+        <select class="dt-switcher-select" onchange="switchDoctype(this.value)" id="dt-select">
+          <option value="main">Sales Invoice (main)</option>
+          <option value="items">Sales Invoice Item (child)</option>
+          <option value="taxes">Sales Taxes and Charges (child)</option>
+        </select>
+        <span class="dt-badge" id="dt-badge" style="background:var(--pur-bg);color:var(--pur-l);border:1px solid var(--pur-d)">Main DocType</span>
+      </div>
+
+      <!-- Main canvas -->
+      <div class="doc-canvas" id="canvas-main">
+        <div class="sec-label-row">
+          <span class="sec-label">Section — Basic Info</span>
+          <button class="add-col-btn" onclick="addCol('sec1')">+ col</button>
+        </div>
+        <div class="sec-row" id="sec1">
+          <div class="sec-col" id="col-s1l" ondragover="ev.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropField(ev,this)">
+            <span class="col-tag">LEFT</span>
+            <div class="field-row sel" onclick="selField(this,'customer','Link','record(customer)')"><span class="grip">⠿</span><span class="field-name">customer</span><span class="ftype" style="background:var(--pur-bg);color:var(--pur-l)">Link</span></div>
+            <div class="field-row" onclick="selField(this,'posting_date','Date','datetime')"><span class="grip">⠿</span><span class="field-name">posting_date</span><span class="ftype" style="background:var(--blue-bg);color:var(--blue-l)">Date</span></div>
+            <div class="field-row" onclick="selField(this,'due_date','Date','datetime')"><span class="grip">⠿</span><span class="field-name">due_date</span><span class="ftype" style="background:var(--blue-bg);color:var(--blue-l)">Date</span></div>
+          </div>
+          <div class="sec-col" id="col-s1r" ondragover="ev.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropField(ev,this)">
+            <span class="col-tag">RIGHT</span>
+            <div class="field-row" onclick="selField(this,'status','Select','string')"><span class="grip">⠿</span><span class="field-name">status</span><span class="ftype" style="background:var(--teal-bg);color:var(--teal-l)">Select</span></div>
+            <div class="field-row" onclick="selField(this,'currency','Data','string')"><span class="grip">⠿</span><span class="field-name">currency</span><span class="ftype" style="background:var(--teal-bg);color:var(--teal-l)">Data</span></div>
+            <div class="field-row" onclick="selField(this,'is_return','Check','bool')"><span class="grip">⠿</span><span class="field-name">is_return</span><span class="ftype" style="background:var(--teal-bg);color:var(--teal-l)">Check</span></div>
+          </div>
+        </div>
+
+        <div class="sec-label-row">
+          <span class="sec-label">Section — Items</span>
+        </div>
+        <div class="sec-row">
+          <div class="sec-col" style="border-color:var(--pur-d)" ondragover="ev.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropField(ev,this)">
+            <span class="col-tag" style="color:var(--pur-l)">CHILD TABLE</span>
+            <div class="field-row" onclick="selField(this,'items','Table','array')"><span class="grip">⠿</span><span class="field-name">items</span><span class="ftype" style="background:var(--coral-bg);color:var(--coral-l)">Table</span></div>
+            <!-- Inline child fields -->
+            <div class="child-wrap">
+              <div class="child-header">
+                <span class="child-title">sales_invoice_item — inline fields</span>
+                <button class="child-open-btn" onclick="switchDoctype('items');document.getElementById('dt-select').value='items'">Open full editor</button>
+              </div>
+              <div class="child-fields" id="child-items-fields">
+                <div class="child-field-row" onclick="selField(this,'item_code','Link','record(item)')"><span class="grip">⠿</span><span class="field-name">item_code</span><span class="ftype" style="background:var(--pur-bg);color:var(--pur-l)">Link</span></div>
+                <div class="child-field-row" onclick="selField(this,'qty','Float','float')"><span class="grip">⠿</span><span class="field-name">qty</span><span class="ftype" style="background:var(--amb-bg);color:var(--amb-l)">Float</span></div>
+                <div class="child-field-row" onclick="selField(this,'rate','Currency','float')"><span class="grip">⠿</span><span class="field-name">rate</span><span class="ftype" style="background:var(--amb-bg);color:var(--amb-l)">Currency</span></div>
+                <div class="child-field-row" onclick="selField(this,'amount','Currency','float')"><span class="grip">⠿</span><span class="field-name">amount</span><span class="ftype" style="background:var(--amb-bg);color:var(--amb-l)">Currency</span></div>
+                <div class="child-field-row" onclick="selField(this,'uom','Link','record(uom)')"><span class="grip">⠿</span><span class="field-name">uom</span><span class="ftype" style="background:var(--pur-bg);color:var(--pur-l)">Link</span></div>
+                <button class="child-add-btn" onclick="addChildField('child-items-fields')">+ Add field</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec-label-row">
+          <span class="sec-label">Section — Totals</span>
+        </div>
+        <div class="sec-row">
+          <div class="sec-col" ondragover="ev.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropField(ev,this)">
+            <span class="col-tag">LEFT</span>
+            <div class="field-row" onclick="selField(this,'total_qty','Float','float')"><span class="grip">⠿</span><span class="field-name">total_qty</span><span class="ftype" style="background:var(--amb-bg);color:var(--amb-l)">Float</span></div>
+          </div>
+          <div class="sec-col" ondragover="ev.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropField(ev,this)">
+            <span class="col-tag">RIGHT</span>
+            <div class="field-row" onclick="selField(this,'grand_total','Currency','float')"><span class="grip">⠿</span><span class="field-name">grand_total</span><span class="ftype" style="background:var(--amb-bg);color:var(--amb-l)">Currency</span></div>
+            <div class="field-row" onclick="selField(this,'outstanding_amount','Currency','float')"><span class="grip">⠿</span><span class="field-name">outstanding_amount</span><span class="ftype" style="background:var(--amb-bg);color:var(--amb-l)">Currency</span></div>
+          </div>
+        </div>
+
+        <button class="add-section-btn">+ Add section</button>
+      </div>
+
+      <!-- Items child canvas (hidden by default) -->
+      <div class="doc-canvas" id="canvas-items" style="display:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:6px 10px;background:var(--pur-bg);border-radius:var(--radius);border:1px solid var(--pur-d)">
+          <span style="font-size:11px;color:var(--pur-l)">Child DocType of</span>
+          <span style="font-size:11px;font-weight:600;font-family:var(--font-mono);color:var(--pur-l)">sales_invoice</span>
+        </div>
+        <div class="sec-label-row"><span class="sec-label">Section — Item Details</span></div>
+        <div class="sec-row">
+          <div class="sec-col" ondragover="ev.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropField(ev,this)">
+            <span class="col-tag">FIELDS</span>
+            <div class="field-row sel" onclick="selField(this,'item_code','Link','record(item)')"><span class="grip">⠿</span><span class="field-name">item_code</span><span class="ftype" style="background:var(--pur-bg);color:var(--pur-l)">Link</span></div>
+            <div class="field-row" onclick="selField(this,'item_name','Data','string')"><span class="grip">⠿</span><span class="field-name">item_name</span><span class="ftype" style="background:var(--teal-bg);color:var(--teal-l)">Data</span></div>
+            <div class="field-row" onclick="selField(this,'description','Text','string')"><span class="grip">⠿</span><span class="field-name">description</span><span class="ftype" style="background:var(--teal-bg);color:var(--teal-l)">Text</span></div>
+            <div class="field-row" onclick="selField(this,'qty','Float','float')"><span class="grip">⠿</span><span class="field-name">qty</span><span class="ftype" style="background:var(--amb-bg);color:var(--amb-l)">Float</span></div>
+            <div class="field-row" onclick="selField(this,'uom','Link','record(uom)')"><span class="grip">⠿</span><span class="field-name">uom</span><span class="ftype" style="background:var(--pur-bg);color:var(--pur-l)">Link</span></div>
+            <div class="field-row" onclick="selField(this,'rate','Currency','float')"><span class="grip">⠿</span><span class="field-name">rate</span><span class="ftype" style="background:var(--amb-bg);color:var(--amb-l)">Currency</span></div>
+            <div class="field-row" onclick="selField(this,'amount','Currency','float')"><span class="grip">⠿</span><span class="field-name">amount</span><span class="ftype" style="background:var(--amb-bg);color:var(--amb-l)">Currency</span></div>
+            <button class="add-section-btn" style="margin-top:6px" onclick="addChildField(this.parentElement)">+ Add field</button>
+          </div>
+        </div>
+      </div>
+    </div><!-- /canvas-scroll -->
+
+    <!-- Right props panel -->
+    <div class="props-panel">
+      <div class="pp-head">
+        <div class="pp-name" id="pp-name">customer</div>
+        <div class="pp-sub"  id="pp-sub">Link · record(customer)</div>
+      </div>
+      <div class="pp-body">
+        <div class="pp-section">
+          <div class="pp-sec-lbl">Identity</div>
+          <div class="pp-row"><div class="pp-lbl">Field name</div><input class="pp-input mono" id="pp-fname" value="customer"></div>
+          <div class="pp-row"><div class="pp-lbl">Label</div><input class="pp-input" id="pp-flabel" value="Customer"></div>
+          <div class="pp-row"><div class="pp-lbl">Type</div>
+            <select class="pp-select" id="pp-ftype">
+              <option>Link</option><option>Table</option><option>Data</option><option>Text</option>
+              <option>Long Text</option><option>Code</option><option>Int</option><option>Float</option>
+              <option>Currency</option><option>Percent</option><option>Date</option><option>Datetime</option>
+              <option>Time</option><option>Select</option><option>Check</option><option>HTML</option>
+            </select>
+          </div>
+          <div class="pp-row"><div class="pp-lbl">Options / target</div><input class="pp-input mono" id="pp-fopts" value="Customer"></div>
+        </div>
+        <div class="pp-section">
+          <div class="pp-sec-lbl">Validation</div>
+          <div class="pp-row"><div class="pp-lbl">ASSERT</div><input class="pp-input mono" id="pp-assert" value="$value != NONE"></div>
+          <div class="pp-row"><div class="pp-lbl">Default</div><input class="pp-input mono" id="pp-default" value=""></div>
+        </div>
+        <div class="pp-section">
+          <div class="pp-sec-lbl">Flags</div>
+          <div class="tag-row">
+            <span class="tag on"  onclick="this.classList.toggle('on');this.classList.toggle('off')">Required</span>
+            <span class="tag off" onclick="this.classList.toggle('on');this.classList.toggle('off')">Read only</span>
+            <span class="tag on"  onclick="this.classList.toggle('on');this.classList.toggle('off')">In list</span>
+            <span class="tag off" onclick="this.classList.toggle('on');this.classList.toggle('off')">Hidden</span>
+            <span class="tag on"  onclick="this.classList.toggle('on');this.classList.toggle('off')">Searchable</span>
+            <span class="tag off" onclick="this.classList.toggle('on');this.classList.toggle('off')">Bold</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /panel-design -->
+
+  <!-- ── DOC LOGIC ── -->
+  <div class="panel logic-panel" id="panel-logic">
+
+    <!-- fn list -->
+    <div class="fn-area">
+      <div class="fn-topbar">
+        <span class="fn-stage-badge" id="fn-badge" style="background:var(--blue-bg);color:var(--blue-l);border:1px solid var(--blue-d)">validate</span>
+        <span class="fn-stage-desc" id="fn-desc">Runs before save — throw an error here to block the operation</span>
+        <button class="fn-add-btn" onclick="addFn()">+ Add function</button>
+      </div>
+      <div class="fn-order-hint"><span>⠿</span> Drag to set execution order</div>
+      <div class="fn-list-scroll" id="fn-list"></div>
+    </div>
+
+    <!-- code editor -->
+    <div class="editor-panel">
+      <div class="ep-empty" id="ep-empty">
+        <div class="ep-empty-icon">{ }</div>
+        <div class="ep-empty-txt">Select a function to edit</div>
+      </div>
+      <div id="ep-ui" style="display:none">
+        <div class="ep-head">
+          <div class="ep-fname" id="ep-fname">fn::sales_invoice::validate_totals</div>
+          <div class="ep-meta">
+            <div class="ep-meta-dot" id="ep-dot"></div>
+            <span class="ep-stage-name" id="ep-stage"></span>
+            <span style="color:var(--tx3)">·</span>
+            <span class="ep-fn-desc" id="ep-desc-small"></span>
+          </div>
+        </div>
+        <div class="ep-toolbar">
+          <button class="ep-tb-btn" onclick="fmtCode()">Format</button>
+          <button class="ep-tb-btn">Review ↗</button>
+          <button class="ep-tb-btn">Snippet ↗</button>
+          <span class="ep-ctx-vars">$this &nbsp;·&nbsp; $event &nbsp;·&nbsp; $auth &nbsp;·&nbsp; $session</span>
+        </div>
+        <div class="ep-editor-wrap">
+          <div class="ep-gutter" id="ep-gutter">1</div>
+          <textarea class="ep-editor" id="ep-editor" spellcheck="false" oninput="syncGutter()"></textarea>
+        </div>
+        <div class="ep-foot">
+          <span class="ep-status" id="ep-status">SurrealQL · 1 line</span>
+          <button class="btn" onclick="discardEdit()">Discard</button>
+          <button class="btn pri" onclick="applyEdit()">Apply</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /panel-logic -->
+
+  <!-- ── SURREALQL ── -->
+  <div class="panel surql-panel" id="panel-surql">
+    <div class="surql-bar">
+      <span class="surql-bar-title">Generated definition — sales_invoice</span>
+      <span class="surql-readonly-badge">VIEW ONLY</span>
+      <button class="btn">Explain ↗</button>
+    </div>
+    <textarea class="surql-code" readonly>-- ================================================================
+-- DocType: sales_invoice
+-- Auto-generated by SurrealERP Designer — do not edit directly
+-- Edit via Doc Design and Doc Logic tabs
+-- ================================================================
+
+DEFINE TABLE sales_invoice SCHEMAFULL;
+
+-- ── Fields ────────────────────────────────────────────────────
+DEFINE FIELD customer           ON sales_invoice TYPE record(customer)
+  ASSERT $value != NONE;
+DEFINE FIELD posting_date       ON sales_invoice TYPE datetime;
+DEFINE FIELD due_date           ON sales_invoice TYPE datetime;
+DEFINE FIELD status             ON sales_invoice TYPE string
+  ASSERT $value IN ["Draft","Submitted","Cancelled","Paid"]
+  DEFAULT "Draft";
+DEFINE FIELD currency           ON sales_invoice TYPE string DEFAULT "USD";
+DEFINE FIELD is_return          ON sales_invoice TYPE bool   DEFAULT false;
+DEFINE FIELD total_qty          ON sales_invoice TYPE float  DEFAULT 0.0;
+DEFINE FIELD grand_total        ON sales_invoice TYPE float  DEFAULT 0.0;
+DEFINE FIELD outstanding_amount ON sales_invoice TYPE float  DEFAULT 0.0;
+
+-- ── Child table: sales_invoice_item ───────────────────────────
+DEFINE TABLE sales_invoice_item SCHEMAFULL;
+
+DEFINE FIELD parent      ON sales_invoice_item TYPE record(sales_invoice);
+DEFINE FIELD item_code   ON sales_invoice_item TYPE record(item)   ASSERT $value != NONE;
+DEFINE FIELD item_name   ON sales_invoice_item TYPE string;
+DEFINE FIELD description ON sales_invoice_item TYPE string;
+DEFINE FIELD qty         ON sales_invoice_item TYPE float  ASSERT $value > 0;
+DEFINE FIELD uom         ON sales_invoice_item TYPE record(uom);
+DEFINE FIELD rate        ON sales_invoice_item TYPE float  ASSERT $value >= 0;
+DEFINE FIELD amount      ON sales_invoice_item TYPE float
+  VALUE $this.qty * $this.rate;
+
+-- ── Lifecycle events ──────────────────────────────────────────
+
+-- [validate] fn::sales_invoice::validate_totals
+-- [validate] fn::sales_invoice::validate_customer
+-- [validate] fn::sales_invoice::validate_posting_date
+DEFINE EVENT validate ON TABLE sales_invoice
+  WHEN $event = "UPDATE" THEN {
+    fn::sales_invoice::validate_totals($this);
+    fn::sales_invoice::validate_customer($this);
+    fn::sales_invoice::validate_posting_date($this);
+  };
+
+-- [before_save] fn::sales_invoice::compute_item_amounts
+-- [before_save] fn::sales_invoice::compute_totals
+DEFINE EVENT before_save ON TABLE sales_invoice
+  WHEN $event IN ["CREATE","UPDATE"] THEN {
+    fn::sales_invoice::compute_item_amounts($this);
+    fn::sales_invoice::compute_totals($this);
+  };
+
+-- [on_save] fn::sales_invoice::update_outstanding
+-- [on_save] fn::sales_invoice::notify_customer
+DEFINE EVENT on_save ON TABLE sales_invoice
+  WHEN $event IN ["CREATE","UPDATE"] THEN {
+    fn::sales_invoice::update_outstanding($this);
+    fn::sales_invoice::notify_customer($this);
+  };
+
+-- [on_submit] fn::sales_invoice::create_gl_entries
+-- [on_submit] fn::sales_invoice::update_stock_ledger
+DEFINE EVENT on_submit ON TABLE sales_invoice
+  WHEN $event = "UPDATE"
+    AND $before.status = "Draft"
+    AND $after.status  = "Submitted" THEN {
+    fn::sales_invoice::create_gl_entries($this);
+    fn::sales_invoice::update_stock_ledger($this);
+  };
+
+-- [on_cancel] fn::sales_invoice::reverse_gl_entries
+DEFINE EVENT on_cancel ON TABLE sales_invoice
+  WHEN $event = "UPDATE"
+    AND $before.status = "Submitted"
+    AND $after.status  = "Cancelled" THEN {
+    fn::sales_invoice::reverse_gl_entries($this);
+  };
+
+-- [on_amend] fn::sales_invoice::setup_amendment
+DEFINE EVENT on_amend ON TABLE sales_invoice
+  WHEN $event = "CREATE" AND $this.amended_from != NONE THEN {
+    fn::sales_invoice::setup_amendment($this);
+  };
+
+-- ── Permissions ───────────────────────────────────────────────
+DEFINE TABLE sales_invoice PERMISSIONS
+  FOR select
+    WHERE $auth.role IN ["Accounts User","Accounts Manager","System Manager"]
+  FOR create, update
+    WHERE $auth.role IN ["Accounts Manager","System Manager"]
+  FOR delete
+    WHERE $auth.role = "System Manager";
+</textarea>
+  </div><!-- /panel-surql -->
+
+</div><!-- /main -->
+</div><!-- /app -->
+
+<script>
+/* ═══════════════════════════════════════
+   DATA
+═══════════════════════════════════════ */
+const STAGE_META = {
+  validate:    { label:'validate',    color:'var(--blue)',    bg:'var(--blue-bg)',    text:'var(--blue-l)',    border:'var(--blue-d)',    desc:'Runs before save — throw an error here to block the operation' },
+  before_save: { label:'before_save', color:'var(--pur)',     bg:'var(--pur-bg)',     text:'var(--pur-l)',     border:'var(--pur-d)',     desc:'After validation, before write — compute derived fields here' },
+  on_save:     { label:'on_save',     color:'var(--teal)',    bg:'var(--teal-bg)',    text:'var(--teal-l)',    border:'var(--teal-d)',    desc:'After successful write — safe for side effects and notifications' },
+  on_submit:   { label:'on_submit',   color:'var(--green)',   bg:'var(--green-bg)',   text:'var(--green-l)',   border:'var(--green-d)',   desc:'Draft → Submitted transition — GL entries, stock ledger here' },
+  on_cancel:   { label:'on_cancel',   color:'var(--coral)',   bg:'var(--coral-bg)',   text:'var(--coral-l)',   border:'var(--coral-d)',   desc:'Submitted → Cancelled — must reverse all on_submit effects' },
+  on_amend:    { label:'on_amend',    color:'var(--amb)',     bg:'var(--amb-bg)',     text:'var(--amb-l)',     border:'var(--amb-d)',     desc:'Cancelled → Amended — sets up the amendment chain' },
+  scheduled:   { label:'scheduled',   color:'var(--tx2)',     bg:'var(--bg3)',        text:'var(--tx2)',       border:'var(--line2)',     desc:'Cron-style — define schedule alongside the function body' },
+};
+
+const STAGES = {
+  validate: [
+    { id:'v1', name:'validate_totals',       desc:'Checks grand total equals sum of item amounts',              tags:['compute','assert'],     runs:'Every save',
+      code:`DEFINE FUNCTION fn::sales_invoice::validate_totals($this: record) {
+  LET $rows = SELECT amount FROM sales_invoice_item
+              WHERE parent = $this.id;
+  LET $calc = math::sum($rows.*.amount);
+
+  IF $calc != $this.grand_total {
+    THROW "Grand total mismatch: expected "
+          + <string>$calc
+          + ", got "
+          + <string>$this.grand_total;
+  };
+};` },
+    { id:'v2', name:'validate_customer',     desc:'Ensures customer is active and credit limit is not exceeded', tags:['validate','credit'],    runs:'Every save',
+      code:`DEFINE FUNCTION fn::sales_invoice::validate_customer($this: record) {
+  LET $cust = SELECT * FROM customer WHERE id = $this.customer;
+
+  IF $cust.status != "Active" {
+    THROW "Customer " + <string>$this.customer + " is not active";
+  };
+
+  LET $outstanding = SELECT math::sum(outstanding_amount)
+                     FROM sales_invoice
+                     WHERE customer = $this.customer
+                       AND status = "Submitted";
+
+  IF $outstanding[0] > $cust.credit_limit {
+    THROW "Credit limit exceeded for " + <string>$this.customer;
+  };
+};` },
+    { id:'v3', name:'validate_posting_date', desc:'Posting date must not fall inside a closed accounting period', tags:['validate','period'], runs:'Every save',
+      code:`DEFINE FUNCTION fn::sales_invoice::validate_posting_date($this: record) {
+  LET $period = SELECT * FROM accounting_period
+                WHERE start_date <= $this.posting_date
+                  AND end_date   >= $this.posting_date;
+
+  IF $period[0].closed = true {
+    THROW "Posting date falls in a closed accounting period";
+  };
+};` },
+  ],
+  before_save: [
+    { id:'bs1', name:'compute_item_amounts', desc:'Sets amount = qty × rate on every child item row',           tags:['compute'],              runs:'Every save',
+      code:`DEFINE FUNCTION fn::sales_invoice::compute_item_amounts($this: record) {
+  FOR $item IN (SELECT * FROM sales_invoice_item WHERE parent = $this.id) {
+    UPDATE $item SET amount = $item.qty * $item.rate;
+  };
+};` },
+    { id:'bs2', name:'compute_totals',       desc:'Rolls up net_total, tax_total and grand_total',              tags:['compute','rollup'],     runs:'Every save',
+      code:`DEFINE FUNCTION fn::sales_invoice::compute_totals($this: record) {
+  LET $items = SELECT amount FROM sales_invoice_item WHERE parent = $this.id;
+  LET $taxes = SELECT tax_amount FROM sales_taxes_and_charges WHERE parent = $this.id;
+
+  UPDATE $this SET
+    net_total   = math::sum($items.*.amount),
+    tax_total   = math::sum($taxes.*.tax_amount),
+    grand_total = net_total + tax_total;
+};` },
+  ],
+  on_save: [
+    { id:'os1', name:'update_outstanding',   desc:'Recalculates outstanding_amount after payments',             tags:['compute'],              runs:'Every save',
+      code:`DEFINE FUNCTION fn::sales_invoice::update_outstanding($this: record) {
+  LET $paid = SELECT math::sum(paid_amount)
+              FROM payment_entry_reference
+              WHERE reference_doctype = "Sales Invoice"
+                AND reference_name = $this.id;
+
+  UPDATE $this SET
+    outstanding_amount = $this.grand_total - $paid[0];
+};` },
+    { id:'os2', name:'notify_customer',      desc:'Sends email notification on invoice creation',               tags:['notification'],         runs:'On create only',
+      code:`DEFINE FUNCTION fn::sales_invoice::notify_customer($this: record) {
+  IF $this.is_new = true {
+    LET $cust = SELECT email FROM customer WHERE id = $this.customer;
+    fn::mailer::send({
+      to:      $cust[0].email,
+      subject: "Invoice " + <string>$this.name + " raised",
+      body:    fn::template::render("invoice_created", $this)
+    });
+  };
+};` },
+  ],
+  on_submit: [
+    { id:'su1', name:'create_gl_entries',    desc:'Posts debit/credit entries to the general ledger',           tags:['accounting','gl'],      runs:'On submit',
+      code:`DEFINE FUNCTION fn::sales_invoice::create_gl_entries($this: record) {
+  -- Debit: Accounts Receivable
+  CREATE gl_entry SET
+    posting_date = $this.posting_date,
+    account      = "Accounts Receivable",
+    party_type   = "Customer",
+    party        = $this.customer,
+    debit        = $this.grand_total,
+    credit       = 0,
+    voucher_type = "Sales Invoice",
+    voucher_no   = $this.name;
+
+  -- Credit: Sales Income
+  CREATE gl_entry SET
+    posting_date = $this.posting_date,
+    account      = "Sales Income",
+    debit        = 0,
+    credit       = $this.net_total,
+    voucher_type = "Sales Invoice",
+    voucher_no   = $this.name;
+};` },
+    { id:'su2', name:'update_stock_ledger',  desc:'Creates stock ledger entries reducing on-hand for each item', tags:['stock','ledger'],      runs:'On submit',
+      code:`DEFINE FUNCTION fn::sales_invoice::update_stock_ledger($this: record) {
+  FOR $item IN (SELECT * FROM sales_invoice_item WHERE parent = $this.id) {
+    CREATE stock_ledger_entry SET
+      item_code    = $item.item_code,
+      warehouse    = $item.warehouse,
+      actual_qty   = -($item.qty),
+      voucher_type = "Sales Invoice",
+      voucher_no   = $this.name,
+      posting_date = $this.posting_date;
+  };
+};` },
+  ],
+  on_cancel: [
+    { id:'ca1', name:'reverse_gl_entries',   desc:'Creates cancellation entries reversing all GL postings',      tags:['accounting','reversal'], runs:'On cancel',
+      code:`DEFINE FUNCTION fn::sales_invoice::reverse_gl_entries($this: record) {
+  LET $entries = SELECT * FROM gl_entry
+                 WHERE voucher_type = "Sales Invoice"
+                   AND voucher_no   = $this.name
+                   AND is_cancelled = false;
+
+  FOR $e IN $entries {
+    CREATE gl_entry SET
+      posting_date = time::now(),
+      account      = $e.account,
+      debit        = $e.credit,
+      credit       = $e.debit,
+      voucher_type = "Sales Invoice",
+      voucher_no   = $this.name,
+      is_cancelled = true,
+      remarks      = "Cancellation of " + <string>$e.id;
+
+    UPDATE $e SET is_cancelled = true;
+  };
+};` },
+  ],
+  on_amend: [
+    { id:'am1', name:'setup_amendment',      desc:'Links amended doc to original and resets status to Draft',    tags:['amendment'],            runs:'On amend',
+      code:`DEFINE FUNCTION fn::sales_invoice::setup_amendment($this: record) {
+  LET $orig = SELECT * FROM sales_invoice WHERE id = $this.amended_from;
+
+  UPDATE $this SET
+    customer     = $orig[0].customer,
+    posting_date = time::now(),
+    status       = "Draft",
+    amendment_no = ($orig[0].amendment_no OR 0) + 1;
+
+  RELATE $this -> amended_from -> $orig[0];
+};` },
+  ],
+  scheduled: [],
+};
+
+const TYPE_COLORS = {
+  Link:'var(--pur)', Table:'var(--coral)', Data:'var(--teal)', Text:'var(--teal)',
+  'Long Text':'var(--teal)', Code:'var(--teal)', Int:'var(--amb)', Float:'var(--amb)',
+  Currency:'var(--amb)', Percent:'var(--amb)', Date:'var(--blue)', Datetime:'var(--blue)',
+  Time:'var(--blue)', Select:'var(--teal)', Check:'var(--teal)',
+};
+const TYPE_BG = {
+  Link:'var(--pur-bg)', Table:'var(--coral-bg)', Data:'var(--teal-bg)', Text:'var(--teal-bg)',
+  'Long Text':'var(--teal-bg)', Code:'var(--teal-bg)', Int:'var(--amb-bg)', Float:'var(--amb-bg)',
+  Currency:'var(--amb-bg)', Percent:'var(--amb-bg)', Date:'var(--blue-bg)', Datetime:'var(--blue-bg)',
+  Time:'var(--blue-bg)', Select:'var(--teal-bg)', Check:'var(--teal-bg)',
+};
+
+let currentStage = 'validate';
+let currentFnId  = null;
+let dirty = false;
+
+/* ═══════════════════════════════════════
+   MAIN TAB SWITCHING
+═══════════════════════════════════════ */
+function mainTab(t) {
+  ['design','logic','surql'].forEach(id => {
+    document.getElementById('panel-'+id).classList.toggle('on', id === t);
+    document.getElementById('mt-'+id).classList.toggle('on', id === t);
+  });
+  // sidebar content
+  const sbDesign = document.getElementById('sb-design');
+  const sbLogic  = document.getElementById('sb-logic');
+  if (t === 'logic') {
+    sbDesign.style.display = 'none';
+    sbLogic.style.display  = 'flex';
+  } else {
+    sbDesign.style.display = '';
+    sbLogic.style.display  = 'none';
+  }
+  if (t === 'logic') { setStage(currentStage); }
+}
+
+/* ═══════════════════════════════════════
+   SIDEBAR PALETTE TAB
+═══════════════════════════════════════ */
+function sbTab(t) {
+  document.getElementById('pal-fields').style.display = t === 'fields' ? '' : 'none';
+  document.getElementById('pal-fns').style.display    = t === 'fns'    ? '' : 'none';
+  document.getElementById('sbt-fields').classList.toggle('on', t === 'fields');
+  document.getElementById('sbt-fns').classList.toggle('on',    t === 'fns');
+}
+
+function filterPalette(q) {
+  document.querySelectorAll('.pal-item').forEach(i => {
+    i.style.display = i.textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none';
+  });
+}
+
+/* ═══════════════════════════════════════
+   DOC DESIGN
+═══════════════════════════════════════ */
+function switchDoctype(v) {
+  document.getElementById('canvas-main').style.display  = v === 'main'  ? '' : 'none';
+  document.getElementById('canvas-items').style.display = v === 'items' ? '' : 'none';
+  const badge = document.getElementById('dt-badge');
+  if (v === 'main') {
+    badge.textContent = 'Main DocType';
+    badge.style.cssText = 'background:var(--pur-bg);color:var(--pur-l);border:1px solid var(--pur-d)';
+  } else {
+    badge.textContent = 'Child DocType';
+    badge.style.cssText = 'background:var(--teal-bg);color:var(--teal-l);border:1px solid var(--teal-d)';
+  }
+}
+
+function selField(el, name, type, surqlType) {
+  document.querySelectorAll('.field-row,.child-field-row').forEach(r => r.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('pp-name').textContent  = name;
+  document.getElementById('pp-sub').textContent   = type + ' · ' + surqlType;
+  document.getElementById('pp-fname').value  = name;
+  document.getElementById('pp-flabel').value = name.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+  document.getElementById('pp-ftype').value  = type;
+  document.getElementById('pp-fopts').value  = surqlType;
+  markDirty();
+}
+
+function dropField(ev, col) {
+  ev.preventDefault();
+  col.classList.remove('drag-over');
+  const ftype = ev.dataTransfer?.getData('ftype') || 'Data';
+  const chip = document.createElement('div');
+  chip.className = 'field-row';
+  const bg = TYPE_BG[ftype] || 'var(--bg3)';
+  const cl = TYPE_COLORS[ftype] || 'var(--tx1)';
+  chip.innerHTML = `<span class="grip">⠿</span><span class="field-name">new_field</span><span class="ftype" style="background:${bg};color:${cl}">${ftype}</span>`;
+  chip.onclick = function() { selField(this, 'new_field', ftype, ftype.toLowerCase()); };
+  const addBtn = col.querySelector('.add-section-btn,.child-add-btn');
+  col.insertBefore(chip, addBtn || null);
+  selField(chip, 'new_field', ftype, ftype.toLowerCase());
+  markDirty();
+}
+
+// Set drag data on palette items
+document.querySelectorAll('.pal-item[data-ftype]').forEach(item => {
+  item.addEventListener('dragstart', ev => {
+    ev.dataTransfer.setData('ftype', item.dataset.ftype);
+  });
+});
+
+function addCol(secId) {
+  const sec = document.getElementById(secId);
+  const col = document.createElement('div');
+  col.className = 'sec-col';
+  const idx = Date.now();
+  col.id = 'col-new-' + idx;
+  col.innerHTML = '<span class="col-tag">COL</span>';
+  col.ondragover = ev => { ev.preventDefault(); col.classList.add('drag-over'); };
+  col.ondragleave = () => col.classList.remove('drag-over');
+  col.ondrop = ev => dropField(ev, col);
+  sec.appendChild(col);
+}
+
+function addChildField(container) {
+  const el = typeof container === 'string' ? document.getElementById(container) : container;
+  const row = document.createElement('div');
+  row.className = 'child-field-row';
+  row.innerHTML = '<span class="grip">⠿</span><span class="field-name">new_field</span><span class="ftype" style="background:var(--bg3);color:var(--tx2)">Data</span>';
+  row.onclick = function() { selField(this, 'new_field', 'Data', 'string'); };
+  const addBtn = el.querySelector('.child-add-btn,.add-section-btn');
+  el.insertBefore(row, addBtn);
+  selField(row, 'new_field', 'Data', 'string');
+  markDirty();
+}
+
+/* ═══════════════════════════════════════
+   DOC LOGIC
+═══════════════════════════════════════ */
+function setStage(s) {
+  currentStage = s;
+  const m = STAGE_META[s];
+  document.querySelectorAll('.stage-nav-item').forEach(el => el.classList.remove('on'));
+  document.getElementById('snav-' + s).classList.add('on');
+
+  const badge = document.getElementById('fn-badge');
+  badge.textContent = m.label;
+  badge.style.cssText = `background:${m.bg};color:${m.text};border:1px solid ${m.border}`;
+  document.getElementById('fn-desc').textContent = m.desc;
+
+  renderFnList();
+}
+
+function renderFnList() {
+  const fns  = STAGES[currentStage] || [];
+  const m    = STAGE_META[currentStage];
+  const list = document.getElementById('fn-list');
+
+  if (!fns.length) {
+    list.innerHTML = `<div class="fn-empty">
+      <div class="fn-empty-icon">{ }</div>
+      No functions in this stage yet.
+      <button class="fn-empty-add" onclick="addFn()">+ Add the first function</button>
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = fns.map((fn, i) => `
+    <div class="fn-card${fn.id === currentFnId ? ' sel' : ''}" id="fc-${fn.id}" onclick="openFn('${fn.id}')">
+      <div class="fc-head">
+        <span class="grip" style="margin-right:2px">⠿</span>
+        <div class="fc-num" style="background:${m.bg};color:${m.text}">${i+1}</div>
+        <span class="fc-name" style="color:${fn.id===currentFnId?m.text:'var(--tx0)'}">fn::sales_invoice::${fn.name}</span>
+        <div class="fc-tags">
+          ${fn.tags.map(t => `<span class="fc-tag" style="background:${m.bg};color:${m.text}">${t}</span>`).join('')}
+        </div>
+        <div class="fc-actions">
+          <button class="fc-action-btn" onclick="event.stopPropagation();openFn('${fn.id}')">Edit</button>
+          <button class="fc-action-btn del" onclick="event.stopPropagation();deleteFn('${fn.id}')">Remove</button>
+        </div>
+      </div>
+      <div class="fc-body">
+        <div class="fc-desc">${fn.desc}</div>
+        <div class="fc-preview">${escHtml(fn.code.split('\n').slice(1, 5).join('\n'))}</div>
+        <div class="fc-meta">
+          <span class="fc-meta-item">Runs: ${fn.runs}</span>
+          <span class="fc-meta-item">${fn.code.split('\n').length} lines</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function openFn(id) {
+  const m  = STAGE_META[currentStage];
+  const fn = STAGES[currentStage].find(f => f.id === id);
+  if (!fn) return;
+  currentFnId = id;
+
+  document.getElementById('ep-empty').style.display = 'none';
+  const ui = document.getElementById('ep-ui');
+  ui.style.display = '';
+
+  document.getElementById('ep-fname').textContent     = 'fn::sales_invoice::' + fn.name;
+  document.getElementById('ep-dot').style.background  = m.color;
+  document.getElementById('ep-stage').textContent     = m.label;
+  document.getElementById('ep-desc-small').textContent= fn.desc;
+  document.getElementById('ep-editor').value          = fn.code;
+  syncGutter();
+  renderFnList();
+}
+
+function addFn() {
+  const id = 'new_' + Date.now();
+  STAGES[currentStage].push({
+    id, name:'new_function',
+    desc:'Describe what this function does',
+    tags:[],
+    runs: currentStage.replace('_',' '),
+    code:`DEFINE FUNCTION fn::sales_invoice::new_function($this: record) {\n  -- write SurrealQL here\n  -- $this = current document record\n};`
+  });
+  document.getElementById('sc-' + currentStage).textContent = STAGES[currentStage].length;
+  renderFnList();
+  openFn(id);
+  markDirty();
+}
+
+function deleteFn(id) {
+  if (!confirm('Remove this function?')) return;
+  STAGES[currentStage] = STAGES[currentStage].filter(f => f.id !== id);
+  document.getElementById('sc-' + currentStage).textContent = STAGES[currentStage].length;
+  if (currentFnId === id) {
+    currentFnId = null;
+    document.getElementById('ep-empty').style.display = '';
+    document.getElementById('ep-ui').style.display    = 'none';
+  }
+  renderFnList();
+  markDirty();
+}
+
+function applyEdit() {
+  if (!currentFnId) return;
+  const fn = STAGES[currentStage].find(f => f.id === currentFnId);
+  if (fn) fn.code = document.getElementById('ep-editor').value;
+  renderFnList();
+  markDirty();
+}
+
+function discardEdit() {
+  if (!currentFnId) return;
+  const fn = STAGES[currentStage].find(f => f.id === currentFnId);
+  if (fn) { document.getElementById('ep-editor').value = fn.code; syncGutter(); }
+}
+
+function fmtCode() {
+  const ta = document.getElementById('ep-editor');
+  ta.value = ta.value.split('\n').map(l => l.trimEnd()).join('\n');
+  syncGutter();
+}
+
+function syncGutter() {
+  const ta    = document.getElementById('ep-editor');
+  const lines = ta.value.split('\n').length;
+  document.getElementById('ep-gutter').innerHTML =
+    Array.from({length: lines}, (_, i) => i + 1).join('<br>');
+  document.getElementById('ep-status').textContent =
+    'SurrealQL · ' + lines + ' line' + (lines === 1 ? '' : 's');
+}
+
+/* ═══════════════════════════════════════
+   DIRTY + SAVE
+═══════════════════════════════════════ */
+function markDirty() {
+  dirty = true;
+  document.getElementById('dirty-dot').classList.add('show');
+}
+
+function save() {
+  dirty = false;
+  document.getElementById('dirty-dot').classList.remove('show');
+  // In production: compile state → SurrealQL, apply to DB
+}
+
+/* ═══════════════════════════════════════
+   KEYBOARD SHORTCUTS
+═══════════════════════════════════════ */
+document.addEventListener('keydown', ev => {
+  if ((ev.ctrlKey || ev.metaKey) && ev.key === 's') {
+    ev.preventDefault(); save();
+  }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') {
+    const active = document.activeElement;
+    if (active && active.id === 'ep-editor') { ev.preventDefault(); applyEdit(); }
+  }
+  if (ev.key === 'Escape') {
+    discardEdit();
+  }
+});
+
+document.getElementById('ep-editor').addEventListener('keydown', function(ev) {
+  if (ev.key === 'Tab') {
+    ev.preventDefault();
+    const s = this.selectionStart;
+    this.value = this.value.slice(0, s) + '  ' + this.value.slice(this.selectionEnd);
+    this.selectionStart = this.selectionEnd = s + 2;
+    syncGutter();
+  }
+});
+
+/* ═══════════════════════════════════════
+   INIT
+═══════════════════════════════════════ */
+setStage('validate');
+</script>
+</body>
+</html>

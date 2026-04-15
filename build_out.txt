@@ -1,0 +1,186 @@
+warning: error finalizing incremental compilation session directory `\\?\F:\Sources\spotledger\target\debug\incremental\spotledger_core-2n88r9hxrp893\s-hhhz6r0c6d-0iuuobh-working`: Access is denied. (os error 5)
+
+warning: `spotledger-core` (lib) generated 1 warning
+   Compiling spotledger-db v0.1.0 (F:\Sources\spotledger\crates\spotledger-db)
+warning: unused doc comment
+  --> crates\spotledger-plugins\src\abi_utils.rs:61:1
+   |
+61 | /// payload JSON: `{ "from": "YYYY-MM-DD", "to": "YYYY-MM-DD" }`
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+   |
+   = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+   = note: `#[warn(unused_doc_comments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused doc comment
+   --> crates\spotledger-plugins\src\abi_utils.rs:119:1
+    |
+119 | /// Returns a JSON array of ancestor names.
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+    |
+    = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+
+warning: unused doc comment
+   --> crates\spotledger-plugins\src\abi_utils.rs:125:1
+    |
+125 | /// Returns a JSON array of descendant names.
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+    |
+    = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+
+warning: unused doc comment
+  --> crates\spotledger-plugins\src\host_fns.rs:47:1
+   |
+47 | /// Returns 1 (i64) if the document exists, 0 otherwise.
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+   |
+   = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+
+warning: unused doc comment
+  --> crates\spotledger-plugins\src\host_fns.rs:54:1
+   |
+54 | /// Returns the document JSON bytes, or an error if not found.
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+   |
+   = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+
+warning: unused doc comment
+  --> crates\spotledger-plugins\src\host_fns.rs:69:1
+   |
+69 | /// Accepts a JSON-encoded document, saves it, returns the saved document bytes.
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+   |
+   = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+
+warning: unused doc comment
+  --> crates\spotledger-plugins\src\host_fns.rs:81:1
+   |
+81 | /// Returns the field value as JSON bytes (null if field doesn't exist).
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+   |
+   = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+
+warning: unused doc comment
+  --> crates\spotledger-plugins\src\host_fns.rs:87:1
+   |
+87 | /// Accepts a JSON-encoded value. Sets the field immediately (no hooks).
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+   |
+   = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+
+warning: unused doc comment
+   --> crates\spotledger-plugins\src\host_fns.rs:105:1
+    |
+105 | /// Returns 1 (i64) if the current user has the permission, 0 otherwise.
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+    |
+    = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+
+warning: unused doc comment
+   --> crates\spotledger-plugins\src\host_fns.rs:114:1
+    |
+114 | / /// Validates double-entry balance and posts GL entries.
+115 | | /// Payload: `{ "company": "...", "entries": [{ "account", "debit", "credit", ... }] }`
+    | |_--------------------------------------------------------------------------------------^
+    |   |
+    |   rustdoc does not generate documentation for macro invocations
+    |
+    = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+
+warning: unused doc comment
+   --> crates\spotledger-plugins\src\host_fns.rs:149:1
+    |
+149 | /// Returns `{ "balance": 0.0 }` JSON bytes.
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+    |
+    = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+
+warning: unused doc comment
+   --> crates\spotledger-plugins\src\host_fns.rs:155:1
+    |
+155 | /// Returns `{ "name": "...", "year_start_date": "...", "year_end_date": "..." }` JSON bytes.
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+    |
+    = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+
+warning: unused doc comment
+   --> crates\spotledger-plugins\src\host_fns.rs:166:1
+    |
+166 | /// Returns `{ "rate": 1.0 }` JSON bytes.
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+    |
+    = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+
+warning: error finalizing incremental compilation session directory `\\?\F:\Sources\spotledger\target\debug\incremental\spotledger_plugins-0fo0io2j8unv0\s-hhhz6rh8bd-1i70znj-working`: Access is denied. (os error 5)
+
+warning: error finalizing incremental compilation session directory `\\?\F:\Sources\spotledger\target\debug\incremental\spotledger_geo-2qptby70k6y1f\s-hhhz6rgll8-0vi1xyh-working`: Access is denied. (os error 5)
+
+warning: `spotledger-plugins` (lib) generated 14 warnings
+warning: `spotledger-geo` (lib) generated 1 warning
+warning: error finalizing incremental compilation session directory `\\?\F:\Sources\spotledger\target\debug\incremental\spotledger_contacts-1mltyyfxoa72q\s-hhhz6rgz5x-0444cfh-working`: Access is denied. (os error 5)
+
+warning: error finalizing incremental compilation session directory `\\?\F:\Sources\spotledger\target\debug\incremental\spotledger_printing-1a04ybbe1mta1\s-hhhz6rgmzl-0hs1lkd-working`: Access is denied. (os error 5)
+
+warning: `spotledger-contacts` (lib) generated 1 warning
+warning: `spotledger-printing` (lib) generated 1 warning
+warning: use of deprecated method `indexmap::IndexMap::<K, V, S>::remove`: `remove` disrupts the map order -- use `swap_remove` or `shift_remove` for explicit behavior.
+  --> crates\spotledger-db\src\controller.rs:62:16
+   |
+62 |     doc.fields.remove("__islocal");
+   |                ^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated method `indexmap::IndexMap::<K, V, S>::remove`: `remove` disrupts the map order -- use `swap_remove` or `shift_remove` for explicit behavior.
+  --> crates\spotledger-db\src\controller.rs:63:16
+   |
+63 |     doc.fields.remove("__unsaved");
+   |                ^^^^^^
+
+warning: use of deprecated method `indexmap::IndexMap::<K, V, S>::remove`: `remove` disrupts the map order -- use `swap_remove` or `shift_remove` for explicit behavior.
+  --> crates\spotledger-db\src\controller.rs:64:16
+   |
+64 |     doc.fields.remove("doctype"); // redundant: doc.doctype already holds this
+   |                ^^^^^^
+
+   Compiling spotledger-desk v0.1.0 (F:\Sources\spotledger\crates\spotledger-desk)
+   Compiling spotledger-automation v0.1.0 (F:\Sources\spotledger\crates\spotledger-automation)
+   Compiling spotledger-http v0.1.0 (F:\Sources\spotledger\crates\spotledger-http)
+warning: error finalizing incremental compilation session directory `\\?\F:\Sources\spotledger\target\debug\incremental\spotledger_automation-0s1p76b7pcfbo\s-hhic7f22eq-0xst3vc-working`: Access is denied. (os error 5)
+
+warning: `spotledger-automation` (lib) generated 1 warning
+warning: error finalizing incremental compilation session directory `\\?\F:\Sources\spotledger\target\debug\incremental\spotledger_desk-2g1gj4xtyct3d\s-hhic7f201m-17yggnw-working`: Access is denied. (os error 5)
+
+warning: `spotledger-desk` (lib) generated 1 warning
+warning: unused import: `put`
+   --> crates\spotledger-http\src\server.rs:146:36
+    |
+146 |     use axum::routing::{get, post, put};
+    |                                    ^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling spotledger v0.1.0 (F:\Sources\spotledger\crates\spotledger)
+warning: error finalizing incremental compilation session directory `\\?\F:\Sources\spotledger\target\debug\incremental\spotledger_db-1bqx2a28hck71\s-hhic7d9kpl-1ehie8o-working`: Access is denied. (os error 5)
+
+warning: function `seed_app_module_edges` is never used
+   --> crates\spotledger\src\install_app.rs:286:10
+    |
+286 | async fn seed_app_module_edges(
+    |          ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `seed_docfield_graph` is never used
+   --> crates\spotledger\src\install_app.rs:342:10
+    |
+342 | async fn seed_docfield_graph(
+    |          ^^^^^^^^^^^^^^^^^^^
+
+warning: `spotledger-db` (lib) generated 4 warnings
+warning: error finalizing incremental compilation session directory `\\?\F:\Sources\spotledger\target\debug\incremental\spotledger_http-3gmtgffghwrf8\s-hhic7f1wb3-0uycgfw-working`: Access is denied. (os error 5)
+
+warning: error finalizing incremental compilation session directory `\\?\F:\Sources\spotledger\target\debug\incremental\spotledger-1auud2g1rz3do\s-hhic7hboxi-182vewo-working`: Access is denied. (os error 5)
+
+warning: `spotledger-http` (lib) generated 2 warnings (run `cargo fix --lib -p spotledger-http` to apply 1 suggestion)
+warning: `spotledger` (lib) generated 3 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 37.77s
