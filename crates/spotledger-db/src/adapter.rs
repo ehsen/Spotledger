@@ -118,6 +118,69 @@ impl DbAdapter {
         }
         q.await.map(|_| ()).map_err(DbError::Surreal)
     }
+
+    /// Execute multiple SQL statements inside a single SurrealDB transaction.
+    ///
+    /// Uses the SurrealDB v3 Transaction API (`db.begin()` / `txn.query()` /
+    /// `txn.commit()`) to execute each statement individually within the same
+    /// transaction context.  This avoids SDK issues with multi-statement
+    /// parameterised batch queries.
+    ///
+    /// On any statement error the transaction is cancelled and the error is
+    /// propagated to the caller.
+    pub async fn run_transaction(
+        &self,
+        statements: Vec<TransactionStatement>,
+    ) -> Result<(), DbError> {
+        if statements.is_empty() {
+            return Ok(());
+        }
+
+        let txn = self.db.clone().begin().await.map_err(DbError::Surreal)?;
+
+        for stmt in statements {
+            tracing::debug!(sql = %stmt.sql, binding_count = stmt.bindings.len(), "txn statement");
+            let mut q = txn.query(stmt.sql);
+            for (k, v) in stmt.bindings {
+                q = q.bind((k, v));
+            }
+            match q.await {
+                Err(e) => {
+                    txn.cancel().await.ok();
+                    return Err(DbError::Surreal(e));
+                }
+                Ok(resp) => {
+                    if let Err(e) = resp.check() {
+                        txn.cancel().await.ok();
+                        return Err(DbError::Surreal(e));
+                    }
+                }
+            }
+        }
+
+        txn.commit().await.map_err(DbError::Surreal)?;
+        Ok(())
+    }
+}
+
+// ── TransactionStatement ──────────────────────────────────────────────────────
+
+/// One statement to include in a [`DbAdapter::run_transaction`] batch.
+#[derive(Debug)]
+pub struct TransactionStatement {
+    pub sql:      String,
+    pub bindings: Vec<(String, Value)>,
+}
+
+impl TransactionStatement {
+    pub fn new(sql: impl Into<String>, bindings: Vec<(String, Value)>) -> Self {
+        Self { sql: sql.into(), bindings }
+    }
+
+    /// Shorthand for a statement with no bindings.
+    pub fn bare(sql: impl Into<String>) -> Self {
+        Self { sql: sql.into(), bindings: vec![] }
+    }
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
