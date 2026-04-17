@@ -432,6 +432,11 @@ pub async fn call_method(
         Err(e) => {
             let status = StatusCode::from_u16(e.http_status())
                 .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            if status.as_u16() >= 500 {
+                tracing::error!(method = %method_path, status = %status.as_u16(), error = %e, "Method call failed");
+            } else {
+                tracing::warn!(method = %method_path, status = %status.as_u16(), error = %e, "Method call rejected");
+            }
             let body = ErrorResponse::new(error_type(&e), e.to_string());
             (status, Json(body)).into_response()
         }
