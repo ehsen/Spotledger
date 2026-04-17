@@ -148,6 +148,28 @@ pub async fn save_doc_proxy(
         map.remove("doctype"); // SurrealDB record type already encodes this
     }
 
+    // ── 4b. Stamp system fields ───────────────────────────────────────────────
+    // creation/modified are handled by SurrealDB VALUE expressions in the schema.
+    // Only stamp owner/modified_by (string type, no coercion issue) and
+    // docstatus/idx defaults.
+    if let Value::Object(ref mut map) = doc {
+        // modified_by: always overwrite with current user.
+        map.insert("modified_by".into(), Value::String(user.to_owned()));
+
+        // owner: keep existing non-empty value; fill in when absent or blank.
+        let needs_owner = map.get("owner")
+            .map(|v| v.as_str().map(|s| s.is_empty()).unwrap_or(true))
+            .unwrap_or(true);
+        if needs_owner {
+            map.insert("owner".into(), Value::String(user.to_owned()));
+        }
+
+        // docstatus: default 0 for new documents.
+        if is_new {
+            map.entry("docstatus").or_insert_with(|| json!(0));
+        }
+    }
+
     // ── 5. DB write ────────────────────────────────────────────────────────────
     // Use the same type::record(table, name) pattern as document.rs so that
     // both the compiled (Tier-0) and proxy (Tier-3+) paths share one SQL dialect

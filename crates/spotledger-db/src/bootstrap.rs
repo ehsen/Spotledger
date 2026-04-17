@@ -78,6 +78,36 @@ DEFINE INDEX IF NOT EXISTS idx_migration_name
     ON tabMigration FIELDS name UNIQUE;
 ";
 
+/// Extra `tabDocType` field definitions that extend the schema compiled into the binary.
+///
+/// These mirror the Frappe DocType JSON attributes that are NOT in the core Rust
+/// `doctype_meta()` but ARE sent by the designer UI in the `extra_meta` map.
+/// Using `IF NOT EXISTS` makes this idempotent — safe to run every startup.
+const DOCTTYPE_EXTRA_FIELDS: &str = "
+DEFINE FIELD IF NOT EXISTS description   ON tabDocType TYPE none | string;
+DEFINE FIELD IF NOT EXISTS color         ON tabDocType TYPE none | string;
+DEFINE FIELD IF NOT EXISTS document_type ON tabDocType TYPE none | string;
+DEFINE FIELD IF NOT EXISTS naming_rule   ON tabDocType TYPE none | string;
+DEFINE FIELD IF NOT EXISTS max_attachments ON tabDocType TYPE none | int;
+DEFINE FIELD IF NOT EXISTS allow_rename  ON tabDocType TYPE none | bool | int;
+DEFINE FIELD IF NOT EXISTS allow_import  ON tabDocType TYPE none | bool | int;
+DEFINE FIELD IF NOT EXISTS hide_toolbar  ON tabDocType TYPE none | bool | int;
+DEFINE FIELD IF NOT EXISTS track_seen    ON tabDocType TYPE none | bool | int;
+DEFINE FIELD IF NOT EXISTS track_views   ON tabDocType TYPE none | bool | int;
+DEFINE FIELD IF NOT EXISTS editable_grid ON tabDocType TYPE none | bool | int;
+DEFINE FIELD IF NOT EXISTS quick_entry   ON tabDocType TYPE none | bool | int;
+DEFINE FIELD IF NOT EXISTS is_tree       ON tabDocType TYPE none | bool | int;
+DEFINE FIELD IF NOT EXISTS is_submittable ON tabDocType TYPE none | bool | int;
+DEFINE FIELD IF NOT EXISTS istable       ON tabDocType TYPE none | bool | int;
+DEFINE FIELD IF NOT EXISTS doctype       ON tabDocType TYPE none | string;
+DEFINE FIELD IF NOT EXISTS allow_auto_repeat ON tabDocType TYPE none | bool | int;
+DEFINE FIELD IF NOT EXISTS allow_copy    ON tabDocType TYPE none | bool | int;
+DEFINE FIELD IF NOT EXISTS show_in_menu  ON tabDocType TYPE none | bool | int;
+-- tabDocField Spotledger-specific fields
+DEFINE FIELD IF NOT EXISTS assert_expr   ON tabDocField TYPE none | string;
+DEFINE FIELD IF NOT EXISTS compute_expr  ON tabDocField TYPE none | string;
+";
+
 // ── Seed data ─────────────────────────────────────────────────────────────────
 
 /// SurrealQL to upsert the minimum records required for a usable site.
@@ -184,7 +214,9 @@ pub fn framework_tables_sql() -> &'static str {
 ///
 /// Safe to call on an existing site — every statement uses `IF NOT EXISTS`.
 pub async fn run_framework_tables(adapter: &DbAdapter) -> Result<(), DbError> {
-    adapter.execute(FRAMEWORK_TABLES, vec![]).await
+    adapter.execute(FRAMEWORK_TABLES, vec![]).await?;
+    // Apply optional extra tabDocType fields (idempotent; runs every startup)
+    adapter.execute(DOCTTYPE_EXTRA_FIELDS, vec![]).await
 }
 
 /// Upsert minimum seed records (roles, user types, Administrator user).
