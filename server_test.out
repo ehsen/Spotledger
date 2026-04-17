@@ -1,0 +1,354 @@
+  [2m2026-04-17T05:45:08.449077Z[0m [32m INFO[0m [1;32mspotledger_http::server[0m[32m: [32mLoading site, [1;32msite[0m[32m: spotledger[0m
+    [2;3mat[0m crates\spotledger-http\src\server.rs:222
+
+  [2m2026-04-17T05:45:08.449555Z[0m [34mDEBUG[0m [1;34mspotledger_db::adapter[0m[34m: [34mConnecting to SurrealDB, [1;34mendpoint[0m[34m: 127.0.0.1:8000[0m
+    [2;3mat[0m crates\spotledger-db\src\adapter.rs:43
+
+  [2m2026-04-17T05:45:08.453758Z[0m [34mDEBUG[0m [1;34mtungstenite::handshake::client[0m[34m: [34mClient handshake done.[0m
+    [2;3mat[0m C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tungstenite-0.28.0\src\handshake\client.rs:102
+
+  [2m2026-04-17T05:45:08.508774Z[0m [32m INFO[0m [1;32mspotledger_db::adapter[0m[32m: [32mSurrealDB ready, [1;32mns[0m[32m: spotledger, [1;32mdb[0m[32m: spotledger[0m
+    [2;3mat[0m crates\spotledger-db\src\adapter.rs:58
+
+  [2m2026-04-17T05:45:08.509104Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSyncing schemas for compiled DocTypes, [1;32mcount[0m[32m: 36[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:235
+
+  [2m2026-04-17T05:45:08.511508Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Error Log[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:08.555908Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Error Log, [1;32mtable[0m[32m: tabError_Log[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:08.591939Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Error Log[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:08.594954Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: DocField[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:08.786190Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: DocField, [1;32mtable[0m[32m: tabDocField[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:09.012918Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: DocField[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:09.015745Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: DocPerm[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:09.082051Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: DocPerm, [1;32mtable[0m[32m: tabDocPerm[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:09.147074Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: DocPerm[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:09.148988Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: PropertySetter[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:09.174852Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: PropertySetter, [1;32mtable[0m[32m: tabPropertySetter[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:09.196816Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: PropertySetter[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:09.198822Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: DocType[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:09.285442Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: DocType, [1;32mtable[0m[32m: tabDocType[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:09.396275Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: DocType[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:09.398241Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: CustomField[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:09.436925Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: CustomField, [1;32mtable[0m[32m: tabCustomField[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:09.476716Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: CustomField[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:09.479596Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Module Def[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:09.513947Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Module Def, [1;32mtable[0m[32m: tabModule_Def[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:09.539731Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Module Def[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:09.541732Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: UserModule[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:09.572358Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: UserModule, [1;32mtable[0m[32m: tabUserModule[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:09.591719Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: UserModule[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:09.593954Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: DefaultValue[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:09.622274Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: DefaultValue, [1;32mtable[0m[32m: tabDefaultValue[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:09.646885Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: DefaultValue[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:09.649103Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: SystemSettings[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:09.713770Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: SystemSettings, [1;32mtable[0m[32m: tabSystemSettings[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:09.785367Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: SystemSettings[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:09.787127Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: DocumentNamingSettings[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:09.812489Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: DocumentNamingSettings, [1;32mtable[0m[32m: tabDocumentNamingSettings[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:09.827730Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: DocumentNamingSettings[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:09.830316Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: DocumentNamingRule[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:09.856318Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: DocumentNamingRule, [1;32mtable[0m[32m: tabDocumentNamingRule[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:09.870218Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: DocumentNamingRule[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:09.871769Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: User[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:09.920889Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: User, [1;32mtable[0m[32m: tabUser[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:09.978438Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: User[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:09.980783Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: UserPermission[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.010790Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: UserPermission, [1;32mtable[0m[32m: tabUserPermission[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.040916Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: UserPermission[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.043608Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: UserType[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.068415Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: UserType, [1;32mtable[0m[32m: tabUserType[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.082084Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: UserType[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.084095Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: UserGroup[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.108064Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: UserGroup, [1;32mtable[0m[32m: tabUserGroup[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.119976Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: UserGroup[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.121825Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: UserGroupMember[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.149361Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: UserGroupMember, [1;32mtable[0m[32m: tabUserGroupMember[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.165516Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: UserGroupMember[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.169004Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Role[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.195514Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Role, [1;32mtable[0m[32m: tabRole[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.211309Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Role[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.213428Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: HasRole[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.238649Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: HasRole, [1;32mtable[0m[32m: tabHasRole[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.257432Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: HasRole[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.259779Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Language[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.300893Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Language, [1;32mtable[0m[32m: tabLanguage[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.335478Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Language[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.337451Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Currency[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.368827Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Currency, [1;32mtable[0m[32m: tabCurrency[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.395184Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Currency[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.397126Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Country[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.422098Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Country, [1;32mtable[0m[32m: tabCountry[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.437506Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Country[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.439181Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Contact[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.490095Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Contact, [1;32mtable[0m[32m: tabContact[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.558529Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Contact[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.562024Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Address[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.607687Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Address, [1;32mtable[0m[32m: tabAddress[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.656775Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Address[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.659229Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Gender[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.682241Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Gender, [1;32mtable[0m[32m: tabGender[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.687473Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Gender[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.689412Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Salutation[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.708902Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Salutation, [1;32mtable[0m[32m: tabSalutation[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.716930Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Salutation[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.718938Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Print Heading[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.744780Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Print Heading, [1;32mtable[0m[32m: tabPrint_Heading[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.753809Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Print Heading[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.755837Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Print Format[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:10.802699Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Print Format, [1;32mtable[0m[32m: tabPrint_Format[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:10.904539Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Print Format[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:10.907512Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Letter Head[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:11.024390Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Letter Head, [1;32mtable[0m[32m: tabLetter_Head[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:11.139665Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Letter Head[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:11.180455Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Auto Repeat[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:11.288983Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Auto Repeat, [1;32mtable[0m[32m: tabAuto_Repeat[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:11.348273Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Auto Repeat[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:11.350354Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Event[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:11.410407Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Event, [1;32mtable[0m[32m: tabEvent[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:11.503953Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Event[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:11.505752Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: UTM Source[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:11.527190Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: UTM Source, [1;32mtable[0m[32m: tabUTM_Source[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:11.535440Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: UTM Source[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:11.537000Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: UTM Campaign[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:11.555018Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: UTM Campaign, [1;32mtable[0m[32m: tabUTM_Campaign[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:11.564267Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: UTM Campaign[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:11.566397Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: UTM Medium[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:11.586118Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: UTM Medium, [1;32mtable[0m[32m: tabUTM_Medium[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:11.594223Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: UTM Medium[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:11.596091Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Email Template[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:11.619479Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Email Template, [1;32mtable[0m[32m: tabEmail_Template[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:11.634289Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Email Template[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:11.636754Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mDEFINE TABLE done, [1;34mdoctype[0m[34m: Email Account[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:104
+
+  [2m2026-04-17T05:45:11.717297Z[0m [32m INFO[0m [1;32mspotledger_db::schema[0m[32m: [32mSchema DDL synced (Phase 1), [1;32mdoctype[0m[32m: Email Account, [1;32mtable[0m[32m: tabEmail_Account[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:200
+
+  [2m2026-04-17T05:45:11.813047Z[0m [34mDEBUG[0m [1;34mspotledger_db::schema[0m[34m: [34mGraph meta records ensured (Phase 2), [1;34mdoctype[0m[34m: Email Account[0m
+    [2;3mat[0m crates\spotledger-db\src\schema.rs:493
+
+  [2m2026-04-17T05:45:11.813533Z[0m [32m INFO[0m [1;32mspotledger_http::server[0m[32m: [32mSchema sync complete, [1;32msite[0m[32m: spotledger[0m
+    [2;3mat[0m crates\spotledger-http\src\server.rs:231
+
+  [2m2026-04-17T05:45:11.814918Z[0m [34mDEBUG[0m [1;34mspotledger_db::migrations[0m[34m: [34mNo pending migrations.[0m
+    [2;3mat[0m crates\spotledger-db\src\migrations.rs:134
+
+  [2m2026-04-17T05:45:11.815228Z[0m [34mDEBUG[0m [1;34mspotledger_http::server[0m[34m: [34mNo pending migrations, [1;34msite[0m[34m: spotledger[0m
+    [2;3mat[0m crates\spotledger-http\src\server.rs:234
+
+  [2m2026-04-17T05:45:11.816131Z[0m [32m INFO[0m [1;32mspotledger_http::server[0m[32m: [32mSite ready, [1;32msite[0m[32m: spotledger[0m
+    [2;3mat[0m crates\spotledger-http\src\server.rs:240
+
+  [2m2026-04-17T05:45:11.817440Z[0m [32m INFO[0m [1;32mspotledger_http::server[0m[32m: [32mSpotledger listening, [1;32maddr[0m[32m: 0.0.0.0:8080, [1;32mmode[0m[32m: Dev[0m
+    [2;3mat[0m crates\spotledger-http\src\server.rs:134
+
