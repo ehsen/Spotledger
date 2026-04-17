@@ -1,12 +1,13 @@
 //! `Error Log` DocType — generated from `frappe/core/doctype/error_log/error_log.json`.
 
 use crate::meta::{DocField, DocTypeMeta, FieldType, Permission};
+use crate::modules::FM;
 use crate::registry::MetaEntry;
 
 pub fn error_log_meta() -> DocTypeMeta {
     DocTypeMeta {
         name:           "Error Log".into(),
-        module:         "Core".into(),
+        module:         FM::CORE.into(),
         is_single:      false,
         is_tree:        false,
         is_child:       false,

@@ -3,6 +3,7 @@ pub mod document;
 pub mod doctype;
 pub mod error;
 pub mod meta;
+pub mod modules;
 pub mod registry;
 pub mod response;
 pub mod validation;

@@ -21,6 +21,7 @@
 //! without recompiling.
 
 use crate::meta::{DocField, DocTypeMeta, FieldType, Permission};
+use crate::modules::FM;
 use crate::registry::MetaEntry;
 
 // ── DocumentNamingRule ────────────────────────────────────────────────────────
@@ -33,7 +34,7 @@ use crate::registry::MetaEntry;
 pub fn documentnamingrule_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "DocumentNamingRule".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: false,
@@ -82,7 +83,7 @@ inventory::submit!(MetaEntry {
 pub fn documentnamingsettings_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "DocumentNamingSettings".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: true,
         is_tree: false,
         is_child: false,

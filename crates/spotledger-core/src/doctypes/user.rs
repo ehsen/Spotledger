@@ -1,6 +1,7 @@
 //! Tier 0: User management types (User, Role, HasRole, UserPermission, UserGroup, UserType).
 
 use crate::meta::{DocField, DocTypeMeta, FieldType, Permission};
+use crate::modules::FM;
 use crate::registry::MetaEntry;
 use crate::document::Document;
 use crate::error::CoreError;
@@ -11,7 +12,7 @@ use crate::utils::validation::validate_email_address;
 pub fn user_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "User".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: false,
@@ -142,7 +143,7 @@ mod tests {
 pub fn role_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "Role".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: false,
@@ -179,7 +180,7 @@ inventory::submit!(MetaEntry {
 pub fn hasrole_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "HasRole".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: true,
@@ -219,7 +220,7 @@ inventory::submit!(MetaEntry {
 pub fn userpermission_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "UserPermission".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: true,
@@ -266,7 +267,7 @@ inventory::submit!(MetaEntry {
 pub fn usergroup_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "UserGroup".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: false,
@@ -301,7 +302,7 @@ inventory::submit!(MetaEntry {
 pub fn usergroupmember_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "UserGroupMember".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: true,
@@ -341,7 +342,7 @@ inventory::submit!(MetaEntry {
 pub fn usertype_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "UserType".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: false,

@@ -1,6 +1,7 @@
 //! Tier 0: System configuration types (SystemSettings, DefaultValue).
 
 use crate::meta::{DocField, DocTypeMeta, FieldType, Permission};
+use crate::modules::FM;
 use crate::registry::MetaEntry;
 
 // ── SystemSettings ────────────────────────────────────────────────────────────
@@ -8,7 +9,7 @@ use crate::registry::MetaEntry;
 pub fn systemsettings_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "SystemSettings".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: true,
         is_tree: false,
         is_child: false,
@@ -65,7 +66,7 @@ inventory::submit!(MetaEntry {
 pub fn defaultvalue_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "DefaultValue".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: false,
@@ -113,7 +114,7 @@ inventory::submit!(MetaEntry {
 pub fn moduledef_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "Module Def".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: false,
@@ -170,7 +171,7 @@ inventory::submit!(MetaEntry {
 pub fn usermodule_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "UserModule".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: true,

@@ -3,11 +3,12 @@
 
 use spotledger_core::meta::{DocField, DocTypeMeta, FieldType, Permission};
 use spotledger_core::registry::MetaEntry;
+use spotledger_core::modules::FM;
 
 pub fn contact_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "Contact".into(),
-        module: "Contacts".into(),
+        module: FM::CONTACTS.into(),
         is_single:      false,
         is_tree:        false,
         is_child:       false,

@@ -3,6 +3,7 @@
 //! These are the system DocTypes that define the schema of all other DocTypes.
 
 use crate::meta::{DocField, DocTypeMeta, FieldType, Permission};
+use crate::modules::FM;
 use crate::registry::MetaEntry;
 
 // ── DocType ──────────────────────────────────────────────────────────────────
@@ -10,7 +11,7 @@ use crate::registry::MetaEntry;
 pub fn doctype_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "DocType".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: false,
@@ -51,6 +52,26 @@ pub fn doctype_meta() -> DocTypeMeta {
             // Icon shown next to the DocType in sidebar/command palette
             DocField::new("icon", "Icon", FieldType::Data)
                 .description("Lucide icon name or icon URL"),
+            // ── Frappe-standard optional meta fields ──────────────────────
+            DocField::new("description", "Description", FieldType::SmallText),
+            DocField::new("color", "Color", FieldType::Data),
+            DocField::new("document_type", "Document Type", FieldType::Select)
+                .select_options("\nDocument\nSetup\nSystem\nOther"),
+            DocField::new("naming_rule", "Naming Rule", FieldType::Select)
+                .select_options("\nNaming Series\nBy fieldname\nBy \"autoname\" field option\nSet by user\nBy script\nRandom\nUUID\nField\nFormat\nExpression\nExpression (Deprecated)"),
+            DocField::new("max_attachments", "Max Attachments", FieldType::Int),
+            DocField::new("allow_rename", "Allow Rename", FieldType::Check),
+            DocField::new("allow_import", "Allow Import", FieldType::Check),
+            DocField::new("hide_toolbar", "Hide Toolbar", FieldType::Check),
+            DocField::new("track_seen", "Track Seen", FieldType::Check),
+            DocField::new("track_views", "Track Views", FieldType::Check),
+            DocField::new("editable_grid", "Editable Grid", FieldType::Check),
+            DocField::new("quick_entry", "Quick Entry", FieldType::Check),
+            DocField::new("is_tree", "Is Tree", FieldType::Check),
+            DocField::new("is_submittable", "Is Submittable", FieldType::Check),
+            // Frappe-internal aliases (legacy names still used by save code)
+            DocField::new("istable", "Is Table (legacy)", FieldType::Check)
+                .hidden(),
         ],
         permissions: vec![
             Permission::full("System Manager"),
@@ -75,7 +96,7 @@ inventory::submit!(MetaEntry {
 pub fn docfield_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "DocField".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: true,
@@ -183,6 +204,11 @@ pub fn docfield_meta() -> DocTypeMeta {
             DocField::new("oldfieldtype", "Old Fieldtype", FieldType::Data),
             DocField::new("introduced_by", "Introduced By", FieldType::Data),
             DocField::new("is_custom", "Is Custom", FieldType::Check),
+            // ── Spotledger-specific ───────────────────────────────────────
+            DocField::new("assert_expr", "Assert Expression", FieldType::Code)
+                .description("SurrealQL ASSERT expression for field validation"),
+            DocField::new("compute_expr", "Compute Expression", FieldType::Code)
+                .description("SurrealQL VALUE expression — computed field"),
         ],
         permissions: vec![Permission::full("System Manager")],
         title_field: Some("fieldname".into()),
@@ -204,7 +230,7 @@ inventory::submit!(MetaEntry {
 pub fn docperm_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "DocPerm".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: true,
@@ -260,7 +286,7 @@ inventory::submit!(MetaEntry {
 pub fn customfield_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "CustomField".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: false,
@@ -307,7 +333,7 @@ inventory::submit!(MetaEntry {
 pub fn propertysetter_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "PropertySetter".into(),
-        module: "Core".into(),
+        module: FM::CORE.into(),
         is_single: false,
         is_tree: false,
         is_child: false,

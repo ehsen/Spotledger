@@ -3,11 +3,12 @@
 
 use spotledger_core::meta::{DocField, DocTypeMeta, FieldType, Permission};
 use spotledger_core::registry::MetaEntry;
+use spotledger_core::modules::FM;
 
 pub fn company_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "Company".into(),
-        module: "Setup".into(),
+        module: FM::SETUP.into(),
         is_single:      false,
         is_tree:        true,
         is_child:       false,

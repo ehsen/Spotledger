@@ -3,11 +3,12 @@
 
 use spotledger_core::meta::{DocField, DocTypeMeta, FieldType, Permission};
 use spotledger_core::registry::MetaEntry;
+use spotledger_core::modules::FM;
 
 pub fn letter_head_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "Letter Head".into(),
-        module: "Printing".into(),
+        module: FM::PRINTING.into(),
         is_single:      false,
         is_tree:        false,
         is_child:       false,

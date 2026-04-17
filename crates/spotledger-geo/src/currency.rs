@@ -3,11 +3,12 @@
 
 use spotledger_core::meta::{DocField, DocTypeMeta, FieldType, Permission};
 use spotledger_core::registry::MetaEntry;
+use spotledger_core::modules::FM;
 
 pub fn currency_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "Currency".into(),
-        module: "Geo".into(),
+        module: FM::GEO.into(),
         is_single:      false,
         is_tree:        false,
         is_child:       false,

@@ -3,11 +3,12 @@
 
 use spotledger_core::meta::{DocField, DocTypeMeta, FieldType, Permission};
 use spotledger_core::registry::MetaEntry;
+use spotledger_core::modules::FM;
 
 pub fn fiscal_year_meta() -> DocTypeMeta {
     DocTypeMeta {
         name: "Fiscal Year".into(),
-        module: "Accounts".into(),
+        module: FM::ACCOUNTS.into(),
         is_single:      false,
         is_tree:        false,
         is_child:       false,
