@@ -968,10 +968,24 @@ async fn handle_savedocs(
     }
     parent_fields.insert("name".into(), Value::String(saved_name.clone()));
 
-    // Inject standard Frappe tracking fields if not already present
+    // Stamp standard Frappe tracking fields — these are always authoritative.
+    // creation/modified are handled by SurrealDB VALUE expressions in the schema;
+    // only owner/modified_by (string type) need to be stamped from Rust.
     let current_user = params.get("__current_user").and_then(Value::as_str).unwrap_or("Administrator");
-    parent_fields.entry("owner".to_string()).or_insert_with(|| Value::String(current_user.to_string()));
-    parent_fields.entry("modified_by".to_string()).or_insert_with(|| Value::String(current_user.to_string()));
+
+    // modified_by: always the current user.
+    parent_fields.insert("modified_by".to_string(), Value::String(current_user.to_string()));
+
+    // owner: keep existing non-empty value (preserves original creator on update),
+    // but fill it in when absent or blank.
+    let needs_owner = parent_fields
+        .get("owner")
+        .map(|v| v.as_str().map(|s| s.is_empty()).unwrap_or(true))
+        .unwrap_or(true);
+    if needs_owner {
+        parent_fields.insert("owner".to_string(), Value::String(current_user.to_string()));
+    }
+
     parent_fields.entry("docstatus".to_string()).or_insert_with(|| Value::Number(0.into()));
 
     let parent_val = Value::Object(parent_fields);
