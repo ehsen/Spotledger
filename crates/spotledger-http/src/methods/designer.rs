@@ -16,6 +16,10 @@ use crate::state::SiteState;
 use serde_json::{json, Value};
 use spotledger_core::error::SpotError;
 use spotledger_db::document::doctype_to_table;
+use spotledger_db::{
+    parse_docfield_from_value, parse_docperm_from_value,
+    save_doctype, DoctypeSaveError, DoctypeSaveInput,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -100,9 +104,20 @@ pub async fn handle_get_meta(
         .filter(|s| !s.is_empty())
         .collect();
 
+    // Fetch DocPerm rows for this doctype
+    let perm_rows = site
+        .db
+        .run(
+            "SELECT * FROM tabDocPerm WHERE parent = $dt AND parenttype = 'DocType'",
+            vec![("dt".into(), Value::String(doctype.clone()))],
+        )
+        .await
+        .unwrap_or_default();
+
     Ok(json!({
         "doctype": doctype_record,
         "fields": field_rows,
+        "permissions": perm_rows,
         "child_doctypes": child_doctypes,
         "is_tier_0": is_tier_0(&doctype),
     }))
@@ -110,14 +125,16 @@ pub async fn handle_get_meta(
 
 // ── spotledger.designer.save ──────────────────────────────────────────────────
 
-/// Upsert `tabDocType`, full-replace `tabDocField`, then apply DDL.
+/// Orchestrated DocType save — validates, persists DML in a transaction,
+/// applies DDL, and invalidates the meta cache.
 ///
 /// Parameters:
 /// ```json
 /// {
 ///   "doctype": "...",
-///   "meta": { ...tabDocType fields... },
-///   "fields": [ { ...tabDocField... }, ... ]
+///   "meta":    { ...tabDocType scalar fields... },
+///   "fields":  [ { ...DocField attrs... }, ... ],
+///   "perms":   [ { ...DocPerm attrs...  }, ... ]   (optional)
 /// }
 /// ```
 pub async fn handle_save(
@@ -133,140 +150,116 @@ pub async fn handle_save(
         )));
     }
 
-    let meta_val = params
+    // Parse meta scalars from the "meta" sub-object
+    let meta_obj = params
         .get("meta")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-
-    let fields_val = params
-        .get("fields")
-        .and_then(Value::as_array)
+        .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
 
-    // 1. Upsert tabDocType
-    let dt_name_escaped = doctype.replace(['\'', '`'], "");
-    site.db
-        .execute(
-            "UPSERT tabDocType CONTENT $content WHERE name = $name",
-            vec![
-                ("name".into(), Value::String(doctype.clone())),
-                ("content".into(), meta_val),
-            ],
-        )
-        .await
-        .map_err(|e| SpotError::Db(e.to_string()))?;
+    let module = meta_obj
+        .get("module")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
 
-    // 2. Full-replace tabDocField (designer is authoritative)
-    site.db
-        .execute(
-            "DELETE FROM tabDocField WHERE parent = $dt",
-            vec![("dt".into(), Value::String(doctype.clone()))],
-        )
-        .await
-        .map_err(|e| SpotError::Db(e.to_string()))?;
+    let autoname = meta_obj
+        .get("autoname")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
 
-    // 3. Bulk-insert new fields
-    for field in &fields_val {
-        let mut f = field.clone();
-        if let Some(obj) = f.as_object_mut() {
-            obj.insert("parent".into(), Value::String(doctype.clone()));
-            obj.insert("parenttype".into(), Value::String("DocType".into()));
-            obj.insert("parentfield".into(), Value::String("fields".into()));
+    fn bool_meta(obj: &serde_json::Map<String, Value>, key: &str) -> bool {
+        match obj.get(key) {
+            Some(Value::Bool(b)) => *b,
+            Some(Value::Number(n)) => n.as_u64().unwrap_or(0) != 0,
+            _ => false,
         }
-        site.db
-            .execute(
-                "INSERT INTO tabDocField $content",
-                vec![("content".into(), f)],
-            )
-            .await
-            .map_err(|e| SpotError::Db(e.to_string()))?;
     }
 
-    // 4. Apply DDL via ensure_schema with a runtime-assembled DocTypeMeta
-    let table = doctype_to_table(&doctype);
-    let table_sql = format!(
-        "DEFINE TABLE IF NOT EXISTS `{table}` SCHEMAFULL \
-         COMMENT 'SpotLedger DocType: {name}';",
-        name = &doctype
-    );
-    site.db
-        .execute(&table_sql, vec![])
+    let is_child       = bool_meta(&meta_obj, "is_child_table")
+                         || bool_meta(&meta_obj, "istable");
+    let is_single      = bool_meta(&meta_obj, "issingle");
+    let is_submittable = bool_meta(&meta_obj, "issubmittable")
+                         || bool_meta(&meta_obj, "is_submittable");
+    let is_tree        = bool_meta(&meta_obj, "is_tree");
+    let custom         = bool_meta(&meta_obj, "custom");
+
+    // Build extra_meta: everything in meta except known scalar flags
+    let known_meta_keys: std::collections::HashSet<&str> = [
+        "name", "module", "autoname",
+        "is_child_table", "istable",           // both spellings
+        "issingle",
+        "is_submittable", "issubmittable",      // both spellings
+        "is_tree", "custom",
+        "fields", "permissions", "doctype",
+    ]
+    .into();
+    let extra_meta: HashMap<String, Value> = meta_obj
+        .into_iter()
+        .filter(|(k, _)| !known_meta_keys.contains(k.as_str()))
+        .collect();
+
+    // Parse fields
+    let fields: Vec<_> = params
+        .get("fields")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(parse_docfield_from_value)
+        .collect();
+
+    // Parse perms — UI sends "permissions" (top-level), CLI/scripts may send "perms"
+    let perms: Vec<_> = params
+        .get("permissions")
+        .or_else(|| params.get("perms"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(parse_docperm_from_value)
+        .collect();
+
+    let input = DoctypeSaveInput {
+        doctype: doctype.clone(),
+        module,
+        autoname,
+        is_child,
+        is_single,
+        is_submittable,
+        is_tree,
+        custom,
+        fields,
+        perms,
+        user: params.get("__current_user")
+            .and_then(Value::as_str)
+            .unwrap_or("Administrator")
+            .to_owned(),
+        extra_meta,
+    };
+
+    let saved = save_doctype(&site.db, &site.meta_cache, input)
         .await
-        .map_err(|e| SpotError::Db(e.to_string()))?;
-
-    // Define each field from the payload
-    for field in &fields_val {
-        let fieldname = field
-            .get("fieldname")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let fieldtype = field
-            .get("fieldtype")
-            .and_then(Value::as_str)
-            .unwrap_or("Data");
-
-        if fieldname.is_empty() {
-            continue;
-        }
-
-        // Skip layout-only fields
-        let surql_type = match fieldtype.to_lowercase().as_str() {
-            "check" | "int" => "none | int",
-            "float" | "currency" | "percent" | "rating" => "float",
-            "datetime" => "option<datetime>",
-            "date" | "time" => "option<string>",
-            "table" | "table multiselect" => "array<any>",
-            "json" => "any",
-            "section break" | "column break" | "tab break" => continue,
-            _ => "option<string>",
-        };
-
-        let default_clause = field
-            .get("default_value")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .map(|dv| {
-                match fieldtype.to_lowercase().as_str() {
-                    "check" | "int" | "float" | "currency" | "percent" | "rating" => {
-                        format!(" DEFAULT {dv}")
-                    }
-                    _ => format!(" DEFAULT '{}'", dv.replace('\'', "\\'")),
+        .map_err(|e| {
+            tracing::error!(doctype = %doctype, error = ?e, "DocType save failed");
+            match e {
+                DoctypeSaveError::Validation(errs) => {
+                    let msg = errs
+                        .iter()
+                        .map(|ve| format!("[{}] {}", ve.code, ve.message))
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    SpotError::Validation(msg)
                 }
-            })
-            .unwrap_or_default();
-
-        let assert_clause = field
-            .get("assert_expr")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .map(|expr| format!(" ASSERT {expr}"))
-            .unwrap_or_default();
-
-        let value_clause = field
-            .get("compute_expr")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .map(|expr| format!(" VALUE {expr}"))
-            .unwrap_or_default();
-
-        let field_sql = format!(
-            "DEFINE FIELD IF NOT EXISTS `{fieldname}` ON TABLE `{table}` \
-             TYPE {surql_type}{default_clause}{assert_clause}{value_clause} PERMISSIONS FULL;",
-        );
-
-        site.db
-            .execute(&field_sql, vec![])
-            .await
-            .map_err(|e| SpotError::Db(e.to_string()))?;
-    }
-
-    // 5. Invalidate meta cache so next request re-fetches the new schema
-    site.meta_cache.invalidate(&doctype).await;
+                DoctypeSaveError::Db(db_e) => SpotError::Db(db_e.to_string()),
+                DoctypeSaveError::DdlFailed { message, .. } => SpotError::Db(message),
+            }
+        })?;
 
     tracing::info!(doctype = %doctype, "Designer save complete");
 
-    Ok(json!({ "ok": true, "doctype": doctype }))
+    Ok(json!({ "ok": true, "doctype": saved }))
 }
 
 // ── spotledger.designer.generate_surql ───────────────────────────────────────
