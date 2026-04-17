@@ -19,7 +19,7 @@ use crate::routes::{call_method, ping, resource_get, resource_get_value, resourc
 use crate::state::{AppState, SiteState};
 use spotledger_db::connection::connect;
 use spotledger_db::migrations::{current_batch, run_pending_migrations};
-use spotledger_db::schema::ensure_all_schemas;
+use spotledger_db::schema::{ensure_all_schemas, seed_framework_modules};
 
 use spotledger_core::config::SiteConfig;
 
@@ -229,6 +229,11 @@ async fn load_sites(state: &AppState, sites_dir: &Path) -> anyhow::Result<()> {
                             tracing::error!(site = %hostname, error = %e, "Schema sync failed at startup");
                         } else {
                             tracing::info!(site = %hostname, "Schema sync complete");
+                            // Seed built-in Module Def records so the sidebar and
+                            // designer module-picker work without install-app.
+                            if let Err(e) = seed_framework_modules(&db).await {
+                                tracing::warn!(site = %hostname, error = %e, "Module Def seeding failed");
+                            }
                         }
                         match run_pending_migrations(&db, current_batch()).await {
                             Ok(0)  => tracing::debug!(site = %hostname, "No pending migrations"),
