@@ -1,0 +1,17 @@
+[site]
+name = "spotledger"
+namespace = "spotledger"
+
+[database]
+url = "ws://127.0.0.1:8000"
+ns = "spotledger"
+db = "spotledger"
+user = "root"
+pass = "root"
+
+[cache]
+max_documents = 10000
+ttl_seconds = 300
+
+[apps]
+installed = []
