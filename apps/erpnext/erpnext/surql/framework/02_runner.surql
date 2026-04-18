@@ -30,7 +30,7 @@ DEFINE FUNCTION OVERWRITE fn::pipeline::run(
 
     -- Guard: submit/cancel/amend require issubmittable
     IF $action IN ["submit", "cancel", "amend"] AND !$meta.issubmittable {
-        THROW string::concat($doctype, " is not submittable. Action '", $action, "' is not allowed.");
+        RETURN { status: "error", message: string::concat($doctype, " is not submittable. Action '", $action, "' is not allowed.") };
     };
 
     -- Fetch stages for this (doctype, action) pair, ordered by ord
@@ -59,7 +59,7 @@ DEFINE FUNCTION OVERWRITE fn::pipeline::run(
 
             -- Fail-fast: first error halts all remaining nodes
             IF type::is_object($result) AND $result.error != NONE {
-                THROW string::concat("[", $node.fn_name, "] ", $result.error);
+                RETURN { status: "error", message: string::concat("[", $node.fn_name, "] ", $result.error) };
             };
         };
     };
