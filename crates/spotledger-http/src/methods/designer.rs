@@ -15,6 +15,7 @@
 use crate::state::SiteState;
 use serde_json::{json, Value};
 use spotledger_core::error::SpotError;
+use spotledger_db::apply_surql::generate_registry_surql;
 use spotledger_db::document::doctype_to_table;
 use spotledger_db::{
     parse_docfield_from_value, parse_docperm_from_value,
@@ -390,12 +391,14 @@ pub async fn handle_get_pipeline(
         .run(
             r#"
             SELECT
-                pipeline_node.*,
-                pipeline_stage.stage AS stage_name,
-                has_node.ord AS ord
+                out.fn_name AS fn_name,
+                out.name    AS node_name,
+                in.name     AS stage_name,
+                in.action   AS action_name,
+                ord
             FROM has_node
             WHERE in.doctype = $dt
-            ORDER BY has_node.ord ASC
+            ORDER BY ord ASC
             "#,
             vec![("dt".into(), Value::String(doctype.clone()))],
         )
@@ -411,27 +414,44 @@ pub async fn handle_get_pipeline(
 
 // ── spotledger.designer.save_function ────────────────────────────────────────
 
-/// Upsert fn_source, apply `DEFINE FUNCTION` DDL, wire pipeline_node into its stage.
+/// Upsert fn_source, apply `DEFINE FUNCTION` DDL, wire pipeline_node into its stage,
+/// and regenerate `fn::registry::dispatch` so the runner can call the new function.
 ///
 /// Parameters:
 /// ```json
 /// {
-///   "fn_name": "fn::sales_invoice::validate_totals",
-///   "doctype": "Sales Invoice",
+///   "fn_name": "fn::employee::validate_dob_joining",
+///   "doctype": "Employee",
 ///   "stage":   "validate",
 ///   "code":    "...",
 ///   "description": "...",
-///   "tags":    ["accounting"]
+///   "tags":    []
 /// }
 /// ```
+///
+/// ## Lifecycle stage → pipeline action mapping
+/// | stage        | action(s)  | stage name in pipeline |
+/// |--------------|------------|------------------------|
+/// | validate     | save       | validate               |
+/// | before_save  | save       | before_save            |
+/// | on_save      | save       | on_save                |
+/// | on_submit    | submit     | on_submit              |
+/// | on_cancel    | cancel     | on_cancel              |
+/// | on_amend     | amend      | on_amend               |
+/// | scheduled    | (none)     | n/a                    |
+///
+/// ## DEFINE FUNCTION contract
+/// Functions receive `($doc_id: record, $config: object)` — matching what
+/// `fn::registry::dispatch` passes when the runner calls them.
+/// The body should return `{ ok: true }` on success or `{ error: "..." }` on failure.
 pub async fn handle_save_function(
     site: Arc<SiteState>,
     params: HashMap<String, Value>,
 ) -> Result<Value, SpotError> {
-    let fn_name   = require_string(&params, "fn_name")?;
-    let doctype   = require_string(&params, "doctype")?;
-    let stage     = require_string(&params, "stage")?;
-    let code      = require_string(&params, "code")?;
+    let fn_name     = require_string(&params, "fn_name")?;
+    let doctype     = require_string(&params, "doctype")?;
+    let stage       = require_string(&params, "stage")?;
+    let code        = require_string(&params, "code")?;
     let description = params.get("description").and_then(Value::as_str).unwrap_or("").to_owned();
     let tags = params
         .get("tags")
@@ -439,14 +459,47 @@ pub async fn handle_save_function(
         .cloned()
         .unwrap_or_default();
 
-    // Validate fn_name pattern: must start with "fn::"
     if !fn_name.starts_with("fn::") {
         return Err(SpotError::Validation(format!(
             "fn_name must begin with `fn::`, got `{fn_name}`"
         )));
     }
 
-    // 1. Upsert fn_source record
+    // ── 0. Ensure pipeline schema tables and runner fn:: exist ───────────────
+    // These are normally created by apply_pipeline_functions() at install-app
+    // time.  For dev sites (and any site where the app hasn't been installed),
+    // we bootstrap them on first use so save_function works without a full
+    // install step.  All DDL uses IF NOT EXISTS / OVERWRITE — fully idempotent.
+    const PIPELINE_SCHEMA: &str =
+        include_str!("../../../../apps/erpnext/erpnext/surql/framework/01_schema.surql");
+    const PIPELINE_RUNNER: &str =
+        include_str!("../../../../apps/erpnext/erpnext/surql/framework/02_runner.surql");
+
+    // Also ensure fn_source table exists (not in schema surql).
+    let extra_ddl = "DEFINE TABLE IF NOT EXISTS fn_source SCHEMALESS;";
+
+    for ddl in [PIPELINE_SCHEMA, PIPELINE_RUNNER, extra_ddl] {
+        site.db
+            .execute(ddl, vec![])
+            .await
+            .map_err(|e| SpotError::Db(format!("Pipeline bootstrap failed: {e}")))?;
+    }
+
+    // Map lifecycle stage name → [(action, stage_name_in_pipeline)] pairs.
+    // "validate" runs on both save and submit actions (mirrors Frappe behaviour).
+    let stage_actions: &[(&str, &str)] = match stage.as_str() {
+        "validate"    => &[("save", "validate"), ("submit", "validate")],
+        "before_save" => &[("save", "before_save")],
+        "on_save"     => &[("save", "on_save")],
+        "on_submit"   => &[("submit", "on_submit")],
+        "on_cancel"   => &[("cancel", "on_cancel")],
+        "on_amend"    => &[("amend", "on_amend")],
+        _             => &[],  // "scheduled" and unknown stages: no pipeline wiring
+    };
+
+    let table = doctype_to_table(&doctype);
+
+    // ── 1. Upsert fn_source (source-of-truth for edit round-trips) ────────────
     site.db
         .execute(
             "UPSERT fn_source CONTENT $content WHERE fn_name = $fn_name",
@@ -468,98 +521,138 @@ pub async fn handle_save_function(
         .await
         .map_err(|e| SpotError::Db(e.to_string()))?;
 
-    // 2. Apply DEFINE FUNCTION DDL
-    // fn:: names use path-style: fn::ns::fn_name  →  DEFINE FUNCTION fn::ns::fn_name($this: ...)
+    // ── 2. Apply DEFINE FUNCTION DDL (OVERWRITE so edits take effect) ─────────
+    // Signature must match what fn::registry::dispatch calls:
+    //   fn_name($doc_id, $config)
+    // Body returns { ok: true } or { error: "..." }.
     let fn_ddl = format!(
-        "DEFINE FUNCTION IF NOT EXISTS {fn_name}($this: object, $event: string, $auth: object, $session: object) {{\n{code}\n}};",
+        "DEFINE FUNCTION OVERWRITE {fn_name}($doc_id: record, $config: object) {{\n{code}\n}};"
     );
     site.db
         .execute(&fn_ddl, vec![])
         .await
         .map_err(|e| SpotError::Db(format!("DEFINE FUNCTION failed: {e}")))?;
 
-    // 3. Ensure a pipeline_stage record exists for this (doctype, stage)
-    let stage_id = format!(
-        "{}__{}",
-        doctype.to_lowercase().replace([' ', '-'], "_"),
-        stage
-    );
-    site.db
-        .execute(
-            "UPSERT pipeline_stage CONTENT $content WHERE doctype = $dt AND stage = $stage",
-            vec![
-                ("dt".into(), Value::String(doctype.clone())),
-                ("stage".into(), Value::String(stage.clone())),
-                (
-                    "content".into(),
-                    json!({
-                        "doctype": &doctype,
-                        "stage":   &stage,
-                        "ord":     0,
-                    }),
-                ),
-            ],
-        )
-        .await
-        .map_err(|e| SpotError::Db(e.to_string()))?;
+    // ── 3. Ensure pipeline_stage + pipeline_node + has_node for each action ───
+    for &(action, stage_name) in stage_actions {
+        // Deterministic stage record ID: {table}_{action}_{stage_name}
+        // Matches the pattern used by fn::pipeline::wire_generic.
+        let stage_id = format!("{table}_{action}_{stage_name}");
 
-    // 4. Upsert pipeline_node record (keyed by fn_name)
-    site.db
-        .execute(
-            "UPSERT pipeline_node CONTENT $content WHERE fn_name = $fn_name",
-            vec![
-                ("fn_name".into(), Value::String(fn_name.clone())),
-                (
-                    "content".into(),
-                    json!({
-                        "fn_name": &fn_name,
-                        "doctype": &doctype,
-                        "stage":   &stage,
-                    }),
-                ),
-            ],
-        )
-        .await
-        .map_err(|e| SpotError::Db(e.to_string()))?;
+        // Upsert the pipeline_stage record (name + action + ord + doctype).
+        site.db
+            .execute(
+                "UPSERT type::record('pipeline_stage', $sid) CONTENT $content",
+                vec![
+                    ("sid".into(), Value::String(stage_id.clone())),
+                    (
+                        "content".into(),
+                        json!({
+                            "name":    stage_name,
+                            "action":  action,
+                            "ord":     1,
+                            "doctype": &doctype,
+                        }),
+                    ),
+                ],
+            )
+            .await
+            .map_err(|e| SpotError::Db(e.to_string()))?;
 
-    // 5. Wire has_node edge from stage → node (idempotent)
-    let wire_sql = format!(
-        "LET $stage = (SELECT id FROM pipeline_stage WHERE doctype = $dt AND stage = $s LIMIT 1)[0].id; \
-         LET $node  = (SELECT id FROM pipeline_node  WHERE fn_name = $fn LIMIT 1)[0].id; \
-         IF $stage != NONE AND $node != NONE AND \
-            (SELECT * FROM has_node WHERE in = $stage AND out = $node) = [] \
-         THEN RELATE $stage -> has_node -> $node CONTENT {{ ord: $ord }}; END;"
-    );
-    let max_ord = site
+        // Deterministic node record ID derived from fn_name (:: → _).
+        let node_id = fn_name.replace("::", "_");
+
+        // Upsert the pipeline_node record.
+        site.db
+            .execute(
+                "UPSERT type::record('pipeline_node', $nid) CONTENT $content",
+                vec![
+                    ("nid".into(), Value::String(node_id.clone())),
+                    (
+                        "content".into(),
+                        json!({
+                            "name":    &fn_name,
+                            "fn_name": &fn_name,
+                        }),
+                    ),
+                ],
+            )
+            .await
+            .map_err(|e| SpotError::Db(e.to_string()))?;
+
+        // Compute next ord from existing has_node edges for this stage.
+        let max_ord = site
+            .db
+            .run(
+                "LET $stage_rec = type::record('pipeline_stage', $sid); \
+                 RETURN (SELECT math::max(ord) AS max_ord FROM has_node WHERE in = $stage_rec)[0].max_ord;",
+                vec![("sid".into(), Value::String(stage_id.clone()))],
+            )
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .next()
+            .and_then(|r| r.as_u64())
+            .unwrap_or(0);
+
+        // Idempotent edge creation: only RELATE if edge doesn't already exist.
+        site.db
+            .execute(
+                "LET $stage_rec = type::record('pipeline_stage', $sid); \
+                 LET $node_rec  = type::record('pipeline_node',  $nid); \
+                 IF (SELECT id FROM has_node \
+                       WHERE in = $stage_rec AND out = $node_rec \
+                       LIMIT 1) = [] \
+                 THEN RELATE $stage_rec -> has_node -> $node_rec \
+                          CONTENT { ord: $ord }; \
+                 END;",
+                vec![
+                    ("sid".into(), Value::String(stage_id)),
+                    ("nid".into(), Value::String(node_id)),
+                    ("ord".into(), Value::Number((max_ord + 10).into())),
+                ],
+            )
+            .await
+            .map_err(|e| SpotError::Db(e.to_string()))?;
+    }
+
+    // ── 4. Regenerate fn::registry::dispatch ──────────────────────────────────
+    // Collect all fn_names currently in pipeline_node — this is the full set of
+    // functions the runner can invoke.  We include the new fn_name even if the
+    // UPSERT above hasn't been flushed yet.
+    let node_rows = site
         .db
-        .run(
-            "SELECT math::max(ord) AS max_ord FROM has_node WHERE in.doctype = $dt AND in.stage = $s",
-            vec![
-                ("dt".into(), Value::String(doctype.clone())),
-                ("s".into(), Value::String(stage.clone())),
-            ],
-        )
+        .run("SELECT fn_name FROM pipeline_node ORDER BY fn_name ASC", vec![])
         .await
-        .unwrap_or_default()
-        .into_iter()
-        .next()
-        .and_then(|r| r.get("max_ord").and_then(Value::as_u64))
-        .unwrap_or(0);
+        .unwrap_or_default();
 
+    let mut all_fn_names: std::collections::BTreeSet<String> = node_rows
+        .iter()
+        .filter_map(|r| r.get("fn_name").and_then(Value::as_str).map(String::from))
+        .collect();
+
+    // Always include the newly saved function.
+    all_fn_names.insert(fn_name.clone());
+
+    // Exclude infrastructure functions — they are not dispatched through the registry.
+    all_fn_names.retain(|n| {
+        !n.starts_with("fn::pipeline::") && !n.starts_with("fn::registry::")
+    });
+
+    let fn_names_vec: Vec<String> = all_fn_names.into_iter().collect();
+    let registry_sql = generate_registry_surql(&fn_names_vec);
     site.db
-        .execute(
-            &wire_sql,
-            vec![
-                ("dt".into(), Value::String(doctype.clone())),
-                ("s".into(), Value::String(stage.clone())),
-                ("fn".into(), Value::String(fn_name.clone())),
-                ("ord".into(), Value::Number((max_ord + 1).into())),
-            ],
-        )
+        .execute(&registry_sql, vec![])
         .await
-        .map_err(|e| SpotError::Db(e.to_string()))?;
+        .map_err(|e| SpotError::Db(format!("Failed to rebuild fn::registry::dispatch: {e}")))?;
 
-    tracing::info!(fn_name = %fn_name, doctype = %doctype, stage = %stage, "Function saved");
+    tracing::info!(
+        fn_name = %fn_name,
+        doctype = %doctype,
+        stage   = %stage,
+        registry_size = fn_names_vec.len(),
+        "Function saved, DDL applied, registry rebuilt"
+    );
 
     Ok(json!({ "ok": true, "fn_name": fn_name }))
 }

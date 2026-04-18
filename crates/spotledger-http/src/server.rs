@@ -19,7 +19,7 @@ use crate::routes::{call_method, ping, resource_get, resource_get_value, resourc
 use crate::state::{AppState, SiteState};
 use spotledger_db::connection::connect;
 use spotledger_db::migrations::{current_batch, run_pending_migrations};
-use spotledger_db::schema::{ensure_all_schemas, seed_framework_modules};
+use spotledger_db::schema::{ensure_all_schemas, seed_framework_modules, sync_user_doctype_schemas, apply_naming_functions, apply_permissions_functions};
 
 use spotledger_core::config::SiteConfig;
 
@@ -234,6 +234,23 @@ async fn load_sites(state: &AppState, sites_dir: &Path) -> anyhow::Result<()> {
                             if let Err(e) = seed_framework_modules(&db).await {
                                 tracing::warn!(site = %hostname, error = %e, "Module Def seeding failed");
                             }
+                        }
+                        // Sync DDL for user-created doctypes (designer-saved types not
+                        // in the compiled inventory).  Uses OVERWRITE so any fields that
+                        // were missing from SurrealDB are (re-)created.
+                        if let Err(e) = sync_user_doctype_schemas(&db).await {
+                            tracing::warn!(site = %hostname, error = %e, "User doctype schema sync failed");
+                        }
+                        // Apply naming SurrealDB functions (fn::naming::resolve etc.) so
+                        // they are available before any document save, even on sites that
+                        // have not yet run install-app.
+                        if let Err(e) = apply_naming_functions(&db).await {
+                            tracing::warn!(site = %hostname, error = %e, "Naming function bootstrap failed");
+                        }
+                        // Apply permission SurrealDB functions (fn::permissions::has etc.) so
+                        // permission checks are graph traversals inside SurrealDB.
+                        if let Err(e) = apply_permissions_functions(&db).await {
+                            tracing::warn!(site = %hostname, error = %e, "Permission function bootstrap failed");
                         }
                         match run_pending_migrations(&db, current_batch()).await {
                             Ok(0)  => tracing::debug!(site = %hostname, "No pending migrations"),

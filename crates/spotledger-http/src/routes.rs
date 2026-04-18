@@ -19,7 +19,7 @@ use std::sync::Arc;
 use spotledger_db::document::{get_doc, get_list, get_value};
 use spotledger_db::permissions::{has_permission, PermissionType};
 use spotledger_db::controller::get_compiled_meta;
-use spotledger_db::save_proxy::save_doc_proxy;
+use spotledger_db::save_proxy::{save_doc_proxy, SaveProxyError};
 use spotledger_db::controller::save_doc;
 use spotledger_core::document::Document;
 use spotledger_core::response::{DocResponse, ErrorResponse, ListResponse, MethodResponse};
@@ -264,7 +264,7 @@ pub async fn resource_create(
     } else {
         save_doc_proxy(&site.db, &site.meta_cache, &user, &doctype, body)
             .await
-            .map_err(|e| spotledger_core::error::SpotError::Validation(e.to_string()))
+            .map_err(|e| spotledger_core::error::SpotError::Validation(proxy_error_message(e)))
     };
 
     match result {
@@ -274,7 +274,7 @@ pub async fn resource_create(
         }
         Err(e) => {
             let status = StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-            (status, Json(ErrorResponse::new(error_type(&e), e.to_string()))).into_response()
+            (status, Json(ErrorResponse::new(error_type(&e), spot_error_message(&e)))).into_response()
         }
     }
 }
@@ -325,7 +325,7 @@ pub async fn resource_update(
     } else {
         save_doc_proxy(&site.db, &site.meta_cache, &user, &doctype, body)
             .await
-            .map_err(|e| spotledger_core::error::SpotError::Validation(e.to_string()))
+            .map_err(|e| spotledger_core::error::SpotError::Validation(proxy_error_message(e)))
     };
 
     match result {
@@ -335,7 +335,7 @@ pub async fn resource_update(
         }
         Err(e) => {
             let status = StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-            (status, Json(ErrorResponse::new(error_type(&e), e.to_string()))).into_response()
+            (status, Json(ErrorResponse::new(error_type(&e), spot_error_message(&e)))).into_response()
         }
     }
 }
@@ -451,6 +451,37 @@ fn error_type(e: &spotledger_core::error::SpotError) -> &'static str {
         spotledger_core::error::SpotError::PermissionDenied(_) => "PermissionError",
         spotledger_core::error::SpotError::Validation(_) => "ValidationError",
         _ => "InternalError",
+    }
+}
+
+/// Extract a clean user-facing message from a SaveProxyError.
+/// Pipeline errors carry the validation message directly; strip the
+/// "Pipeline error:" wrapper so clients see the actual text.
+fn proxy_error_message(e: SaveProxyError) -> String {
+    match e {
+        SaveProxyError::Pipeline(msg) => strip_fn_prefix(&msg),
+        _ => e.to_string(),
+    }
+}
+
+/// Strip the "[fn::name] " bracket prefix added by the SurQL runner,
+/// e.g. "[fn::employee::validate_dob_joining] Date of ..." → "Date of ..."
+fn strip_fn_prefix(msg: &str) -> String {
+    if msg.starts_with('[') {
+        if let Some(end) = msg.find("] ") {
+            return msg[end + 2..].to_owned();
+        }
+    }
+    msg.to_owned()
+}
+
+/// Return only the inner message for a SpotError, stripping technical prefixes
+/// like "Validation error: " so users see plain text in the response body.
+fn spot_error_message(e: &spotledger_core::error::SpotError) -> String {
+    use spotledger_core::error::SpotError;
+    match e {
+        SpotError::Validation(m) => m.clone(),
+        _ => e.to_string(),
     }
 }
 

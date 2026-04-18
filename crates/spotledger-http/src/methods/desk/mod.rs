@@ -886,46 +886,52 @@ async fn handle_savedocs(
     // can update locals[] from the temp name to the real saved name.
     let local_name = if is_new { browser_local_name.clone() } else { None };
 
-    // Resolve final name following Frappe's autoname rules:
-    //   1. Prompt / __newname  → explicit_name
-    //   2. field:fieldname     → value of that field in the doc
-    //   3. hash / empty / else → generate a random name
+    // Resolve final name following Frappe's autoname rules.
+    //
+    // Primary path: delegate to `fn::naming::resolve($doctype, $doc)` in SurrealDB.
+    // This function handles every naming_rule/autoname combination:
+    //   - naming_series:          → expand doc.naming_series as a series template
+    //   - field:fieldname         → use that field's value
+    //   - By fieldname (v15)      → autoname IS the fieldname
+    //   - Direct series template  → expand as naming series
+    //   - Prompt / hash / UUID    → UUID fallback
+    //
+    // A stripped copy of the doc (name cleared, __islocal removed) is passed so
+    // the function doesn't short-circuit on the browser's "new-xxx" temp name.
     let saved_name: String = if let Some(n) = explicit_name {
         // autoname = "Prompt" or user supplied __newname
         n
     } else if is_new {
-        // Look up autoname from tabDocType
-        let autoname = get_doc(&site.db, "DocType", &doctype).await
-            .ok()
-            .and_then(|dt| dt.get_str("autoname").map(str::to_string));
-
-        match autoname.as_deref() {
-            Some(an) if an.starts_with("field:") => {
-                // autoname = "field:fieldname" → use that field's value as the name
-                let fieldname = &an["field:".len()..];
-                doc_val.get(fieldname)
-                    .and_then(Value::as_str)
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_string)
-                    .ok_or_else(|| SpotError::Validation(
-                        format!("autoname field '{fieldname}' is empty or missing")
-                    ))?
-            }
-            Some(an) if an.starts_with("format:") => {
-                // autoname = "format:{fieldname}-..." — simple single-field case
-                // Full Jinja format strings not yet supported; fall back to random.
-                let _ = an;
-                use std::time::{SystemTime, UNIX_EPOCH};
-                let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_nanos();
-                format!("{}-{:08x}", doctype.to_lowercase().replace(' ', "-"), ts)
-            }
-            _ => {
-                // hash, None, or anything else → random
-                use std::time::{SystemTime, UNIX_EPOCH};
-                let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_nanos();
-                format!("{}-{:08x}", doctype.to_lowercase().replace(' ', "-"), ts)
-            }
+        // Build a naming doc without the browser temp name so fn::naming::resolve
+        // falls through to the actual naming rule rather than echoing "new-xxx".
+        let mut naming_doc = doc_val.clone();
+        if let Value::Object(ref mut m) = naming_doc {
+            m.remove("name");
+            m.remove("__islocal");
+            m.remove("__newname");
+            m.remove("__unsaved");
         }
+
+        // Call SurrealDB naming function — the only naming path; no Rust fallback.
+        // fn::naming::resolve is always available: apply_naming_functions() runs
+        // at server startup before any document can be saved.
+        let surreal_name = site.db
+            .run(
+                "RETURN fn::naming::resolve($doctype, $doc);",
+                vec![
+                    ("doctype".into(), json!(doctype)),
+                    ("doc".into(),     naming_doc),
+                ],
+            )
+            .await
+            .map_err(|e| SpotError::Validation(format!("naming failed: {e}")))?;
+
+        surreal_name
+            .into_iter()
+            .next()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .filter(|s| !s.is_empty() && s != "NONE")
+            .ok_or_else(|| SpotError::Validation("fn::naming::resolve returned no name".into()))?
     } else {
         // Existing doc — name from doc itself
         doc_val.get("name")
@@ -1455,8 +1461,11 @@ async fn build_modules(
         let icon = row.get("icon").cloned().unwrap_or(Value::Null);
         let order = row.get("order").and_then(|v| v.as_i64()).unwrap_or(0);
 
-        // Query navigable DocTypes for this module: exclude child tables (istable=1)
-        let dt_filter = json!({"module": module_name, "istable": 0});
+        // Query navigable DocTypes for this module: filter by module only,
+        // then post-filter in Rust to exclude child tables (istable=1 or true).
+        // This correctly handles records where istable is stored as NONE/null
+        // (treated as not-a-child-table).
+        let dt_filter = json!({"module": module_name});
         let dt_rows = get_list(
             db, "DocType",
             Some(&["name", "icon", "issingle", "issubmittable", "istable"]),
@@ -1464,6 +1473,13 @@ async fn build_modules(
         ).await.unwrap_or_default();
 
         let doctypes: Vec<Value> = dt_rows.into_iter()
+            .filter(|r| {
+                // Exclude child tables: istable == 1 (int) or true (bool)
+                let is_child = r.get("istable").map(|v| {
+                    v.as_i64().map(|n| n != 0).unwrap_or(false)
+                }).unwrap_or(false);
+                !is_child
+            })
             .filter_map(|r| {
                 let name = r.get("name").and_then(|v| v.as_str()).map(String::from)?;
                 Some(json!({
