@@ -10,6 +10,7 @@ pub mod doctype_validate;
 pub mod error;
 pub mod graph_ops;
 pub mod hooks;
+pub mod jwt;
 pub mod meta_cache;
 pub mod migrations;
 pub mod naming;

@@ -29,5 +29,6 @@ base64           = { workspace = true }
 rand             = { workspace = true }
 hex              = { workspace = true }
 chrono           = { workspace = true }
+jsonwebtoken     = { workspace = true }
 inventory        = { workspace = true }
 indexmap         = { workspace = true }

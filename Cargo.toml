@@ -80,6 +80,9 @@ inventory = "0.3"
 # Regex (used in utils: email/phone/URL validation, strip_html)
 regex = "1"
 
+# JWT (JSON Web Tokens) — issued at login, verified in middleware (no DB round-trip)
+jsonwebtoken = "9"
+
 # Lazy static initialisation (used for compiled-once regex patterns)
 once_cell = "1"
 
