@@ -161,3 +161,74 @@ DEFINE FUNCTION OVERWRITE fn::permissions::get_all(
         share:  array::any($perms.map(|$p| $p.share       = true OR $p.share       = 1)),
     };
 };
+
+-- ----------------------------------------------------------------------------
+-- fn::permissions::get_boot_permissions($user) → object
+--
+-- Returns the six permission lists needed by the boot-info endpoint.
+-- Replaces the multi-query Rust `build_permission_lists` function with a
+-- single graph traversal.
+--
+-- Return shape:
+--   {
+--     can_read:   ["DocType", ...],
+--     can_write:  [...],
+--     can_create: [...],
+--     can_delete: [...],
+--     can_submit: [...],
+--     can_cancel: [...],
+--   }
+-- ----------------------------------------------------------------------------
+DEFINE FUNCTION OVERWRITE fn::permissions::get_boot_permissions($user: string) {
+    -- Fetch all doctypes with their submittable flag
+    LET $all_dt       = SELECT name, issubmittable FROM tabDocType LIMIT 5000;
+    LET $all_names    = $all_dt.map(|$d| $d.name);
+    LET $submittable  = $all_dt
+                            .filter(|$d| $d.issubmittable = true OR $d.issubmittable = 1)
+                            .map(|$d| $d.name);
+
+    -- Administrator and System Manager get everything
+    IF $user = 'Administrator' {
+        RETURN {
+            can_read:   $all_names, can_write:  $all_names,
+            can_create: $all_names, can_delete: $all_names,
+            can_submit: $submittable, can_cancel: $submittable,
+        };
+    };
+
+    LET $roles = fn::permissions::get_roles($user);
+
+    IF 'System Manager' IN $roles {
+        RETURN {
+            can_read:   $all_names, can_write:  $all_names,
+            can_create: $all_names, can_delete: $all_names,
+            can_submit: $submittable, can_cancel: $submittable,
+        };
+    };
+
+    -- Regular users: check tabDocPerm for each doctype
+    LET $perms = SELECT parent, role, read, write, perm_create, perm_delete, submit, perm_cancel
+                 FROM tabDocPerm
+                 WHERE role IN $roles AND permlevel = 0;
+
+    LET $flag = |$n: string, $key: string| -> bool {
+        array::any(
+            $perms
+                .filter(|$p| $p.parent = $n)
+                .map(|$p| $p[$key] = true OR $p[$key] = 1)
+        )
+    };
+
+    LET $can_read   = $all_names.filter(|$n| $flag($n, 'read'));
+    LET $can_write  = $all_names.filter(|$n| $flag($n, 'write'));
+    LET $can_create = $all_names.filter(|$n| $flag($n, 'perm_create'));
+    LET $can_delete = $all_names.filter(|$n| $flag($n, 'perm_delete'));
+    LET $can_submit = $submittable.filter(|$n| $flag($n, 'submit'));
+    LET $can_cancel = $submittable.filter(|$n| $flag($n, 'perm_cancel'));
+
+    RETURN {
+        can_read:   $can_read,  can_write:  $can_write,
+        can_create: $can_create, can_delete: $can_delete,
+        can_submit: $can_submit, can_cancel: $can_cancel,
+    };
+};
