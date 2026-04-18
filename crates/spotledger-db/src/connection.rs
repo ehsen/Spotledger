@@ -34,12 +34,8 @@ mod tests {
         };
 
         let db = connect(&cfg).await.expect("should connect");
-        // Simple smoke test — version query
-        let _ver: Option<String> = db
-            .query("RETURN meta::id(meta::id('test:hello'))")
-            .await
-            .unwrap()
-            .take(0)
-            .unwrap();
+        // Simple smoke test — verify connection is live
+        let rows = db.run("RETURN 'hello';", vec![]).await.expect("should query");
+        assert!(!rows.is_empty(), "should return at least one row");
     }
 }

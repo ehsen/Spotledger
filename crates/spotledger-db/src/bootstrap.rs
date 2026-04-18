@@ -76,6 +76,37 @@ DEFINE FIELD IF NOT EXISTS applied_at ON tabMigration TYPE datetime DEFAULT time
 DEFINE FIELD IF NOT EXISTS batch      ON tabMigration TYPE int DEFAULT 0;
 DEFINE INDEX IF NOT EXISTS idx_migration_name
     ON tabMigration FIELDS name UNIQUE;
+
+-- ── Metadata-as-Graph tables ─────────────────────────────────────────────────
+-- doctype / docfield node tables and has_field edge table.
+-- Created here so that ensure_schema -> ensure_meta_records can always query
+-- has_field safely (SELECT on a non-existent table returns an error in v3).
+DEFINE TABLE IF NOT EXISTS doctype   SCHEMALESS;
+DEFINE TABLE IF NOT EXISTS docfield  SCHEMALESS;
+DEFINE TABLE IF NOT EXISTS has_field TYPE RELATION SCHEMALESS;
+DEFINE INDEX IF NOT EXISTS idx_has_field_rel
+    ON has_field FIELDS in, out UNIQUE;
+
+-- ── installed_app ─────────────────────────────────────────────────────────────
+-- Tracks which DB-native and WASM apps have been installed on this site.
+-- One row per app; name is the unique app identifier (e.g. \"spotledger-core\").
+DEFINE TABLE IF NOT EXISTS installed_app SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS name         ON installed_app TYPE string;
+DEFINE FIELD IF NOT EXISTS version      ON installed_app TYPE string;
+DEFINE FIELD IF NOT EXISTS installed_at ON installed_app TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS app_path     ON installed_app TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS manifest     ON installed_app TYPE option<object>;
+DEFINE INDEX IF NOT EXISTS idx_installed_app_name
+    ON installed_app FIELDS name UNIQUE;
+
+-- ── app_patch_log ─────────────────────────────────────────────────────────────
+-- Records which patch files have been applied for each app.
+DEFINE TABLE IF NOT EXISTS app_patch_log SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS app        ON app_patch_log TYPE string;
+DEFINE FIELD IF NOT EXISTS patch_file ON app_patch_log TYPE string;
+DEFINE FIELD IF NOT EXISTS applied_at ON app_patch_log TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_app_patch_log_unique
+    ON app_patch_log FIELDS app, patch_file UNIQUE;
 ";
 
 /// Extra `tabDocType` field definitions that extend the schema compiled into the binary.
@@ -262,6 +293,7 @@ pub async fn seed_naming_rules(adapter: &DbAdapter) -> Result<(), DbError> {
 
         sql.push_str(&format!(
             "UPSERT tabDocumentNamingRule:{id} SET \
+             name = '{dt}', \
              document_type = '{dt}', \
              autoname = '{aname}', \
              is_standard = 1, \

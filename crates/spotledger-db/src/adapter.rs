@@ -53,6 +53,17 @@ impl DbAdapter {
         let ns = if config.ns.is_empty() { &config.db } else { &config.ns };
         let database = if config.db.is_empty() { &config.ns } else { &config.db };
 
+        // Ensure the namespace and database exist before selecting them.
+        // This is idempotent and runs at root level (before use_ns/use_db),
+        // which is necessary for SurrealDB v3 where use_db fails on missing DBs
+        // and for test setups that drop and recreate the database.
+        db.query(format!(
+            "DEFINE NAMESPACE IF NOT EXISTS `{ns}`; \
+             DEFINE DATABASE IF NOT EXISTS `{database}`;"
+        ))
+        .await
+        .map_err(DbError::Surreal)?;
+
         db.use_ns(ns).use_db(database).await?;
 
         tracing::info!(ns = %ns, db = %database, "SurrealDB ready");
@@ -116,7 +127,11 @@ impl DbAdapter {
         for (k, v) in bindings {
             q = q.bind((k, v));
         }
-        q.await.map(|_| ()).map_err(DbError::Surreal)
+        q.await
+            .map_err(DbError::Surreal)?
+            .check()
+            .map(|_| ())
+            .map_err(DbError::Surreal)
     }
 
     /// Execute multiple SQL statements inside a single SurrealDB transaction.

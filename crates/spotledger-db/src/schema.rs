@@ -258,17 +258,21 @@ pub async fn ensure_all_schemas(adapter: &DbAdapter) -> Result<(), DbError> {
     tracing::info!(count = entries.len(), "Syncing schemas for compiled DocTypes");
 
     let mut errors = 0usize;
+    let mut error_msgs: Vec<String> = Vec::new();
     for entry in entries {
         let meta = (entry.meta)();
         if let Err(e) = ensure_schema(adapter, &meta).await {
+            let msg = format!("{}: {e}", entry.name);
             tracing::error!(doctype = %entry.name, error = %e, "Schema sync failed");
+            error_msgs.push(msg);
             errors += 1;
         }
     }
 
     if errors > 0 {
         return Err(DbError::Other(format!(
-            "Schema sync failed for {errors} DocType(s)"
+            "Schema sync failed for {errors} DocType(s): {}",
+            error_msgs.join("; ")
         )));
     }
 
@@ -513,6 +517,37 @@ pub async fn ensure_meta_records(
             .await?;
     }
 
+    // ── 3. Upsert tabDocType so boot info / Command Palette can discover this
+    //        compiled doctype without requiring a manual `seed-doctypes` run.
+    //        The upsert is idempotent and never overwrites fields already set
+    //        by seed-doctypes or the designer.
+    {
+        use crate::document::upsert_doc;
+        let mut row = serde_json::json!({
+            "doctype":        "DocType",
+            "name":           meta.name,
+            "module":         meta.module,
+            "istable":        if meta.is_child       { 1i64 } else { 0i64 },
+            "issingle":       if meta.is_single      { 1i64 } else { 0i64 },
+            "issubmittable":  if meta.is_submittable { 1i64 } else { 0i64 },
+            "istree":         if meta.is_tree        { 1i64 } else { 0i64 },
+            "owner":          "Administrator",
+            "modified_by":    "Administrator",
+        });
+        // Include autoname from compiled meta so fn::naming::resolve works for
+        // Tier-0 doctypes (e.g. User: "field:email") without requiring seed-doctypes.
+        // upsert_doc uses SET so this never overwrites a value already in the DB.
+        if let Some(autoname) = &meta.autoname {
+            if let Some(obj) = row.as_object_mut() {
+                obj.insert("autoname".into(), serde_json::Value::String(autoname.clone()));
+            }
+        }
+        if let Err(e) = upsert_doc(adapter, "DocType", &meta.name, &row).await {
+            tracing::warn!(doctype = %meta.name, error = %e,
+                "Could not upsert tabDocType row — boot info may not list this doctype");
+        }
+    }
+
     tracing::debug!(
         doctype = %meta.name,
         "Graph meta records ensured (Phase 2)",
@@ -552,6 +587,222 @@ pub async fn seed_framework_modules(adapter: &DbAdapter) -> Result<(), crate::er
     }
 
     tracing::info!(count = FM::FRAMEWORK_MODULES.len(), "Framework Module Def records ensured");
+    Ok(())
+}
+
+// ── User-doctype DDL sync ─────────────────────────────────────────────────────
+
+/// Apply `DEFINE TABLE` + `DEFINE FIELD OVERWRITE` DDL for every user-created
+/// DocType stored in `tabDocType`.
+///
+/// Compiled (Tier-0) types are already handled by `ensure_all_schemas`; this
+/// function covers everything created via the designer at runtime.  It is safe
+/// to run at every startup because all DEFINE statements are idempotent.
+///
+/// Call this at server startup AFTER `ensure_all_schemas` so system fields on
+/// compiled tables are already set before user tables are processed.
+pub async fn sync_user_doctype_schemas(adapter: &DbAdapter) -> Result<(), DbError> {
+    use crate::document::doctype_to_table;
+
+    let compiled = compiled_doctype_names();
+
+    // Fetch all DocType names in the DB
+    let dt_rows = adapter
+        .run("SELECT name, istable FROM tabDocType", vec![])
+        .await
+        .unwrap_or_default();
+
+    if dt_rows.is_empty() {
+        return Ok(());
+    }
+
+    let mut synced = 0usize;
+    let mut errors = 0usize;
+
+    for dt_row in &dt_rows {
+        let dt_name = match dt_row.get("name").and_then(|v| v.as_str()) {
+            Some(n) => n.to_owned(),
+            None => continue,
+        };
+
+        // Skip compiled types — already handled by ensure_all_schemas
+        if compiled.contains(&dt_name) {
+            continue;
+        }
+
+        let is_child = match dt_row.get("istable") {
+            Some(serde_json::Value::Bool(b)) => *b,
+            Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0) != 0,
+            _ => false,
+        };
+
+        let table     = doctype_to_table(&dt_name);
+        let safe_name = dt_name.replace([' ', '-'], "_").to_lowercase();
+
+        // 1. Table definition
+        let tbl_sql = format!(
+            "DEFINE TABLE IF NOT EXISTS `{table}` SCHEMAFULL \
+             COMMENT 'SpotLedger DocType: {dt_name}';"
+        );
+        if let Err(e) = adapter.execute(&tbl_sql, vec![]).await {
+            tracing::error!(doctype = %dt_name, error = %e, "sync_user: DEFINE TABLE failed");
+            errors += 1;
+            continue;
+        }
+
+        // 2. System fields
+        for (fieldname, ty) in SYSTEM_FIELDS {
+            let sql = format!(
+                "DEFINE FIELD IF NOT EXISTS `{fieldname}` ON TABLE `{table}` TYPE {ty} PERMISSIONS FULL;"
+            );
+            if let Err(e) = adapter.execute(&sql, vec![]).await {
+                tracing::warn!(doctype = %dt_name, field = %fieldname, error = %e,
+                    "sync_user: system field DDL failed");
+            }
+        }
+        if is_child {
+            for (fieldname, ty) in CHILD_FIELDS {
+                let sql = format!(
+                    "DEFINE FIELD IF NOT EXISTS `{fieldname}` ON TABLE `{table}` TYPE {ty} PERMISSIONS FULL;"
+                );
+                if let Err(e) = adapter.execute(&sql, vec![]).await {
+                    tracing::warn!(doctype = %dt_name, field = %fieldname, error = %e,
+                        "sync_user: child field DDL failed");
+                }
+            }
+        }
+
+        // 3. User fields (OVERWRITE so missing ones are always (re-)added)
+        // NOTE: SurrealDB v3 requires ORDER BY fields to appear in the SELECT list.
+        let field_rows = adapter
+            .run(
+                "SELECT fieldname, fieldtype, default_value, not_nullable, idx \
+                 FROM tabDocField WHERE parent = $dt AND parenttype = 'DocType' ORDER BY idx ASC",
+                vec![("dt".into(), serde_json::Value::String(dt_name.clone()))],
+            )
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(doctype = %dt_name, error = %e, "sync_user: tabDocField query failed");
+                vec![]
+            });
+
+        tracing::debug!(doctype = %dt_name, field_count = field_rows.len(), "sync_user: fields loaded");
+
+        for frow in &field_rows {
+            let fieldname = match frow.get("fieldname").and_then(|v| v.as_str()) {
+                Some(f) => f.to_owned(),
+                None => continue,
+            };
+            let fieldtype = frow.get("fieldtype").and_then(|v| v.as_str()).unwrap_or("Data");
+
+            let surql_ty = match fieldtype.to_lowercase().replace('-', " ").as_str() {
+                "check" | "int"                             => "none | int",
+                "float" | "currency" | "percent" | "rating" => "float",
+                "datetime"                                  => "option<datetime>",
+                "date" | "time"                             => "option<string>",
+                "table" | "table multiselect"               => "array<any>",
+                "json"                                      => "any",
+                "section break" | "column break" | "tab break" => continue, // layout only
+                _                                           => "option<string>",
+            };
+
+            let not_nullable = match frow.get("not_nullable") {
+                Some(serde_json::Value::Bool(b)) => *b,
+                Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0) != 0,
+                _ => false,
+            };
+            let effective_ty = if not_nullable && surql_ty.starts_with("option<") {
+                surql_ty[7..surql_ty.len() - 1].to_owned()
+            } else {
+                surql_ty.to_owned()
+            };
+
+            let default_value = frow.get("default_value").and_then(|v| v.as_str()).unwrap_or("");
+
+            let mut sql = format!(
+                "DEFINE FIELD OVERWRITE `{fieldname}` ON TABLE `{table}` TYPE {effective_ty} PERMISSIONS FULL"
+            );
+            if !default_value.is_empty() {
+                let is_numeric = matches!(
+                    fieldtype.to_lowercase().as_str(),
+                    "check" | "int" | "float" | "currency" | "percent" | "rating"
+                );
+                if is_numeric {
+                    sql.push_str(&format!(" DEFAULT {default_value}"));
+                } else {
+                    let escaped = default_value.replace('\'', "\\'");
+                    sql.push_str(&format!(" DEFAULT '{escaped}'"));
+                }
+            } else if fieldtype.eq_ignore_ascii_case("Check") {
+                sql.push_str(" DEFAULT 0");
+            }
+            sql.push(';');
+
+            tracing::debug!(doctype = %dt_name, field = %fieldname, sql = %sql, "sync_user: executing field DDL");
+            if let Err(e) = adapter.execute(&sql, vec![]).await {
+                tracing::warn!(doctype = %dt_name, field = %fieldname, error = %e,
+                    "sync_user: user field DDL failed");
+            } else {
+                tracing::debug!(doctype = %dt_name, field = %fieldname, "sync_user: field DDL ok");
+            }
+        }
+
+        // 4. Unique name index
+        if !is_child {
+            let idx_sql = format!(
+                "DEFINE INDEX IF NOT EXISTS idx_{safe_name}_name \
+                 ON TABLE `{table}` FIELDS name UNIQUE;"
+            );
+            if let Err(e) = adapter.execute(&idx_sql, vec![]).await {
+                tracing::warn!(doctype = %dt_name, error = %e, "sync_user: name index failed");
+            }
+        }
+
+        synced += 1;
+        tracing::debug!(doctype = %dt_name, "sync_user: schema synced");
+    }
+
+    tracing::info!(synced, errors, "User doctype schema sync complete");
+    Ok(())
+}
+
+// ── apply_naming_functions ────────────────────────────────────────────────────
+
+/// Applies the framework naming SurrealDB functions at server startup.
+///
+/// These are normally loaded by `apply_pipeline_functions` during `install-app`,
+/// but embedding them here ensures they are available on every site boot
+/// regardless of whether any app has been installed.
+///
+/// All `DEFINE FUNCTION OVERWRITE` statements are idempotent.
+pub async fn apply_naming_functions(adapter: &DbAdapter) -> Result<(), DbError> {
+    const NAMING_SURQL: &str =
+        include_str!("../../../apps/erpnext/erpnext/surql/framework/05_naming.surql");
+
+    adapter.execute(NAMING_SURQL, vec![]).await.map_err(|e| {
+        DbError::Other(format!("apply_naming_functions failed: {e}"))
+    })?;
+    tracing::debug!("Naming functions applied");
+    Ok(())
+}
+
+// ── apply_permissions_functions ───────────────────────────────────────────────
+
+/// Applies the framework permission SurrealDB functions at server startup.
+///
+/// Defines `fn::permissions::has`, `fn::permissions::get_all`, and
+/// `fn::permissions::get_roles` so permission checks are executed as a single
+/// graph traversal inside SurrealDB rather than two separate Rust queries.
+///
+/// All `DEFINE FUNCTION OVERWRITE` statements are idempotent.
+pub async fn apply_permissions_functions(adapter: &DbAdapter) -> Result<(), DbError> {
+    const PERMISSIONS_SURQL: &str =
+        include_str!("../../../apps/erpnext/erpnext/surql/framework/06_permissions.surql");
+
+    adapter.execute(PERMISSIONS_SURQL, vec![]).await.map_err(|e| {
+        DbError::Other(format!("apply_permissions_functions failed: {e}"))
+    })?;
+    tracing::debug!("Permission functions applied");
     Ok(())
 }
 
