@@ -104,8 +104,7 @@ pub async fn handle_user_settings_save(
 
 // ── frappe.model.workflow.get_transitions ────────────────────────────────────
 // Returns list of allowed and visible workflow transitions for the given doc.
-// Python: checks current workflow_state against tabWorkflowTransition rows
-//         and filters by user roles.
+// Delegates to fn::workflow::get_transitions in SurrealDB (07_workflow.surql).
 pub async fn handle_workflow_get_transitions(
     site: Arc<SiteState>,
     params: HashMap<String, Value>,
@@ -125,32 +124,17 @@ pub async fn handle_workflow_get_transitions(
         return Ok(Value::Array(vec![]));
     }
 
-    // Find the active workflow for this doctype
-    let wf_filter = json!({"document_type": doctype, "is_active": 1});
-    let wf_rows = get_list(
-        &site.db,
-        "Workflow",
-        Some(&["name", "workflow_state_field"]),
-        Some(&wf_filter),
-        1,
-        0,
-    )
-    .await
-    .unwrap_or_default();
-
-    let wf_name = match wf_rows.first().and_then(|r| r.get("name")).and_then(Value::as_str) {
-        Some(n) => n.to_string(),
-        None => return Ok(Value::Array(vec![])),
-    };
-    let state_field = wf_rows
-        .first()
-        .and_then(|r| r.get("workflow_state_field"))
+    let user = params
+        .get("__current_user")
         .and_then(Value::as_str)
-        .unwrap_or("workflow_state")
+        .unwrap_or("Administrator")
         .to_string();
 
+    // Read current_state from the doc object (workflow_state field).
+    // We first need to know the state_field name, but we pass an empty string
+    // if not known — the SurrealQL fn handles the missing-state case.
     let current_state = doc_val
-        .get(&state_field)
+        .get("workflow_state")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
@@ -159,32 +143,28 @@ pub async fn handle_workflow_get_transitions(
         return Ok(Value::Array(vec![]));
     }
 
-    // Get transitions from this state (Administrator has all roles)
-    let trans_filter = json!({
-        "parent":     wf_name,
-        "parenttype": "Workflow",
-        "state":      current_state,
-    });
-    let transitions = get_list(
-        &site.db,
-        "Workflow Transition",
-        Some(&["name", "state", "action", "next_state", "allowed", "condition"]),
-        Some(&trans_filter),
-        50,
-        0,
-    )
-    .await
-    .unwrap_or_default();
+    // Single SurrealQL call — replaces the 3-step Rust query sequence.
+    let rows = site
+        .db
+        .run(
+            "RETURN fn::workflow::get_transitions($user, $doctype, $current_state)",
+            vec![
+                ("user".into(), user.into()),
+                ("doctype".into(), doctype.into()),
+                ("current_state".into(), current_state.into()),
+            ],
+        )
+        .await
+        .unwrap_or_default();
 
-    let result: Vec<Value> = transitions
-        .into_iter()
-        .map(|r| Value::Object(r.into_iter().collect()))
-        .collect();
-    Ok(Value::Array(result))
+    // `rows` is a single-element vec containing the returned array.
+    let result = rows.into_iter().next().unwrap_or(Value::Array(vec![]));
+    Ok(result)
 }
 
 // ── frappe.model.workflow.apply_workflow ─────────────────────────────────────
 // Applies a workflow transition by name. Returns the updated doc.
+// Delegates to fn::workflow::apply in SurrealDB (07_workflow.surql).
 pub async fn handle_workflow_apply(
     site: Arc<SiteState>,
     params: HashMap<String, Value>,
@@ -217,63 +197,33 @@ pub async fn handle_workflow_apply(
         ));
     }
 
-    // Find the transition with this action from current state
-    let existing_doc = get_doc(&site.db, &doctype, &name).await?;
-    let state_field = {
-        let wf_filter = json!({"document_type": doctype, "is_active": 1});
-        let wf_rows = get_list(
-            &site.db,
-            "Workflow",
-            Some(&["workflow_state_field"]),
-            Some(&wf_filter),
-            1,
-            0,
-        )
-        .await
-        .unwrap_or_default();
-        wf_rows
-            .first()
-            .and_then(|r| r.get("workflow_state_field"))
-            .and_then(Value::as_str)
-            .unwrap_or("workflow_state")
-            .to_string()
-    };
-
-    let current_state = existing_doc
-        .get_str(&state_field)
-        .unwrap_or("")
+    let user = params
+        .get("__current_user")
+        .and_then(Value::as_str)
+        .unwrap_or("Administrator")
         .to_string();
 
-    // Find the next_state for this action from current_state
-    let trans_filter = json!({"action": action, "state": current_state});
-    let trans_rows = get_list(
-        &site.db,
-        "Workflow Transition",
-        Some(&["next_state"]),
-        Some(&trans_filter),
-        1,
-        0,
-    )
-    .await
-    .unwrap_or_default();
+    // Single SurrealQL call — replaces the 5-step Rust query sequence.
+    let rows = site
+        .db
+        .run(
+            "RETURN fn::workflow::apply($user, $doctype, $doc_id, $action)",
+            vec![
+                ("user".into(), user.into()),
+                ("doctype".into(), doctype.clone().into()),
+                ("doc_id".into(), name.clone().into()),
+                ("action".into(), action.into()),
+            ],
+        )
+        .await
+        .map_err(|e| SpotError::Db(e.to_string()))?;
 
-    let next_state = trans_rows
-        .first()
-        .and_then(|r| r.get("next_state"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
+    // Invalidate cache for the updated document.
+    site.doc_cache
+        .remove(&(doctype.clone(), name.clone()))
+        .await;
 
-    if let Some(next) = next_state {
-        let update = json!({state_field: next});
-        upsert_doc(&site.db, &doctype, &name, &update).await?;
-        site.doc_cache
-            .remove(&(doctype.clone(), name.clone()))
-            .await;
-    }
-
-    // Return updated doc
-    let updated = get_doc(&site.db, &doctype, &name).await?;
-    Ok(updated.as_dict())
+    Ok(rows.into_iter().next().unwrap_or(json!({})))
 }
 
 // ── frappe.model.workflow.get_common_transition_actions ───────────────────────
