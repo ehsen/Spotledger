@@ -26,6 +26,7 @@ use spotledger_db::schema::ensure_all_schemas;
 use spotledger_core::config::{AppsConfig, CacheConfig, DatabaseConfig, SiteConfig, SiteInfo};
 
 use crate::cli::NewSiteArgs;
+use crate::install_app::install_app_into_db;
 
 pub async fn new_site(args: NewSiteArgs) -> anyhow::Result<()> {
     let bench = args.bench.canonicalize()
@@ -126,6 +127,16 @@ pub async fn new_site(args: NewSiteArgs) -> anyhow::Result<()> {
     set_user_password(&db, "Administrator", &args.admin_password)
         .await
         .context("Setting Administrator password")?;
+
+    // ── Auto-install spotledger-core if present ───────────────────────────────
+    let core_app_dir = bench.join("apps").join("spotledger-core");
+    if core_app_dir.exists() {
+        println!("\nAuto-installing spotledger-core …");
+        match install_app_into_db(&db, &bench, "spotledger-core", None).await {
+            Ok(()) => println!("✓  spotledger-core installed."),
+            Err(e) => eprintln!("WARN: spotledger-core auto-install failed (non-fatal): {:?}", e),
+        }
+    }
 
     // ── Done ─────────────────────────────────────────────────────────────────
     println!();
