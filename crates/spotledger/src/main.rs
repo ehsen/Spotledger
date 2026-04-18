@@ -17,5 +17,9 @@ async fn main() -> anyhow::Result<()> {
         Commands::Use(args)          => spotledger::use_site::use_site(args).await,
         Commands::Start(args)        => spotledger::start::start(args).await,
         Commands::WireApp(args)      => spotledger::wire_app::wire_app(args).await,
+        Commands::NewApp(args)       => spotledger::new_app::new_app(args).await,
+        Commands::NewModule(args)    => spotledger::new_app::new_module(args).await,
+        Commands::NewDoctype(args)   => spotledger::new_app::new_doctype(args).await,
+        Commands::ExportApp(args)    => spotledger::new_app::export_app(args).await,
     }
 }

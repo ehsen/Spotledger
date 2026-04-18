@@ -14,11 +14,6 @@ path = "src/main.rs"
 [dependencies]
 spotledger-core       = { workspace = true }
 spotledger-db         = { workspace = true }
-spotledger-geo        = { workspace = true }
-spotledger-contacts   = { workspace = true }
-spotledger-printing   = { workspace = true }
-spotledger-automation = { workspace = true }
-spotledger-desk       = { workspace = true }
 spotledger-http       = { workspace = true }
 
 axum         = { workspace = true }
