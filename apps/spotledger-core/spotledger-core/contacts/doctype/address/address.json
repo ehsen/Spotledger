@@ -1,0 +1,184 @@
+{
+ "doctype": "DocType",
+ "name": "Address",
+ "module": "Contacts",
+ "track_changes": 1,
+ "field_order": [
+  "address_title",
+  "address_type",
+  "address_line1",
+  "address_line2",
+  "city",
+  "county",
+  "state",
+  "country",
+  "pincode",
+  "email_id",
+  "phone",
+  "fax",
+  "is_primary_address",
+  "is_shipping_address",
+  "disabled",
+  "links"
+ ],
+ "fields": [
+  {
+   "fieldname": "address_title",
+   "fieldtype": "Data",
+   "label": "Address Title",
+   "idx": 1
+  },
+  {
+   "fieldname": "address_type",
+   "fieldtype": "Select",
+   "label": "Address Type",
+   "options": "Billing\nShipping\nOffice\nPersonal\nPlant\nPostal\nShop\nSubsidiary\nWarehouse\nCurrent\nPermanent\nOther",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "address_line1",
+   "fieldtype": "Data",
+   "label": "Address Line 1",
+   "reqd": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "address_line2",
+   "fieldtype": "Data",
+   "label": "Address Line 2",
+   "idx": 4
+  },
+  {
+   "fieldname": "city",
+   "fieldtype": "Data",
+   "label": "City/Town",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 5
+  },
+  {
+   "fieldname": "county",
+   "fieldtype": "Data",
+   "label": "County",
+   "idx": 6
+  },
+  {
+   "fieldname": "state",
+   "fieldtype": "Data",
+   "label": "State/Province",
+   "idx": 7
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Link",
+   "label": "Country",
+   "options": "Country",
+   "reqd": 1,
+   "in_standard_filter": 1,
+   "idx": 8
+  },
+  {
+   "fieldname": "pincode",
+   "fieldtype": "Data",
+   "label": "Postal Code",
+   "idx": 9
+  },
+  {
+   "fieldname": "email_id",
+   "fieldtype": "Data",
+   "label": "Email Address",
+   "options": "Email",
+   "idx": 10
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Phone",
+   "options": "Phone",
+   "idx": 11
+  },
+  {
+   "fieldname": "fax",
+   "fieldtype": "Data",
+   "label": "Fax",
+   "idx": 12
+  },
+  {
+   "fieldname": "is_primary_address",
+   "fieldtype": "Check",
+   "label": "Preferred Billing Address",
+   "default": "0",
+   "idx": 13
+  },
+  {
+   "fieldname": "is_shipping_address",
+   "fieldtype": "Check",
+   "label": "Preferred Shipping Address",
+   "default": "0",
+   "idx": 14
+  },
+  {
+   "fieldname": "disabled",
+   "fieldtype": "Check",
+   "label": "Disabled",
+   "default": "0",
+   "idx": 15
+  },
+  {
+   "fieldname": "links",
+   "fieldtype": "Table",
+   "label": "Links",
+   "options": "Dynamic Link",
+   "idx": 16
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Sales User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Purchase User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "import": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC"
+}

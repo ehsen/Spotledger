@@ -1,0 +1,115 @@
+{
+ "doctype": "DocType",
+ "name": "Currency",
+ "module": "Geo",
+ "autoname": "field:currency_name",
+ "track_changes": 1,
+ "field_order": [
+  "currency_name",
+  "enabled",
+  "fraction",
+  "fraction_units",
+  "smallest_currency_fraction_value",
+  "symbol",
+  "symbol_on_right",
+  "number_format"
+ ],
+ "fields": [
+  {
+   "fieldname": "currency_name",
+   "fieldtype": "Data",
+   "label": "Currency Name",
+   "reqd": 1,
+   "unique": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled",
+   "in_list_view": 1,
+   "default": "0",
+   "idx": 2
+  },
+  {
+   "fieldname": "fraction",
+   "fieldtype": "Data",
+   "label": "Fraction",
+   "in_list_view": 1,
+   "description": "Sub-currency. For e.g. \"Cent\"",
+   "idx": 3
+  },
+  {
+   "fieldname": "fraction_units",
+   "fieldtype": "Int",
+   "label": "Fraction Units",
+   "in_list_view": 1,
+   "description": "1 Currency = [?] Fraction For e.g. 1 USD = 100 Cent",
+   "idx": 4
+  },
+  {
+   "fieldname": "smallest_currency_fraction_value",
+   "fieldtype": "Currency",
+   "label": "Smallest Currency Fraction Value",
+   "description": "Smallest circulating fraction unit (coin). For e.g. 1 cent for USD and it should be entered as 0.01",
+   "idx": 5
+  },
+  {
+   "fieldname": "symbol",
+   "fieldtype": "Data",
+   "label": "Symbol",
+   "in_list_view": 1,
+   "description": "A symbol for this currency. For e.g. $",
+   "idx": 6
+  },
+  {
+   "fieldname": "symbol_on_right",
+   "fieldtype": "Check",
+   "label": "Show Currency Symbol on Right Side",
+   "default": "0",
+   "idx": 7
+  },
+  {
+   "fieldname": "number_format",
+   "fieldtype": "Select",
+   "label": "Number Format",
+   "options": "\n#,###.##\n#.###,##\n# ###.##\n# ###,##\n#'###.##\n#, ###.##\n#,##,###.##\n#,###.###\n#.###\n#,###",
+   "in_list_view": 1,
+   "description": "How should this currency be formatted? If not set, will use system defaults",
+   "idx": 8
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "import": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1
+  },
+  {
+   "role": "Purchase User",
+   "read": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC"
+}

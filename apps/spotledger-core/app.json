@@ -1,0 +1,11 @@
+{
+  "name": "spotledger-core",
+  "title": "Spotledger Core",
+  "version": "1.0.0",
+  "description": "Framework DocTypes — the foundation every other app builds on",
+  "author": "Spotledger",
+  "license": "AGPL-3.0",
+  "depends_on": [],
+  "modules": ["Contacts", "Geo", "Email", "Desk", "Website", "Automation", "Printing", "Setup"],
+  "auto_install": true
+}

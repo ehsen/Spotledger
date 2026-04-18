@@ -1,0 +1,151 @@
+{
+ "doctype": "DocType",
+ "name": "Print Format",
+ "module": "Printing",
+ "title_field": "name",
+ "search_fields": "name,doc_type",
+ "field_order": [
+  "doc_type",
+  "module",
+  "disabled",
+  "standard",
+  "custom_format",
+  "print_format_type",
+  "raw_printing",
+  "html",
+  "raw_commands",
+  "align_labels_right",
+  "show_section_headings",
+  "default_print_language",
+  "font",
+  "css",
+  "format_data",
+  "absolute_value"
+ ],
+ "fields": [
+  {
+   "fieldname": "doc_type",
+   "fieldtype": "Link",
+   "label": "Document Type",
+   "options": "DocType",
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "module",
+   "fieldtype": "Link",
+   "label": "Module",
+   "options": "Module Def",
+   "idx": 2
+  },
+  {
+   "fieldname": "disabled",
+   "fieldtype": "Check",
+   "label": "Disabled",
+   "idx": 3
+  },
+  {
+   "fieldname": "standard",
+   "fieldtype": "Select",
+   "label": "Standard",
+   "options": "No\nYes",
+   "reqd": 1,
+   "idx": 4
+  },
+  {
+   "fieldname": "custom_format",
+   "fieldtype": "Check",
+   "label": "Custom Format",
+   "idx": 5
+  },
+  {
+   "fieldname": "print_format_type",
+   "fieldtype": "Select",
+   "label": "Print Format Type",
+   "options": "Jinja\nServer Script",
+   "idx": 6
+  },
+  {
+   "fieldname": "raw_printing",
+   "fieldtype": "Check",
+   "label": "Raw Printing",
+   "idx": 7
+  },
+  {
+   "fieldname": "html",
+   "fieldtype": "Code",
+   "label": "HTML",
+   "idx": 8
+  },
+  {
+   "fieldname": "raw_commands",
+   "fieldtype": "Code",
+   "label": "Raw Commands",
+   "idx": 9
+  },
+  {
+   "fieldname": "align_labels_right",
+   "fieldtype": "Check",
+   "label": "Align Labels Right",
+   "idx": 10
+  },
+  {
+   "fieldname": "show_section_headings",
+   "fieldtype": "Check",
+   "label": "Show Section Headings",
+   "idx": 11
+  },
+  {
+   "fieldname": "default_print_language",
+   "fieldtype": "Link",
+   "label": "Default Print Language",
+   "options": "Language",
+   "idx": 12
+  },
+  {
+   "fieldname": "font",
+   "fieldtype": "Data",
+   "label": "Font",
+   "idx": 13
+  },
+  {
+   "fieldname": "css",
+   "fieldtype": "Code",
+   "label": "CSS",
+   "idx": 14
+  },
+  {
+   "fieldname": "format_data",
+   "fieldtype": "Code",
+   "label": "Format Data",
+   "idx": 15
+  },
+  {
+   "fieldname": "absolute_value",
+   "fieldtype": "Check",
+   "label": "Show Absolute Value",
+   "idx": 16
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "import": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "All",
+   "read": 1
+  }
+ ],
+ "sort_field": "name",
+ "sort_order": "asc"
+}

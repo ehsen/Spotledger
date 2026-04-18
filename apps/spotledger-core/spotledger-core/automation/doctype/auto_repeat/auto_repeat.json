@@ -1,0 +1,181 @@
+{
+ "doctype": "DocType",
+ "name": "Auto Repeat",
+ "module": "Automation",
+ "autoname": "format:AUT-AR-{#####}",
+ "title_field": "reference_document",
+ "search_fields": "reference_doctype,reference_document",
+ "field_order": [
+  "reference_doctype",
+  "reference_document",
+  "submit_on_creation",
+  "start_date",
+  "end_date",
+  "disabled",
+  "frequency",
+  "repeat_on_day",
+  "repeat_on_last_day",
+  "next_schedule_date",
+  "notify_by_email",
+  "recipients",
+  "template",
+  "subject",
+  "message",
+  "print_format",
+  "status",
+  "repeat_on_days"
+ ],
+ "fields": [
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference Document Type",
+   "options": "DocType",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "reference_document",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference Document",
+   "options": "reference_doctype",
+   "reqd": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "submit_on_creation",
+   "fieldtype": "Check",
+   "label": "Submit on Creation",
+   "default": "0",
+   "idx": 3
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date",
+   "reqd": 1,
+   "in_list_view": 1,
+   "default": "Today",
+   "idx": 4
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "label": "End Date",
+   "in_list_view": 1,
+   "idx": 5
+  },
+  {
+   "fieldname": "disabled",
+   "fieldtype": "Check",
+   "label": "Disabled",
+   "default": "0",
+   "idx": 6
+  },
+  {
+   "fieldname": "frequency",
+   "fieldtype": "Select",
+   "label": "Frequency",
+   "options": "\nDaily\nWeekly\nFortnightly\nMonthly\nQuarterly\nHalf-yearly\nYearly",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 7
+  },
+  {
+   "fieldname": "repeat_on_day",
+   "fieldtype": "Int",
+   "label": "Repeat on Day",
+   "idx": 8
+  },
+  {
+   "fieldname": "repeat_on_last_day",
+   "fieldtype": "Check",
+   "label": "Repeat on Last Day of the Month",
+   "default": "0",
+   "idx": 9
+  },
+  {
+   "fieldname": "next_schedule_date",
+   "fieldtype": "Date",
+   "label": "Next Schedule Date",
+   "idx": 10
+  },
+  {
+   "fieldname": "notify_by_email",
+   "fieldtype": "Check",
+   "label": "Notify by Email",
+   "default": "0",
+   "idx": 11
+  },
+  {
+   "fieldname": "recipients",
+   "fieldtype": "Small Text",
+   "label": "Recipients",
+   "idx": 12
+  },
+  {
+   "fieldname": "template",
+   "fieldtype": "Link",
+   "label": "Template",
+   "options": "Email Template",
+   "idx": 13
+  },
+  {
+   "fieldname": "subject",
+   "fieldtype": "Data",
+   "label": "Subject",
+   "idx": 14
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Text",
+   "label": "Message",
+   "default": "Please find attached {{ doc.doctype }} #{{ doc.name }}",
+   "idx": 15
+  },
+  {
+   "fieldname": "print_format",
+   "fieldtype": "Link",
+   "label": "Print Format",
+   "options": "Print Format",
+   "idx": 16
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "\nActive\nDisabled\nCompleted",
+   "in_list_view": 1,
+   "idx": 17
+  },
+  {
+   "fieldname": "repeat_on_days",
+   "fieldtype": "Table",
+   "label": "Repeat on Days",
+   "options": "Auto Repeat Day",
+   "idx": 18
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "All",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC"
+}

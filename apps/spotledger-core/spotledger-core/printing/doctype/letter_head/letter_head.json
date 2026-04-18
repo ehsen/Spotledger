@@ -1,0 +1,158 @@
+{
+ "doctype": "DocType",
+ "name": "Letter Head",
+ "module": "Printing",
+ "autoname": "field:letter_head_name",
+ "title_field": "letter_head_name",
+ "field_order": [
+  "letter_head_name",
+  "source",
+  "footer_source",
+  "disabled",
+  "is_default",
+  "image",
+  "image_height",
+  "image_width",
+  "align",
+  "content",
+  "footer",
+  "footer_image",
+  "footer_image_height",
+  "footer_image_width",
+  "footer_align",
+  "header_script",
+  "footer_script"
+ ],
+ "fields": [
+  {
+   "fieldname": "letter_head_name",
+   "fieldtype": "Data",
+   "label": "Letter Head Name",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "label": "Letter Head Based On",
+   "options": "Image\nHTML",
+   "idx": 2
+  },
+  {
+   "fieldname": "footer_source",
+   "fieldtype": "Select",
+   "label": "Footer Based On",
+   "options": "Image\nHTML",
+   "idx": 3
+  },
+  {
+   "fieldname": "disabled",
+   "fieldtype": "Check",
+   "label": "Disabled",
+   "default": "0",
+   "in_list_view": 1,
+   "idx": 4
+  },
+  {
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "Default Letter Head",
+   "default": "0",
+   "in_list_view": 1,
+   "idx": 5
+  },
+  {
+   "fieldname": "image",
+   "fieldtype": "Attach Image",
+   "label": "Image",
+   "idx": 6
+  },
+  {
+   "fieldname": "image_height",
+   "fieldtype": "Float",
+   "label": "Image Height (px)",
+   "idx": 7
+  },
+  {
+   "fieldname": "image_width",
+   "fieldtype": "Float",
+   "label": "Image Width (px)",
+   "idx": 8
+  },
+  {
+   "fieldname": "align",
+   "fieldtype": "Select",
+   "label": "Align",
+   "options": "Left\nRight\nCenter",
+   "default": "Left",
+   "idx": 9
+  },
+  {
+   "fieldname": "content",
+   "fieldtype": "HTML",
+   "label": "Header HTML",
+   "idx": 10
+  },
+  {
+   "fieldname": "footer",
+   "fieldtype": "HTML",
+   "label": "Footer HTML",
+   "idx": 11
+  },
+  {
+   "fieldname": "footer_image",
+   "fieldtype": "Attach Image",
+   "label": "Footer Image",
+   "idx": 12
+  },
+  {
+   "fieldname": "footer_image_height",
+   "fieldtype": "Float",
+   "label": "Footer Image Height (px)",
+   "idx": 13
+  },
+  {
+   "fieldname": "footer_image_width",
+   "fieldtype": "Float",
+   "label": "Footer Image Width (px)",
+   "idx": 14
+  },
+  {
+   "fieldname": "footer_align",
+   "fieldtype": "Select",
+   "label": "Footer Align",
+   "options": "Left\nRight\nCenter",
+   "default": "Left",
+   "idx": 15
+  },
+  {
+   "fieldname": "header_script",
+   "fieldtype": "Code",
+   "label": "Header Script",
+   "idx": 16
+  },
+  {
+   "fieldname": "footer_script",
+   "fieldtype": "Code",
+   "label": "Footer Script",
+   "idx": 17
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC"
+}

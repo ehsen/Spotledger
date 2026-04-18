@@ -1,0 +1,62 @@
+{
+ "doctype": "DocType",
+ "name": "Email Template",
+ "module": "Email",
+ "title_field": "name",
+ "search_fields": "name,subject",
+ "field_order": [
+  "subject",
+  "response",
+  "use_html",
+  "response_html"
+ ],
+ "fields": [
+  {
+   "fieldname": "subject",
+   "fieldtype": "Data",
+   "label": "Subject",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "response",
+   "fieldtype": "Long Text",
+   "label": "Response",
+   "idx": 2
+  },
+  {
+   "fieldname": "use_html",
+   "fieldtype": "Check",
+   "label": "Use HTML",
+   "idx": 3
+  },
+  {
+   "fieldname": "response_html",
+   "fieldtype": "Code",
+   "label": "Response HTML",
+   "idx": 4
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "import": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "All",
+   "read": 1
+  }
+ ],
+ "sort_field": "name",
+ "sort_order": "asc"
+}

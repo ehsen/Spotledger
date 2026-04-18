@@ -1,0 +1,221 @@
+{
+ "doctype": "DocType",
+ "name": "Event",
+ "module": "Desk",
+ "autoname": "EV.#####",
+ "title_field": "subject",
+ "search_fields": "subject",
+ "field_order": [
+  "subject",
+  "event_category",
+  "event_type",
+  "starts_on",
+  "ends_on",
+  "all_day",
+  "color",
+  "description",
+  "send_reminder",
+  "status",
+  "repeat_this_event",
+  "repeat_on",
+  "repeat_till",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+  "event_participants",
+  "sync_with_google_calendar",
+  "google_calendar",
+  "reference_doctype",
+  "reference_docname"
+ ],
+ "fields": [
+  {
+   "fieldname": "subject",
+   "fieldtype": "Small Text",
+   "label": "Subject",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "event_category",
+   "fieldtype": "Select",
+   "label": "Event Category",
+   "options": "\nEvent\nMeeting\nCall\nSent/Received Email\nOther",
+   "idx": 2
+  },
+  {
+   "fieldname": "event_type",
+   "fieldtype": "Select",
+   "label": "Event Type",
+   "options": "Private\nPublic\nConfidential",
+   "reqd": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "starts_on",
+   "fieldtype": "Datetime",
+   "label": "Starts On",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 4
+  },
+  {
+   "fieldname": "ends_on",
+   "fieldtype": "Datetime",
+   "label": "Ends On",
+   "idx": 5
+  },
+  {
+   "fieldname": "all_day",
+   "fieldtype": "Check",
+   "label": "All Day",
+   "idx": 6
+  },
+  {
+   "fieldname": "color",
+   "fieldtype": "Color",
+   "label": "Color",
+   "idx": 7
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Long Text",
+   "label": "Description",
+   "idx": 8
+  },
+  {
+   "fieldname": "send_reminder",
+   "fieldtype": "Check",
+   "label": "Send Reminder",
+   "idx": 9
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Open\nClosed\nCancelled",
+   "idx": 10
+  },
+  {
+   "fieldname": "repeat_this_event",
+   "fieldtype": "Check",
+   "label": "Repeat This Event",
+   "idx": 11
+  },
+  {
+   "fieldname": "repeat_on",
+   "fieldtype": "Select",
+   "label": "Repeat On",
+   "options": "\nDaily\nWeekly\nMonthly\nYearly",
+   "idx": 12
+  },
+  {
+   "fieldname": "repeat_till",
+   "fieldtype": "Date",
+   "label": "Repeat Till",
+   "idx": 13
+  },
+  {
+   "fieldname": "monday",
+   "fieldtype": "Check",
+   "label": "Monday",
+   "idx": 14
+  },
+  {
+   "fieldname": "tuesday",
+   "fieldtype": "Check",
+   "label": "Tuesday",
+   "idx": 15
+  },
+  {
+   "fieldname": "wednesday",
+   "fieldtype": "Check",
+   "label": "Wednesday",
+   "idx": 16
+  },
+  {
+   "fieldname": "thursday",
+   "fieldtype": "Check",
+   "label": "Thursday",
+   "idx": 17
+  },
+  {
+   "fieldname": "friday",
+   "fieldtype": "Check",
+   "label": "Friday",
+   "idx": 18
+  },
+  {
+   "fieldname": "saturday",
+   "fieldtype": "Check",
+   "label": "Saturday",
+   "idx": 19
+  },
+  {
+   "fieldname": "sunday",
+   "fieldtype": "Check",
+   "label": "Sunday",
+   "idx": 20
+  },
+  {
+   "fieldname": "event_participants",
+   "fieldtype": "Table",
+   "label": "Event Participants",
+   "options": "Event Participants",
+   "idx": 21
+  },
+  {
+   "fieldname": "sync_with_google_calendar",
+   "fieldtype": "Check",
+   "label": "Sync With Google Calendar",
+   "idx": 22
+  },
+  {
+   "fieldname": "google_calendar",
+   "fieldtype": "Link",
+   "label": "Google Calendar",
+   "options": "Google Calendar",
+   "idx": 23
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference DocType",
+   "options": "DocType",
+   "idx": 24
+  },
+  {
+   "fieldname": "reference_docname",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference Document",
+   "options": "reference_doctype",
+   "idx": 25
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "import": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "All",
+   "read": 1
+  }
+ ],
+ "sort_field": "starts_on",
+ "sort_order": "DESC"
+}

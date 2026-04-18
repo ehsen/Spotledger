@@ -1,0 +1,222 @@
+{
+ "doctype": "DocType",
+ "name": "Email Account",
+ "module": "Email",
+ "autoname": "field:email_account_name",
+ "title_field": "email_account_name",
+ "search_fields": "email_id,email_account_name",
+ "field_order": [
+  "email_id",
+  "email_account_name",
+  "service",
+  "domain",
+  "login_id",
+  "password",
+  "enable_incoming",
+  "email_server",
+  "use_imap",
+  "use_ssl",
+  "append_to",
+  "default_incoming",
+  "enable_outgoing",
+  "smtp_server",
+  "use_tls",
+  "smtp_port",
+  "default_outgoing",
+  "send_unsubscribe_message",
+  "track_email_status",
+  "add_signature",
+  "signature",
+  "enable_auto_reply",
+  "auto_reply_message",
+  "auth_method",
+  "connected_app",
+  "connected_user"
+ ],
+ "fields": [
+  {
+   "fieldname": "email_id",
+   "fieldtype": "Data",
+   "label": "Email ID",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "email_account_name",
+   "fieldtype": "Data",
+   "label": "Email Account Name",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "service",
+   "fieldtype": "Select",
+   "label": "Service",
+   "options": "\nGMail\nSendGrid\nSparkPost\nYahoo Mail\nOutlook\nOffice 365\nSendmail\nCustom",
+   "idx": 3
+  },
+  {
+   "fieldname": "domain",
+   "fieldtype": "Link",
+   "label": "Email Domain",
+   "options": "Email Domain",
+   "idx": 4
+  },
+  {
+   "fieldname": "login_id",
+   "fieldtype": "Data",
+   "label": "Login ID",
+   "idx": 5
+  },
+  {
+   "fieldname": "password",
+   "fieldtype": "Password",
+   "label": "Password",
+   "idx": 6
+  },
+  {
+   "fieldname": "enable_incoming",
+   "fieldtype": "Check",
+   "label": "Enable Incoming",
+   "idx": 7
+  },
+  {
+   "fieldname": "email_server",
+   "fieldtype": "Data",
+   "label": "Incoming Mail Server",
+   "idx": 8
+  },
+  {
+   "fieldname": "use_imap",
+   "fieldtype": "Check",
+   "label": "Use IMAP",
+   "idx": 9
+  },
+  {
+   "fieldname": "use_ssl",
+   "fieldtype": "Check",
+   "label": "Use SSL",
+   "idx": 10
+  },
+  {
+   "fieldname": "append_to",
+   "fieldtype": "Link",
+   "label": "Append To",
+   "options": "DocType",
+   "idx": 11
+  },
+  {
+   "fieldname": "default_incoming",
+   "fieldtype": "Check",
+   "label": "Default Incoming",
+   "idx": 12
+  },
+  {
+   "fieldname": "enable_outgoing",
+   "fieldtype": "Check",
+   "label": "Enable Outgoing",
+   "idx": 13
+  },
+  {
+   "fieldname": "smtp_server",
+   "fieldtype": "Data",
+   "label": "SMTP Server",
+   "idx": 14
+  },
+  {
+   "fieldname": "use_tls",
+   "fieldtype": "Check",
+   "label": "Use TLS",
+   "idx": 15
+  },
+  {
+   "fieldname": "smtp_port",
+   "fieldtype": "Data",
+   "label": "SMTP Port",
+   "idx": 16
+  },
+  {
+   "fieldname": "default_outgoing",
+   "fieldtype": "Check",
+   "label": "Default Outgoing",
+   "idx": 17
+  },
+  {
+   "fieldname": "send_unsubscribe_message",
+   "fieldtype": "Check",
+   "label": "Send Unsubscribe Message",
+   "idx": 18
+  },
+  {
+   "fieldname": "track_email_status",
+   "fieldtype": "Check",
+   "label": "Track Email Status",
+   "idx": 19
+  },
+  {
+   "fieldname": "add_signature",
+   "fieldtype": "Check",
+   "label": "Add Signature",
+   "idx": 20
+  },
+  {
+   "fieldname": "signature",
+   "fieldtype": "Long Text",
+   "label": "Signature",
+   "idx": 21
+  },
+  {
+   "fieldname": "enable_auto_reply",
+   "fieldtype": "Check",
+   "label": "Enable Auto Reply",
+   "idx": 22
+  },
+  {
+   "fieldname": "auto_reply_message",
+   "fieldtype": "Long Text",
+   "label": "Auto Reply Message",
+   "idx": 23
+  },
+  {
+   "fieldname": "auth_method",
+   "fieldtype": "Select",
+   "label": "Auth Method",
+   "options": "Basic\nOAuth",
+   "idx": 24
+  },
+  {
+   "fieldname": "connected_app",
+   "fieldtype": "Link",
+   "label": "Connected App",
+   "options": "Connected App",
+   "idx": 25
+  },
+  {
+   "fieldname": "connected_user",
+   "fieldtype": "Link",
+   "label": "Connected User",
+   "options": "User",
+   "idx": 26
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "import": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "email_account_name",
+ "sort_order": "asc"
+}

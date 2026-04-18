@@ -1,0 +1,39 @@
+{
+ "doctype": "DocType",
+ "name": "Gender",
+ "module": "Contacts",
+ "autoname": "field:gender",
+ "field_order": [
+  "gender"
+ ],
+ "fields": [
+  {
+   "fieldname": "gender",
+   "fieldtype": "Data",
+   "label": "Gender",
+   "unique": 1,
+   "idx": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "All",
+   "read": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

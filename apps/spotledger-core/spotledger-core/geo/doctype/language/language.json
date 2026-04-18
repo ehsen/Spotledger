@@ -1,0 +1,103 @@
+{
+ "doctype": "DocType",
+ "name": "Language",
+ "module": "Core",
+ "autoname": "field:language_code",
+ "title_field": "language_name",
+ "search_fields": "language_name",
+ "track_changes": 1,
+ "field_order": [
+  "language_code",
+  "language_name",
+  "flag",
+  "based_on",
+  "enabled",
+  "date_format",
+  "time_format",
+  "number_format",
+  "first_day_of_the_week"
+ ],
+ "fields": [
+  {
+   "fieldname": "language_code",
+   "fieldtype": "Data",
+   "label": "Language Code",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "language_name",
+   "fieldtype": "Data",
+   "label": "Language Name",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "flag",
+   "fieldtype": "Data",
+   "label": "Flag",
+   "in_list_view": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "based_on",
+   "fieldtype": "Link",
+   "label": "Based On",
+   "options": "Language",
+   "idx": 4
+  },
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled",
+   "default": "1",
+   "idx": 5
+  },
+  {
+   "fieldname": "date_format",
+   "fieldtype": "Select",
+   "label": "Date Format",
+   "options": "\nyyyy-mm-dd\ndd-mm-yyyy\ndd/mm/yyyy\ndd.mm.yyyy\nmm/dd/yyyy\nmm-dd-yyyy",
+   "idx": 6
+  },
+  {
+   "fieldname": "time_format",
+   "fieldtype": "Select",
+   "label": "Time Format",
+   "options": "\nHH:mm:ss\nHH:mm",
+   "idx": 7
+  },
+  {
+   "fieldname": "number_format",
+   "fieldtype": "Select",
+   "label": "Number Format",
+   "options": "\n#,###.##\n#.###,##\n# ###.##\n# ###,##\n#'###.##\n#, ###.##\n#,##,###.##\n#,###.###\n#.###\n#,###",
+   "idx": 8
+  },
+  {
+   "fieldname": "first_day_of_the_week",
+   "fieldtype": "Select",
+   "label": "First Day of the Week",
+   "options": "\nSunday\nMonday\nTuesday\nWednesday\nThursday\nFriday\nSaturday",
+   "idx": 9
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "All",
+   "read": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC"
+}

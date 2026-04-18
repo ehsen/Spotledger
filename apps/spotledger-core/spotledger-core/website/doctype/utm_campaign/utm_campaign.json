@@ -1,0 +1,47 @@
+{
+ "doctype": "DocType",
+ "name": "UTM Campaign",
+ "module": "Website",
+ "title_field": "name",
+ "search_fields": "name",
+ "field_order": [
+  "campaign_description",
+  "slug"
+ ],
+ "fields": [
+  {
+   "fieldname": "campaign_description",
+   "fieldtype": "Small Text",
+   "label": "Campaign Description",
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "slug",
+   "fieldtype": "Data",
+   "label": "Slug",
+   "idx": 2
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "import": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "All",
+   "read": 1
+  }
+ ],
+ "sort_field": "name",
+ "sort_order": "asc"
+}
