@@ -492,44 +492,33 @@ async fn classify_fields<'a>(
         return Ok(new_fields.iter().map(|f| (f, FieldDdlAction::Add)).collect());
     }
 
-    // Fetch existing field signatures from tabDocField
+    // Fetch existing fieldnames from tabDocField
     let rows = adapter
         .run(
-            "SELECT fieldname, fieldtype, default_value, not_nullable \
+            "SELECT fieldname \
              FROM tabDocField WHERE parent = $dt AND parenttype = 'DocType'",
             vec![("dt".into(), Value::String(doctype.to_owned()))],
         )
         .await?;
 
-    // Build a map: fieldname → (fieldtype, default_value, not_nullable)
-    let mut existing: HashMap<String, (String, String, bool)> = HashMap::new();
-    for row in rows {
-        let Some(fn_) = row.get("fieldname").and_then(Value::as_str).map(str::to_owned)
-            else { continue };
-        let ft  = row.get("fieldtype").and_then(Value::as_str).unwrap_or("").to_owned();
-        let dv  = row.get("default_value").and_then(Value::as_str).unwrap_or("").to_owned();
-        let nn  = bool_field(&row, "not_nullable");
-        existing.insert(fn_, (ft, dv, nn));
-    }
+    // Build a set of existing fieldnames
+    let existing: std::collections::HashSet<String> = rows
+        .into_iter()
+        .filter_map(|row| row.get("fieldname").and_then(Value::as_str).map(str::to_owned))
+        .collect();
 
     let mut result = Vec::with_capacity(new_fields.len());
     for f in new_fields {
         if is_layout_type(&f.fieldtype) {
             continue;
         }
+        // Always use Overwrite for existing fields so that a resave always
+        // re-applies DEFINE FIELD even when the tabDocField metadata hasn't
+        // changed.  This repairs tables where the initial DDL was silently
+        // swallowed (e.g. due to an earlier bug in execute not calling check()).
         let action = match existing.get(&f.fieldname) {
             None => FieldDdlAction::Add,
-            Some((old_ft, old_dv, old_nn)) => {
-                let new_dv = f.default_value.as_deref().unwrap_or("");
-                if old_ft.to_lowercase() != f.fieldtype.to_lowercase()
-                    || old_dv.as_str() != new_dv
-                    || *old_nn != f.not_nullable
-                {
-                    FieldDdlAction::Overwrite
-                } else {
-                    FieldDdlAction::Unchanged
-                }
-            }
+            Some(_) => FieldDdlAction::Overwrite,
         };
         result.push((f, action));
     }
@@ -980,7 +969,7 @@ mod tests {
             default_value: None, description: None, idx: 2,
             extra_attrs: Default::default(),
         };
-        let content = build_docfield_content(&f, "Airlines");
+        let content = build_docfield_content(&f, "Airlines", "Administrator", true);
         let obj = content.as_object().unwrap();
         assert_eq!(obj["name"].as_str().unwrap(),        "Airlines-airline_name");
         assert_eq!(obj["parent"].as_str().unwrap(),      "Airlines");
@@ -997,11 +986,11 @@ mod tests {
             role: "System Manager".into(), permlevel: 0,
             read: true, write: true, perm_create: true, perm_delete: false,
             perm_select: false, perm_cancel: false,
-            submit: false, cancel: false, amend: false,
+            submit: false, amend: false,
             report: true, import: false, export: true, print: true,
             email: false, share: false, if_owner: false, idx: 0,
         };
-        let content = build_docperm_content(&p, "Airlines");
+        let content = build_docperm_content(&p, "Airlines", "Administrator");
         let obj = content.as_object().unwrap();
         assert_eq!(obj["name"].as_str().unwrap(),       "Airlines-System Manager-0");
         assert_eq!(obj["parent"].as_str().unwrap(),     "Airlines");
@@ -1067,9 +1056,10 @@ mod tests {
             custom:         true,
             fields:         vec![],
             perms:          vec![],
+            user:           "Administrator".into(),
             extra_meta:     Default::default(),
         };
-        let content = build_doctype_content(&input);
+        let content = build_doctype_content(&input, "Administrator", false);
         let obj = content.as_object().unwrap();
         assert_eq!(obj["name"].as_str().unwrap(),    "Airlines");
         assert_eq!(obj["module"].as_str().unwrap(),  "Custom");

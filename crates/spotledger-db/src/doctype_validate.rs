@@ -457,6 +457,7 @@ mod tests {
             custom:         true,
             fields:         vec![],
             perms:          vec![],
+            user:           "Administrator".into(),
             extra_meta:     Default::default(),
         }
     }
@@ -498,7 +499,6 @@ mod tests {
             perm_select: false,
             perm_cancel: false,
             submit:      false,
-            cancel:      false,
             amend:       false,
             report:      true,
             import:      false,

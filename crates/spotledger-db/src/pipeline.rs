@@ -94,6 +94,20 @@ pub async fn apply_pipeline_functions(
         apply_surql_dir_named(adapter, &doctypes_dir, Some("wiring.surql")).await?;
     tracing::debug!("pipeline: applied {} domain wiring.surql files", wiring_count);
 
+    // ── 9. Naming functions (framework-level, not a pipeline stage) ──────────
+    let naming_file = fw_dir.join("05_naming.surql");
+    if naming_file.exists() {
+        apply_surql_file(adapter, &naming_file).await?;
+        tracing::debug!("pipeline: applied naming functions");
+    }
+
+    // ── 10. Permission functions (framework-level graph-based RBAC) ──────────
+    let permissions_file = fw_dir.join("06_permissions.surql");
+    if permissions_file.exists() {
+        apply_surql_file(adapter, &permissions_file).await?;
+        tracing::debug!("pipeline: applied permission functions");
+    }
+
     Ok(fn_names.len())
 }
 
@@ -194,6 +208,13 @@ pub async fn run_pipeline(
 
     if status == "skipped" {
         Ok(PipelineResult::Skipped)
+    } else if status == "error" {
+        let msg = result
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("Pipeline validation error")
+            .to_owned();
+        Err(DbError::Other(msg))
     } else {
         Ok(PipelineResult::Ok)
     }
