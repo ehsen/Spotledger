@@ -19,6 +19,7 @@ use std::sync::Arc;
 use spotledger_db::auth::{
     create_session, expire_session, get_password_hash, get_session, lookup_user, verify_password,
 };
+use spotledger_db::jwt::{derive_signing_secret, issue_token, verify_token};
 use spotledger_core::response::{ErrorResponse, MethodResponse};
 
 use crate::state::SiteState;
@@ -135,11 +136,16 @@ pub async fn login_handler(
     });
 
     // 7. Set cookies
+    let jwt_secret = derive_signing_secret(&site.config.database.db, &site.config.database.pass);
+    let jwt = issue_token(&user_info.name, &jwt_secret).unwrap_or_default();
+
     let system_user_val = if is_system_user { "yes" } else { "no" };
     let full_name_encoded = urlencodelight(&full_name);
     let path = "Path=/; SameSite=Lax";
     let cookies: &[String] = &[
         format!("sid={sid}; HttpOnly; {path}"),
+        // Stateless JWT token — verified in middleware without a DB lookup.
+        format!("token={jwt}; HttpOnly; {path}"),
         format!("user_id={}; {path}", user_info.name),
         format!("full_name={full_name_encoded}; {path}"),
         format!("system_user={system_user_val}; {path}"),
@@ -177,6 +183,7 @@ pub async fn logout_handler(
     let expired = "Thu, 01 Jan 1970 00:00:00 GMT";
     let cookies: &[String] = &[
         format!("sid=; Expires={expired}; HttpOnly; Path=/; SameSite=Lax"),
+        format!("token=; Expires={expired}; HttpOnly; Path=/; SameSite=Lax"),
         format!("user_id=; Expires={expired}; Path=/; SameSite=Lax"),
         format!("full_name=; Expires={expired}; Path=/; SameSite=Lax"),
         format!("system_user=; Expires={expired}; Path=/; SameSite=Lax"),
@@ -204,12 +211,28 @@ pub async fn get_logged_user_handler(
     Extension(site): Extension<Arc<SiteState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let user = match extract_sid_cookie(&headers) {
-        Some(sid) => match get_session(&site.db, &sid).await {
-            Ok(Some(session)) => session.user,
-            _ => "Guest".to_owned(),
-        },
-        None => "Guest".to_owned(),
+    let user = {
+        // 1. Try the stateless JWT token cookie first (no DB call).
+        let jwt_user = extract_token_cookie(&headers).and_then(|token| {
+            let secret = derive_signing_secret(
+                &site.config.database.db,
+                &site.config.database.pass,
+            );
+            verify_token(&token, &secret)
+        });
+
+        if let Some(u) = jwt_user {
+            u
+        } else {
+            // 2. Fall back to the sid session cookie (DB lookup).
+            match extract_sid_cookie(&headers) {
+                Some(sid) => match get_session(&site.db, &sid).await {
+                    Ok(Some(session)) => session.user,
+                    _ => "Guest".to_owned(),
+                },
+                None => "Guest".to_owned(),
+            }
+        }
     };
 
     let body = MethodResponse {
@@ -231,6 +254,21 @@ pub fn extract_sid_cookie(headers: &HeaderMap) -> Option<String> {
                 .map(str::trim)
                 .find(|s| s.starts_with("sid="))
                 .map(|s| s[4..].to_owned())
+        })
+        .filter(|s| !s.is_empty())
+}
+
+/// Extract the `token` (JWT) value from the `Cookie` request header.
+pub fn extract_token_cookie(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|cookie_str| {
+            cookie_str
+                .split(';')
+                .map(str::trim)
+                .find(|s| s.starts_with("token="))
+                .map(|s| s[6..].to_owned())
         })
         .filter(|s| !s.is_empty())
 }
