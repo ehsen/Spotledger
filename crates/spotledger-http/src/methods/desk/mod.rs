@@ -1214,84 +1214,52 @@ async fn get_user_roles(db: &DbAdapter, user: &str) -> Vec<String> {
 
 /// Build the per-doctype `can_read / can_write / can_create / can_delete` lists.
 ///
-/// For Administrator we grant everything.  For other users we check DocPerm
-/// against their role list.
+/// Delegates to `fn::permissions::get_boot_permissions()` in SurrealDB,
+/// which replaces the previous multi-query Rust implementation.
 async fn build_permission_lists(
     db: &DbAdapter,
     user: &str,
-    roles: &[String],
+    _roles: &[String],
 ) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
-    // Fetch all DocType names
-    let all_doctypes: Vec<String> = get_list(db, "DocType", Some(&["name", "issubmittable"]), None, 5000, 0)
+    let rows = db
+        .run(
+            "RETURN fn::permissions::get_boot_permissions($user)",
+            vec![("user".into(), user.to_owned().into())],
+        )
         .await
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|r| r.get("name").and_then(|v| v.as_str()).map(String::from))
-        .collect();
+        .unwrap_or_default();
 
-    if user == "Administrator" || roles.contains(&"System Manager".to_string()) {
-        let submittable: Vec<String> = get_list(db, "DocType", Some(&["name"]),
-            Some(&json!({"issubmittable": 1})), 5000, 0)
-            .await.unwrap_or_default()
-            .into_iter()
-            .filter_map(|r| r.get("name").and_then(|v| v.as_str()).map(String::from))
-            .collect();
-
-        return (
-            all_doctypes.clone(),   // can_read
-            all_doctypes.clone(),   // can_write
-            all_doctypes.clone(),   // can_create
-            all_doctypes.clone(),   // can_delete
-            submittable.clone(),    // can_submit
-            submittable,            // can_cancel
-        );
-    }
-
-    // For ordinary users: evaluate DocPerm rows
-    // DocPerm is embedded in DocType.permissions array<object>
-    // We do a simplified check: any row where role is in user's roles grants the permission.
-    let mut can_read   = vec![];
-    let mut can_write  = vec![];
-    let mut can_create = vec![];
-    let mut can_delete = vec![];
-    let mut can_submit = vec![];
-    let mut can_cancel = vec![];
-
-    let doctype_rows = get_list(
-        db, "DocType",
-        Some(&["name", "issubmittable", "permissions"]),
-        None, 5000, 0,
-    ).await.unwrap_or_default();
-
-    for row in doctype_rows {
-        let dt_name = match row.get("name").and_then(|v| v.as_str()) {
-            Some(n) => n.to_string(),
-            None => continue,
-        };
-        let perms = match row.get("permissions").and_then(|v| v.as_array()) {
-            Some(p) => p,
-            None => continue,
-        };
-        for perm in perms {
-            let role = perm.get("role").and_then(|v| v.as_str()).unwrap_or("");
-            if !roles.contains(&role.to_string()) {
-                continue;
-            }
-            let flag = |key: &str| -> bool {
-                perm.get(key)
-                    .map(|v| v.as_i64().unwrap_or(0) != 0 || v.as_bool().unwrap_or(false))
-                    .unwrap_or(false)
-            };
-            if flag("read")   { can_read.push(dt_name.clone()); break; }
-            if flag("write")  { can_write.push(dt_name.clone()); }
-            if flag("create") { can_create.push(dt_name.clone()); }
-            if flag("delete") { can_delete.push(dt_name.clone()); }
-            if flag("submit") { can_submit.push(dt_name.clone()); }
-            if flag("cancel") { can_cancel.push(dt_name.clone()); }
+    let obj = match rows.into_iter().next().filter(|v| v.is_object()) {
+        Some(o) => o,
+        None => {
+            // Function not installed — fall back to empty lists.
+            tracing::warn!(
+                user = %user,
+                "fn::permissions::get_boot_permissions not available; falling back to empty permission lists"
+            );
+            return (vec![], vec![], vec![], vec![], vec![], vec![]);
         }
-    }
+    };
 
-    (can_read, can_write, can_create, can_delete, can_submit, can_cancel)
+    let extract_list = |key: &str| -> Vec<String> {
+        obj.get(key)
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    (
+        extract_list("can_read"),
+        extract_list("can_write"),
+        extract_list("can_create"),
+        extract_list("can_delete"),
+        extract_list("can_submit"),
+        extract_list("can_cancel"),
+    )
 }
 
 /// Build the full `user` sub-object for bootinfo.

@@ -503,7 +503,6 @@ impl Share {
 ///
 /// 1. If user is Administrator → return true
 /// 2. Delegate to `fn::permissions::has()` SurrealDB function (single graph traversal)
-/// 3. Fall back to Rust implementation if the function is not yet installed
 pub async fn has_permission(
     adapter: &DbAdapter,
     user: &str,
@@ -515,9 +514,9 @@ pub async fn has_permission(
         return Ok(true);
     }
 
-    // Try SurrealDB graph-traversal function first
+    // Delegate to SurrealDB graph-traversal function.
     let ptype_str = ptype.as_db_field();
-    if let Some(val) = adapter
+    let result = adapter
         .run(
             "RETURN fn::permissions::has($user, $doctype, $ptype);",
             vec![
@@ -533,40 +532,15 @@ pub async fn has_permission(
                 v.as_bool().or_else(|| v.as_i64().map(|n| n != 0))
             })
         })
-    {
-        return Ok(val);
-    }
+        .unwrap_or(false);
 
-    // Fallback: Rust implementation (used if fn::permissions not yet installed)
-    has_permission_rust(adapter, user, doctype, ptype).await
-}
-
-/// Rust fallback implementation — used when the SurrealDB function is not installed.
-async fn has_permission_rust(
-    adapter: &DbAdapter,
-    user: &str,
-    doctype: &str,
-    ptype: PermissionType,
-) -> Result<bool, DbError> {
-    let roles = get_user_roles(adapter, user).await?;
-
-    // System Manager has all doctype-level permissions
-    if roles.iter().any(|r| r == &Role::system_manager()) {
-        return Ok(true);
-    }
-
-    if roles.is_empty() {
-        return Ok(false);
-    }
-
-    let perms = get_doc_permissions_by_roles(adapter, &roles, doctype).await?;
-    Ok(perms.has(ptype))
+    Ok(result)
 }
 
 /// Get all permissions for a user on a DocType.
 ///
 /// Aggregates permissions across all user's roles using OR logic.
-/// Delegates to `fn::permissions::get_all()` SurrealDB function when available.
+/// Delegates to `fn::permissions::get_all()` SurrealDB function.
 pub async fn get_doc_permissions(
     adapter: &DbAdapter,
     user: &str,
@@ -577,8 +551,8 @@ pub async fn get_doc_permissions(
         return Ok(DocPermission::all());
     }
 
-    // Try SurrealDB function first (single graph traversal)
-    if let Some(obj) = adapter
+    // Delegate to SurrealDB function (single graph traversal).
+    let rows = adapter
         .run(
             "RETURN fn::permissions::get_all($user, $doctype);",
             vec![
@@ -587,10 +561,9 @@ pub async fn get_doc_permissions(
             ],
         )
         .await
-        .ok()
-        .and_then(|rows| rows.into_iter().next())
-        .filter(|v| v.is_object())
-    {
+        .unwrap_or_default();
+
+    if let Some(obj) = rows.into_iter().next().filter(|v| v.is_object()) {
         return Ok(DocPermission {
             select: extract_bool(&obj, "select"),
             read:   extract_bool(&obj, "read"),
@@ -609,15 +582,8 @@ pub async fn get_doc_permissions(
         });
     }
 
-    // Fallback: Rust implementation
-    let roles = get_user_roles(adapter, user).await?;
-    if roles.iter().any(|r| r == &Role::system_manager()) {
-        return Ok(DocPermission::all());
-    }
-    if roles.is_empty() {
-        return Ok(DocPermission::none());
-    }
-    get_doc_permissions_by_roles(adapter, &roles, doctype).await
+    // Function not installed yet or returned NONE — deny all.
+    Ok(DocPermission::none())
 }
 
 /// Internal: Get all permissions for specific roles on a DocType.
