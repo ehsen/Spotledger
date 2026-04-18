@@ -50,6 +50,7 @@ fn minimal_input(doctype: &str) -> DoctypeSaveInput {
         custom:         true,
         fields:         vec![],
         perms:          vec![],
+        user:           "Administrator".into(),
         extra_meta:     HashMap::new(),
     }
 }
@@ -289,7 +290,7 @@ async fn test_save_new_doctype_defines_surreal_fields() {
             vec![
                 ("table".into(), Value::String("tabTestAirlineField".into())),
                 ("name".into(),  Value::String("xx".into())),
-                ("c".into(), serde_json::json!({ "name": "xx", "iata_code": "AA" })),
+                ("c".into(), serde_json::json!({ "name": "xx", "iata_code": "AA", "docstatus": 0, "idx": 0 })),
             ],
         )
         .await
@@ -375,6 +376,7 @@ async fn test_save_tier0_name_blocked_by_validation() {
         custom:         false,
         fields:         vec![],
         perms:          vec![],
+        user:           "Administrator".into(),
         extra_meta:     HashMap::new(),
     };
 
@@ -403,6 +405,7 @@ async fn test_save_doctype_empty_name_returns_validation_error() {
         custom:         true,
         fields:         vec![],
         perms:          vec![],
+        user:           "Administrator".into(),
         extra_meta:     HashMap::new(),
     };
     let result = save_doctype(&adapter, &cache, input).await;
@@ -500,7 +503,7 @@ async fn test_save_existing_doctype_adds_new_surreal_field() {
     // The field should now be DEFINED and writable
     adapter
         .execute(
-            "UPSERT type::record('tabTestAirlineAddField', 'test') SET iata_code = 'AB'",
+            "UPSERT type::record('tabTestAirlineAddField', 'test') CONTENT { name: 'test', iata_code: 'AB', docstatus: 0, idx: 0 }",
             vec![],
         )
         .await

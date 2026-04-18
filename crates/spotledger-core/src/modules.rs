@@ -10,7 +10,7 @@
 /// regular records created at install time.
 ///
 /// # Usage
-/// ```
+/// ```ignore
 /// use spotledger_core::modules::FM;
 ///
 /// let meta = DocTypeMeta { module: FM::CORE.into(), .. };
@@ -39,17 +39,15 @@ impl FM {
     ///
     /// Each tuple is `(module_name, app_name, label, icon, order, show_in_menu)`.
     pub const FRAMEWORK_MODULES: &'static [ModuleSeed] = &[
-        ModuleSeed { name: Self::CORE,       app: "frappe", label: "Core",       icon: "cpu",              order:  10, show_in_menu: false },
-        ModuleSeed { name: Self::CUSTOM,     app: "frappe", label: "Custom",     icon: "sliders",          order:  20, show_in_menu: false },
-        ModuleSeed { name: Self::DESK,       app: "frappe", label: "Desk",       icon: "layout-dashboard", order:  30, show_in_menu: true  },
-        ModuleSeed { name: Self::EMAIL,      app: "frappe", label: "Email",      icon: "mail",             order:  40, show_in_menu: false },
-        ModuleSeed { name: Self::GEO,        app: "frappe", label: "Geo",        icon: "globe",            order:  50, show_in_menu: false },
-        ModuleSeed { name: Self::PRINTING,   app: "frappe", label: "Printing",   icon: "printer",          order:  60, show_in_menu: false },
-        ModuleSeed { name: Self::WEBSITE,    app: "frappe", label: "Website",    icon: "globe",            order:  70, show_in_menu: false },
-        ModuleSeed { name: Self::SETUP,      app: "frappe", label: "Setup",      icon: "settings",         order:  80, show_in_menu: true  },
-        ModuleSeed { name: Self::CONTACTS,   app: "frappe", label: "Contacts",   icon: "users",            order:  90, show_in_menu: true  },
-        ModuleSeed { name: Self::ACCOUNTS,   app: "erpnext", label: "Accounts",  icon: "calculator",       order: 100, show_in_menu: true  },
-        ModuleSeed { name: Self::AUTOMATION, app: "frappe", label: "Automation", icon: "zap",              order: 110, show_in_menu: false },
+        // Tier-0 modules: always present, hard-coded in the binary.
+        ModuleSeed { name: Self::CORE,   app: "spotledger", label: "Core",   icon: "cpu",     order: 10, show_in_menu: false },
+        ModuleSeed { name: Self::CUSTOM, app: "spotledger", label: "Custom", icon: "sliders", order: 20, show_in_menu: false },
+        // NOTE: Contacts, Geo, Email, Desk, Website, Printing, Automation, Setup,
+        // and Accounts are now provided by DB-native apps (spotledger-core, erpnext)
+        // and are seeded via `install-app` / `new-site` auto-install rather than
+        // being hard-coded here. Removing them from this list does not delete
+        // the module name constants (FM::CONTACTS etc.) — those remain for
+        // use in DocType metadata.
     ];
 }
 
