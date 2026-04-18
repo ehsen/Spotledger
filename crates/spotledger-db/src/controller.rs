@@ -23,6 +23,7 @@
 //! ```
 
 use chrono::Utc;
+use serde_json::Value;
 use spotledger_core::document::Document;
 use spotledger_core::error::CoreError;
 use spotledger_core::meta::DocTypeMeta;
@@ -35,7 +36,6 @@ use crate::adapter::DbAdapter;
 use crate::document::{get_doc, insert_doc, upsert_doc, delete_doc as db_delete};
 use crate::error::DbError;
 use crate::hooks::{HookEvent, HookRegistry};
-use crate::naming::resolve_name;
 
 // ── save_doc ──────────────────────────────────────────────────────────────────
 
@@ -69,9 +69,41 @@ pub async fn save_doc(
     // ── 2. Resolve name (new documents only) ──────────────────────────────────
     if is_new && doc.name.is_empty() {
         let doc_val = doc.as_dict();
-        let name = resolve_name(adapter, &meta.name, &doc_val, meta.autoname.as_deref())
+        let mut naming_val = doc_val.clone();
+        if let Value::Object(ref mut m) = naming_val {
+            m.remove("name");
+            m.remove("__islocal");
+        }
+        let name = adapter
+            .run(
+                "RETURN fn::naming::resolve($doctype, $doc);",
+                vec![
+                    ("doctype".into(), meta.name.clone().into()),
+                    ("doc".into(),     naming_val),
+                ],
+            )
             .await
-            .map_err(|e| CoreError::Other(e.to_string()))?;
+            .map_err(|e| CoreError::Other(e.to_string()))?
+            .into_iter()
+            .next()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .filter(|s| !s.is_empty() && s != "NONE")
+            .unwrap_or_else(|| {
+                // Only fallback: compiled meta autoname hint (Tier-0 doctypes).
+                // After install-app, fn::naming::resolve always handles this.
+                if let Some(hint) = meta.autoname.as_deref() {
+                    if hint.starts_with("field:") {
+                        let fieldname = &hint["field:".len()..];
+                        if let Some(v) = doc_val.get(fieldname).and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                            return v.to_owned();
+                        }
+                    }
+                }
+                format!("new-{:08x}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default().subsec_nanos())
+            });
         doc.name = name;
     }
 

@@ -27,7 +27,6 @@ use crate::adapter::DbAdapter;
 use crate::document::{doctype_to_table, get_doc};
 use crate::error::DbError;
 use crate::meta_cache::MetaCache;
-use crate::naming::resolve_name;
 use crate::permissions::{has_permission, PermissionType};
 use crate::pipeline::{run_pipeline, PipelineResult};
 
@@ -130,12 +129,34 @@ pub async fn save_doc_proxy(
     }
 
     // ── 3b. Resolve name for new documents ───────────────────────────────────
-    // type::record() requires an explicit name; resolve it from doc fields /
-    // DocumentNamingRule / UUID fallback, matching the Tier-0 path.
+    // Naming is handled exclusively in SurrealDB via fn::naming::resolve.
+    // Rust has no fallback — if the function is unavailable the save fails with
+    // a clear error rather than silently producing a wrong name.
     if is_new && name.is_empty() {
-        let resolved = resolve_name(adapter, doctype, &doc, None)
+        let mut naming_doc = doc.clone();
+        if let Value::Object(ref mut m) = naming_doc {
+            m.remove("name");
+            m.remove("__islocal");
+            m.remove("__newname");
+            m.remove("__unsaved");
+        }
+        let resolved = adapter
+            .run(
+                "RETURN fn::naming::resolve($doctype, $doc);",
+                vec![
+                    ("doctype".into(), json!(doctype)),
+                    ("doc".into(),     naming_doc),
+                ],
+            )
             .await
-            .map_err(|e| SaveProxyError::Db(e))?;
+            .map_err(SaveProxyError::Db)?
+            .into_iter()
+            .next()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .filter(|s| !s.is_empty() && s != "NONE")
+            .ok_or_else(|| SaveProxyError::Db(DbError::Other(
+                "fn::naming::resolve returned no name".into()
+            )))?;
         if let Value::Object(ref mut map) = doc {
             map.insert("name".into(), Value::String(resolved));
         }
@@ -245,7 +266,7 @@ pub async fn save_doc_proxy(
                     )
                     .await;
             }
-            return Err(SaveProxyError::Pipeline(e.to_string()));
+            return Err(SaveProxyError::Pipeline(extract_thrown_message(&e.to_string())));
         }
     }
 }
@@ -297,7 +318,7 @@ pub async fn submit_doc_proxy(
                 .await?;
             return Ok(rows.into_iter().next().unwrap_or(Value::Null));
         }
-        Err(e) => return Err(SaveProxyError::Pipeline(e.to_string())),
+        Err(e) => return Err(SaveProxyError::Pipeline(extract_thrown_message(&e.to_string()))),
     }
 }
 
@@ -348,6 +369,24 @@ pub async fn cancel_doc_proxy(
                 .await?;
             return Ok(rows.into_iter().next().unwrap_or(Value::Null));
         }
-        Err(e) => return Err(SaveProxyError::Pipeline(e.to_string())),
+        Err(e) => return Err(SaveProxyError::Pipeline(extract_thrown_message(&e.to_string()))),
     }
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+/// Extract a clean user-facing message from a SurrealDB error string.
+///
+/// SurrealDB THROW errors arrive as:
+///   "SurrealDB error: An error occurred: <message>"
+///
+/// Strip the boilerplate prefix so the client sees the actual validation text.
+fn extract_thrown_message(raw: &str) -> String {
+    // Try known SurrealDB error boilerplate prefixes in order
+    for needle in &["Thrown: ", "An error occurred: "] {
+        if let Some(pos) = raw.find(needle) {
+            return raw[pos + needle.len()..].trim().to_owned();
+        }
+    }
+    raw.to_owned()
 }

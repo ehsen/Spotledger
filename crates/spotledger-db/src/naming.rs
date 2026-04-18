@@ -172,6 +172,35 @@ pub async fn resolve_name(
         }
     }
 
+    // 4b. tabDocType.autoname + naming_rule — the canonical source for runtime-seeded doctypes.
+    //     When the designer saves an autoname change, it writes to tabDocType.
+    //     Step 3 (compiled hint) covers Tier-0 types; this step covers everything
+    //     else that was saved via install_app or the designer.
+    if autoname_hint.is_none() {
+        let rows = adapter
+            .run(
+                "SELECT autoname, naming_rule FROM tabDocType WHERE name = $dt LIMIT 1",
+                vec![("dt".into(), doctype.into())],
+            )
+            .await?;
+        if let Some(row) = rows.into_iter().next() {
+            let naming_rule = row.get("naming_rule").and_then(Value::as_str).unwrap_or("");
+            // Frappe v15: naming_rule = "By fieldname" → autoname IS the fieldname
+            if naming_rule == "By fieldname" {
+                if let Some(fieldname) = row.get("autoname").and_then(Value::as_str) {
+                    if let Some(val) = fields.get(fieldname).and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                        return Ok(val.to_owned());
+                    }
+                }
+                return Ok(uuid_name());
+            }
+            if let Some(autoname) = row.get("autoname").and_then(Value::as_str) {
+                if let Some(name) = apply(autoname) { return Ok(name); }
+                if let Some(name) = apply_series(autoname).await? { return Ok(name); }
+            }
+        }
+    }
+
     // 5. UUID fallback
     Ok(uuid_name())
 }
