@@ -105,13 +105,19 @@ async fn bootstrap_test_site() {
     let cfg = test_db_config();
     let db = connect(&cfg).await.expect("connect to SurrealDB for bootstrap");
 
-    // Drop and re-create namespace for a clean slate
+    // Drop the database for a clean slate, then reconnect.
+    // SurrealDB v3: REMOVE DATABASE leaves the connection in a stale context.
+    // We reconnect so DbAdapter::connect re-issues DEFINE NAMESPACE/DATABASE
+    // and use_ns/use_db against the freshly created database.
     let _ = db
         .run(
-            &format!("REMOVE DATABASE `{TEST_NS}`"),
+            &format!("REMOVE DATABASE IF EXISTS `{TEST_NS}`"),
             vec![],
         )
         .await;
+
+    // Reconnect — DbAdapter::connect now creates NS/DB before use_ns/use_db.
+    let db = connect(&cfg).await.expect("reconnect after database removal");
 
     run_framework_tables(&db).await.expect("run_framework_tables");
     ensure_all_schemas(&db).await.expect("ensure_all_schemas");
