@@ -5,8 +5,10 @@
 //! request extensions. Downstream handlers extract it with
 //! `Extension<Arc<SiteState>>`.
 //!
-//! Also extracts the `sid` cookie, resolves the session, and injects
-//! a `CurrentUser` extension (defaults to `"Guest"` if no valid session).
+//! Also resolves the current user from cookies:
+//!   1. `token` cookie — verified locally as a JWT (zero DB round-trip).
+//!   2. `sid` cookie — legacy session look-up in `tabSessions`.
+//! Injects a `CurrentUser` extension (defaults to `"Guest"` when neither cookie is valid).
 
 use axum::{
     body::Body,
@@ -16,6 +18,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use std::sync::Arc;
+
+use spotledger_db::jwt::{derive_signing_secret, verify_token};
 
 use crate::state::{AppState, SiteState};
 
@@ -70,20 +74,43 @@ pub async fn site_middleware(
     }
 }
 
-/// Resolve the current user from the `sid` cookie.
-/// Returns `"Guest"` if the session is missing, expired, or invalid.
+/// Resolve the current user from cookies.
+///
+/// Priority:
+///   1. `token` cookie — validated as a JWT locally (no DB call).
+///   2. `sid` cookie — looked up in `tabSessions` (one DB call).
+///   3. Fall through → `"Guest"`.
 async fn resolve_current_user(site: &Arc<SiteState>, headers: &axum::http::HeaderMap) -> String {
-    let sid = match extract_sid(headers) {
-        Some(s) => s,
-        None => return "Guest".to_owned(),
-    };
-    match spotledger_db::auth::get_session(&site.db, &sid).await {
-        Ok(Some(session)) => session.user,
-        _ => "Guest".to_owned(),
+    // 1. JWT token: verify signature + expiry locally.
+    if let Some(token) = extract_cookie(headers, "token=", 6) {
+        let secret = derive_signing_secret(
+            &site.config.database.db,
+            &site.config.database.pass,
+        );
+        if let Some(user) = verify_token(&token, &secret) {
+            return user;
+        }
     }
+
+    // 2. Legacy sid session.
+    if let Some(sid) = extract_cookie(headers, "sid=", 4) {
+        if let Ok(Some(session)) = spotledger_db::auth::get_session(&site.db, &sid).await {
+            return session.user;
+        }
+    }
+
+    "Guest".to_owned()
 }
 
 fn extract_sid(headers: &axum::http::HeaderMap) -> Option<String> {
+    extract_cookie(headers, "sid=", 4)
+}
+
+fn extract_cookie(
+    headers: &axum::http::HeaderMap,
+    prefix: &str,
+    prefix_len: usize,
+) -> Option<String> {
     headers
         .get(axum::http::header::COOKIE)
         .and_then(|v| v.to_str().ok())
@@ -91,8 +118,8 @@ fn extract_sid(headers: &axum::http::HeaderMap) -> Option<String> {
             cookie_str
                 .split(';')
                 .map(str::trim)
-                .find(|s| s.starts_with("sid="))
-                .map(|s| s[4..].to_owned())
+                .find(|s| s.starts_with(prefix))
+                .map(|s| s[prefix_len..].to_owned())
         })
         .filter(|s| !s.is_empty())
 }
