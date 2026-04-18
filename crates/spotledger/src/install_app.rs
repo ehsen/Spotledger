@@ -109,6 +109,38 @@ const IMPORTABLE_TYPES: &[(&str, &str, &[(&str, &str)])] = &[
 ];
 
 // ---------------------------------------------------------------------------
+// app.json manifest
+// ---------------------------------------------------------------------------
+
+/// Read and return the `app.json` manifest for an app.
+/// Returns `None` if no `app.json` exists (legacy apps without one).
+async fn read_app_manifest(bench: &Path, app_name: &str) -> Option<Value> {
+    let path = bench.join("apps").join(app_name).join("app.json");
+    let raw = tokio::fs::read_to_string(&path).await.ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// Record an installed app in the `installed_app` table.
+async fn record_installed_app(
+    db: &DbAdapter,
+    app_name: &str,
+    version: &str,
+    app_path: Option<&str>,
+    manifest: Option<&Value>,
+) {
+    let row = json!({
+        "name":         app_name,
+        "version":      version,
+        "app_path":     app_path,
+        "manifest":     manifest,
+    });
+    match upsert_doc(db, "installed_app", app_name, &row).await {
+        Ok(_) => tracing::debug!(app = %app_name, "Recorded in installed_app"),
+        Err(e) => tracing::warn!(app = %app_name, error = %e, "Could not write to installed_app"),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -120,60 +152,85 @@ pub async fn install_app(args: InstallAppArgs) -> Result<()> {
 
     let db = connect_to_site(&bench, &args.site).await?;
 
-    let app_root = bench.join("apps").join(&args.app).join(&args.app);
+    install_app_into_db(&db, &bench, &args.app, args.version.as_deref()).await?;
+
+    println!(
+        "\n✓  App '{}' installed into site '{}'.",
+        args.app, args.site
+    );
+    Ok(())
+}
+
+/// Install an app into an already-connected database.
+///
+/// This is the inner implementation called by both the CLI `install-app` command
+/// and by `new-site`'s auto-install step.
+pub async fn install_app_into_db(
+    db: &DbAdapter,
+    bench: &std::path::Path,
+    app_name: &str,
+    cli_version: Option<&str>,
+) -> Result<()> {
+    // ── Read app.json manifest if present ─────────────────────────────────────
+    let manifest = read_app_manifest(bench, app_name).await;
+    let version = cli_version
+        .map(|s| s.to_owned())
+        .or_else(|| {
+            manifest.as_ref()
+                .and_then(|m| m.get("version"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_owned())
+        })
+        .unwrap_or_else(|| "unknown".to_owned());
+
+    let app_root = bench.join("apps").join(app_name).join(app_name);
     if !app_root.exists() {
         anyhow::bail!("App root not found: {}", app_root.display());
     }
 
     // ── 0. Upsert app graph node ──────────────────────────────────────────────
-    println!("\n[0/4] Registering app node for '{}' …", args.app);
-    upsert_app_node(&db, &args.app, None, args.version.as_deref(), None)
+    println!("\n[0/5] Registering app node for '{}' (v{}) …", app_name, version);
+    upsert_app_node(db, app_name, None, Some(&version), None)
         .await
         .context("Upserting app graph node")?;
 
     // ── 1. DocType definitions ────────────────────────────────────────────────
-    println!("\n[1/4] Seeding DocType definitions for '{}' …", args.app);
-    let (dt_seeded, dt_errors) = seed_doctypes_for_app(&db, &app_root, &args.app).await?;
+    println!("\n[1/5] Seeding DocType definitions for '{}' …", app_name);
+    let (dt_seeded, dt_errors) = seed_doctypes_for_app(db, &app_root, app_name).await?;
     println!("      {} DocTypes seeded, {} errors.", dt_seeded, dt_errors);
     if dt_errors > 0 {
         anyhow::bail!("{} DocType(s) failed — check output above", dt_errors);
     }
 
     // ── 2. Module Def records from modules.txt ────────────────────────────────
-    println!("\n[2/4] Seeding Module Def records …");
-    let mod_count = seed_module_defs(&db, &app_root, &args.app).await?;
+    println!("\n[2/5] Seeding Module Def records …");
+    let mod_count = seed_module_defs(db, &app_root, app_name).await?;
     println!("      {} Module Defs seeded.", mod_count);
 
     // ── 3. Importable fixture records (Workspace, Page, Report, …) ───────────
-    println!("\n[3/4] Seeding importable fixture records …");
-    let fixture_count = seed_fixture_records(&db, &app_root).await?;
+    println!("\n[3/5] Seeding importable fixture records …");
+    let fixture_count = seed_fixture_records(db, &app_root).await?;
     println!("      {} fixture records seeded.", fixture_count);
 
     // ── 4. Patch Log — mark all patches as completed ──────────────────────────
     println!("\n[4/5] Marking patches as completed …");
-    let patch_count = seed_patch_log(&db, &app_root).await?;
+    let patch_count = seed_patch_log(db, &app_root).await?;
     println!("      {} patches marked done.", patch_count);
 
     // ── 5. Pipeline framework — fn:: files + Tier A wiring ──────────────────
-    // doctype_meta records are created automatically by seed_doctypes_for_app.
-    // This step only applies the surql function definitions and Tier A stage wiring.
     println!("\n[5/5] Applying pipeline fn:: functions …");
-    match seed_pipeline_for_app(&db, &app_root).await {
-        Ok(fn_count) => {
-            println!("      {} fn:: registered.", fn_count);
-        }
-        Err(e) => {
-            eprintln!("WARN: pipeline seeding failed (non-fatal): {:?}", e);
-        }
+    match seed_pipeline_for_app(db, &app_root).await {
+        Ok(fn_count) => println!("      {} fn:: registered.", fn_count),
+        Err(e) => eprintln!("WARN: pipeline seeding failed (non-fatal): {:?}", e),
     }
 
-    // ── Post-install: link check ──────────────────────────────────────────────
-    post_install_link_check(&db).await;
+    // ── Record in installed_app ───────────────────────────────────────────────
+    let app_path_str = app_root.to_string_lossy();
+    record_installed_app(db, app_name, &version, Some(&app_path_str), manifest.as_ref()).await;
 
-    println!(
-        "\n✓  App '{}' installed into site '{}'.",
-        args.app, args.site
-    );
+    // ── Post-install: link check ──────────────────────────────────────────────
+    post_install_link_check(db).await;
+
     Ok(())
 }
 

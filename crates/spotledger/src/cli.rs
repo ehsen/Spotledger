@@ -36,6 +36,14 @@ pub enum Commands {
     Start(StartArgs),
     /// Apply pipeline wiring.surql files to a site without a full reinstall
     WireApp(WireAppArgs),
+    /// Scaffold a new DB-native app directory under apps/
+    NewApp(NewAppArgs),
+    /// Add a module directory to an existing DB-native app
+    NewModule(NewModuleArgs),
+    /// Scaffold a new DocType JSON file in a DB-native app
+    NewDoctype(NewDoctypeArgs),
+    /// Export installed DocTypes for an app back to filesystem JSON
+    ExportApp(ExportAppArgs),
 }
 
 #[derive(Debug, clap::Args, Clone)]
@@ -175,6 +183,70 @@ pub struct WireAppArgs {
     pub app: String,
 
     /// Hostname of the site to wire into (must already exist via new-site)
+    pub site: String,
+
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: PathBuf,
+}
+
+#[derive(Debug, clap::Args, Clone)]
+pub struct NewAppArgs {
+    /// Name of the new app (e.g. my-app, erpnext-extensions)
+    pub app: String,
+
+    /// Human-readable title for the app
+    #[arg(long)]
+    pub title: Option<String>,
+
+    /// App version string
+    #[arg(long, default_value = "0.1.0")]
+    pub version: String,
+
+    /// Comma-separated list of initial module names
+    #[arg(long)]
+    pub modules: Option<String>,
+
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: PathBuf,
+}
+
+#[derive(Debug, clap::Args, Clone)]
+pub struct NewModuleArgs {
+    /// Name of the app to add a module to
+    pub app: String,
+
+    /// Name of the new module (e.g. Accounting, HR)
+    pub module: String,
+
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: PathBuf,
+}
+
+#[derive(Debug, clap::Args, Clone)]
+pub struct NewDoctypeArgs {
+    /// Name of the app to add the DocType to
+    pub app: String,
+
+    /// Module inside the app (e.g. Contacts)
+    pub module: String,
+
+    /// DocType name (e.g. "Contact", "Journal Entry")
+    pub name: String,
+
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: PathBuf,
+}
+
+#[derive(Debug, clap::Args, Clone)]
+pub struct ExportAppArgs {
+    /// Name of the app to export
+    pub app: String,
+
+    /// Hostname of the site to export from
     pub site: String,
 
     /// Path to the bench root (default: current directory)
