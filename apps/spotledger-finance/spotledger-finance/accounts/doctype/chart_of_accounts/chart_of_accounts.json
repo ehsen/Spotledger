@@ -1,0 +1,41 @@
+{
+    "doctype": "DocType",
+    "name": "Chart of Accounts",
+    "module": "Accounts",
+    "autoname": "field:coa_name",
+    "is_submittable": 0,
+    "istable": 0,
+    "fields": [
+        {
+            "fieldname": "coa_name",
+            "label": "Chart of Accounts Name",
+            "fieldtype": "Data",
+            "reqd": 1,
+            "unique": 1,
+            "in_list_view": 1,
+            "idx": 1
+        },
+        {
+            "fieldname": "currency",
+            "label": "Currency",
+            "fieldtype": "Link",
+            "options": "Currency",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 2
+        },
+        {
+            "fieldname": "description",
+            "label": "Description",
+            "fieldtype": "Small Text",
+            "reqd": 0,
+            "idx": 3
+        }
+    ],
+    "permissions": [
+        { "role": "System Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 1, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Finance Controller", "read": 1, "write": 0, "perm_create": 0, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts User", "read": 1, "write": 0, "perm_create": 0, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 }
+    ]
+}

@@ -1,0 +1,129 @@
+{
+ "doctype": "DocType",
+ "name": "Print Settings",
+ "module": "Printing",
+ "issingle": 1,
+ "field_order": [
+  "print_style",
+  "print_with_letterhead",
+  "allow_print_for_draft",
+  "allow_print_for_cancelled",
+  "allow_landscape_mode",
+  "repeat_header_footer",
+  "with_letterhead",
+  "compact_item_print",
+  "send_print_as_pdf",
+  "pdf_page_size",
+  "pdf_orientation",
+  "enable_raw_printing",
+  "add_draft_heading"
+ ],
+ "fields": [
+  {
+   "fieldname": "print_style",
+   "fieldtype": "Select",
+   "label": "Print Style",
+   "options": "Modern\nNarrow\nClassic\nUnthemed",
+   "default": "Modern",
+   "idx": 1
+  },
+  {
+   "fieldname": "print_with_letterhead",
+   "fieldtype": "Check",
+   "label": "Print With Letterhead",
+   "default": "1",
+   "idx": 2
+  },
+  {
+   "fieldname": "allow_print_for_draft",
+   "fieldtype": "Check",
+   "label": "Allow Print for Draft",
+   "default": "0",
+   "idx": 3
+  },
+  {
+   "fieldname": "allow_print_for_cancelled",
+   "fieldtype": "Check",
+   "label": "Allow Print for Cancelled",
+   "default": "0",
+   "idx": 4
+  },
+  {
+   "fieldname": "allow_landscape_mode",
+   "fieldtype": "Check",
+   "label": "Allow Landscape Mode",
+   "default": "1",
+   "idx": 5
+  },
+  {
+   "fieldname": "repeat_header_footer",
+   "fieldtype": "Check",
+   "label": "Repeat Header and Footer in PDF",
+   "default": "1",
+   "idx": 6
+  },
+  {
+   "fieldname": "with_letterhead",
+   "fieldtype": "Check",
+   "label": "Default Print Format is Letterhead",
+   "default": "1",
+   "idx": 7
+  },
+  {
+   "fieldname": "compact_item_print",
+   "fieldtype": "Check",
+   "label": "Compact Item Print",
+   "default": "0",
+   "idx": 8
+  },
+  {
+   "fieldname": "send_print_as_pdf",
+   "fieldtype": "Check",
+   "label": "Send Print as PDF",
+   "default": "0",
+   "idx": 9
+  },
+  {
+   "fieldname": "pdf_page_size",
+   "fieldtype": "Select",
+   "label": "PDF Page Size",
+   "options": "A4\nA5\nLetter\nLegal",
+   "default": "A4",
+   "idx": 10
+  },
+  {
+   "fieldname": "pdf_orientation",
+   "fieldtype": "Select",
+   "label": "PDF Orientation",
+   "options": "Portrait\nLandscape",
+   "default": "Portrait",
+   "idx": 11
+  },
+  {
+   "fieldname": "enable_raw_printing",
+   "fieldtype": "Check",
+   "label": "Enable Raw Printing",
+   "default": "0",
+   "idx": 12
+  },
+  {
+   "fieldname": "add_draft_heading",
+   "fieldtype": "Check",
+   "label": "Add Draft Heading",
+   "default": "1",
+   "idx": 13
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "track_changes": 0
+}

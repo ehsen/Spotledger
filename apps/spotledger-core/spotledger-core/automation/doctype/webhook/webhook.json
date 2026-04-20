@@ -1,0 +1,136 @@
+{
+ "doctype": "DocType",
+ "name": "Webhook",
+ "module": "Automation",
+ "autoname": "field:name",
+ "title_field": "name",
+ "field_order": [
+  "name",
+  "webhook_doctype",
+  "webhook_docevent",
+  "enabled",
+  "request_url",
+  "request_method",
+  "request_headers",
+  "webhook_headers",
+  "webhook_data",
+  "condition",
+  "meet_condition",
+  "webhook_json",
+  "enable_security",
+  "webhook_secret"
+ ],
+ "fields": [
+  {
+   "fieldname": "name",
+   "fieldtype": "Data",
+   "label": "Name",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "webhook_doctype",
+   "fieldtype": "Link",
+   "label": "DocType",
+   "options": "DocType",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "webhook_docevent",
+   "fieldtype": "Select",
+   "label": "Document Event",
+   "options": "after_insert\nbefore_insert\nbefore_validate\nbefore_save\nafter_save\nbefore_submit\nafter_submit\nbefore_cancel\nafter_cancel\nafter_delete\nbefore_update_after_submit\nafter_update_after_submit",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled",
+   "default": "1",
+   "in_list_view": 1,
+   "idx": 4
+  },
+  {
+   "fieldname": "request_url",
+   "fieldtype": "Data",
+   "label": "Request URL",
+   "reqd": 1,
+   "idx": 5
+  },
+  {
+   "fieldname": "request_method",
+   "fieldtype": "Select",
+   "label": "Request Method",
+   "options": "POST\nGET\nPUT\nDELETE",
+   "default": "POST",
+   "reqd": 1,
+   "idx": 6
+  },
+  {
+   "fieldname": "webhook_headers",
+   "fieldtype": "JSON",
+   "label": "Webhook Headers",
+   "idx": 7
+  },
+  {
+   "fieldname": "webhook_data",
+   "fieldtype": "JSON",
+   "label": "Webhook Data",
+   "idx": 8
+  },
+  {
+   "fieldname": "condition",
+   "fieldtype": "Code",
+   "label": "Condition",
+   "options": "Python",
+   "idx": 9
+  },
+  {
+   "fieldname": "meet_condition",
+   "fieldtype": "Select",
+   "label": "Trigger Webhook",
+   "options": "Always\nMeet Condition\nDo Not Meet Condition",
+   "default": "Always",
+   "idx": 10
+  },
+  {
+   "fieldname": "webhook_json",
+   "fieldtype": "Code",
+   "label": "Webhook JSON",
+   "options": "JSON",
+   "idx": 11
+  },
+  {
+   "fieldname": "enable_security",
+   "fieldtype": "Check",
+   "label": "Enable Security",
+   "default": "0",
+   "idx": 12
+  },
+  {
+   "fieldname": "webhook_secret",
+   "fieldtype": "Password",
+   "label": "Webhook Secret",
+   "depends_on": "eval:doc.enable_security",
+   "idx": 13
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1
+  }
+ ],
+ "sort_field": "name",
+ "sort_order": "ASC",
+ "track_changes": 1
+}

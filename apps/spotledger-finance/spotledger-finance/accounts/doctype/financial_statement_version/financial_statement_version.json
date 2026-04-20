@@ -1,0 +1,49 @@
+{
+    "doctype": "DocType",
+    "name": "Financial Statement Version",
+    "module": "Accounts",
+    "autoname": "field:fsv_name",
+    "is_submittable": 0,
+    "istable": 0,
+    "fields": [
+        {
+            "fieldname": "fsv_name",
+            "label": "Version Name",
+            "fieldtype": "Data",
+            "reqd": 1,
+            "unique": 1,
+            "in_list_view": 1,
+            "idx": 1
+        },
+        {
+            "fieldname": "chart_of_accounts",
+            "label": "Chart of Accounts",
+            "fieldtype": "Link",
+            "options": "Chart of Accounts",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 2
+        },
+        {
+            "fieldname": "purpose",
+            "label": "Purpose",
+            "fieldtype": "Select",
+            "options": "Statutory\nManagement\nTax",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 3
+        },
+        {
+            "fieldname": "description",
+            "label": "Description",
+            "fieldtype": "Small Text",
+            "reqd": 0,
+            "idx": 4
+        }
+    ],
+    "permissions": [
+        { "role": "System Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 1, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Finance Controller", "read": 1, "write": 0, "perm_create": 0, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 }
+    ]
+}

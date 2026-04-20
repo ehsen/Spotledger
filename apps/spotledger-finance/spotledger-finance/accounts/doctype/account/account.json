@@ -1,0 +1,103 @@
+{
+    "doctype": "DocType",
+    "name": "Account",
+    "module": "Accounts",
+    "autoname": "field:account_number",
+    "is_submittable": 0,
+    "istable": 0,
+    "fields": [
+        {
+            "fieldname": "account_number",
+            "label": "Account Number",
+            "fieldtype": "Data",
+            "reqd": 1,
+            "unique": 1,
+            "in_list_view": 1,
+            "idx": 1
+        },
+        {
+            "fieldname": "account_name",
+            "label": "Account Name",
+            "fieldtype": "Data",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 2
+        },
+        {
+            "fieldname": "chart_of_accounts",
+            "label": "Chart of Accounts",
+            "fieldtype": "Link",
+            "options": "Chart of Accounts",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 3
+        },
+        {
+            "fieldname": "account_group",
+            "label": "Account Group",
+            "fieldtype": "Link",
+            "options": "Account Group",
+            "reqd": 1,
+            "idx": 4
+        },
+        {
+            "fieldname": "parent_account",
+            "label": "Parent Account",
+            "fieldtype": "Link",
+            "options": "Account",
+            "reqd": 0,
+            "idx": 5
+        },
+        {
+            "fieldname": "account_type_internal",
+            "label": "Account Type (Internal)",
+            "fieldtype": "Select",
+            "options": "A\nD\nK\nE\nI",
+            "reqd": 0,
+            "read_only": 1,
+            "in_list_view": 1,
+            "description": "Derived from Account Group",
+            "idx": 6
+        },
+        {
+            "fieldname": "account_category",
+            "label": "Category",
+            "fieldtype": "Select",
+            "options": "Asset\nLiability\nEquity\nIncome\nExpense",
+            "reqd": 0,
+            "read_only": 1,
+            "idx": 7
+        },
+        {
+            "fieldname": "is_group",
+            "label": "Is Group Account",
+            "fieldtype": "Check",
+            "reqd": 0,
+            "default": "0",
+            "idx": 8
+        },
+        {
+            "fieldname": "party_required",
+            "label": "Party Required",
+            "fieldtype": "Check",
+            "reqd": 0,
+            "default": "0",
+            "read_only": 1,
+            "description": "Derived from Account Group",
+            "idx": 9
+        },
+        {
+            "fieldname": "description",
+            "label": "Description",
+            "fieldtype": "Small Text",
+            "reqd": 0,
+            "idx": 10
+        }
+    ],
+    "permissions": [
+        { "role": "System Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 1, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Finance Controller", "read": 1, "write": 0, "perm_create": 0, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts User", "read": 1, "write": 0, "perm_create": 0, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 }
+    ]
+}

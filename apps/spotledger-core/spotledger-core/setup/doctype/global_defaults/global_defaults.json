@@ -1,0 +1,113 @@
+{
+ "doctype": "DocType",
+ "name": "Global Defaults",
+ "module": "Setup",
+ "issingle": 1,
+ "field_order": [
+  "default_company",
+  "current_fiscal_year",
+  "default_currency",
+  "disable_rounded_total",
+  "disable_in_words",
+  "hide_currency_symbol",
+  "float_precision",
+  "currency_precision",
+  "date_format",
+  "time_format",
+  "country"
+ ],
+ "fields": [
+  {
+   "fieldname": "default_company",
+   "fieldtype": "Link",
+   "label": "Default Company",
+   "options": "Company",
+   "idx": 1
+  },
+  {
+   "fieldname": "current_fiscal_year",
+   "fieldtype": "Link",
+   "label": "Current Fiscal Year",
+   "options": "Fiscal Year",
+   "idx": 2
+  },
+  {
+   "fieldname": "default_currency",
+   "fieldtype": "Link",
+   "label": "Default Currency",
+   "options": "Currency",
+   "idx": 3
+  },
+  {
+   "fieldname": "disable_rounded_total",
+   "fieldtype": "Check",
+   "label": "Disable Rounded Total",
+   "default": "0",
+   "idx": 4
+  },
+  {
+   "fieldname": "disable_in_words",
+   "fieldtype": "Check",
+   "label": "Disable In Words",
+   "default": "0",
+   "idx": 5
+  },
+  {
+   "fieldname": "hide_currency_symbol",
+   "fieldtype": "Check",
+   "label": "Hide Currency Symbol",
+   "default": "0",
+   "idx": 6
+  },
+  {
+   "fieldname": "float_precision",
+   "fieldtype": "Select",
+   "label": "Float Precision",
+   "options": "2\n3\n4\n5\n6",
+   "default": "3",
+   "idx": 7
+  },
+  {
+   "fieldname": "currency_precision",
+   "fieldtype": "Select",
+   "label": "Currency Precision",
+   "options": "0\n1\n2\n3\n4",
+   "default": "2",
+   "idx": 8
+  },
+  {
+   "fieldname": "date_format",
+   "fieldtype": "Select",
+   "label": "Date Format",
+   "options": "dd-mm-yyyy\nmm-dd-yyyy\ndd/mm/yyyy\nmm/dd/yyyy\nyyyy-mm-dd",
+   "default": "dd-mm-yyyy",
+   "idx": 9
+  },
+  {
+   "fieldname": "time_format",
+   "fieldtype": "Select",
+   "label": "Time Format",
+   "options": "HH:mm:ss\nHH:mm",
+   "default": "HH:mm:ss",
+   "idx": 10
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Link",
+   "label": "Country",
+   "options": "Country",
+   "idx": 11
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

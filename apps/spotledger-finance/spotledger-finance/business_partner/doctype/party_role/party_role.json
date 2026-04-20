@@ -1,0 +1,19 @@
+{
+    "doctype": "DocType",
+    "name": "Party Role",
+    "module": "Business Partner",
+    "istable": 1,
+    "is_submittable": 0,
+    "fields": [
+        {
+            "fieldname": "role",
+            "label": "Role",
+            "fieldtype": "Select",
+            "options": "Customer\nSupplier\nEmployee\nShareholder\nDirector\nFranchisee\nBank\nTax Authority\nGovernment Office",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 1
+        }
+    ],
+    "permissions": []
+}

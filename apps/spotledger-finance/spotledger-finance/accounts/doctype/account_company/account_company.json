@@ -1,0 +1,57 @@
+{
+    "doctype": "DocType",
+    "name": "Account Company",
+    "module": "Accounts",
+    "autoname": "naming_series:ACC-CO-",
+    "is_submittable": 0,
+    "istable": 0,
+    "fields": [
+        {
+            "fieldname": "account",
+            "label": "Account",
+            "fieldtype": "Link",
+            "options": "Account",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 1
+        },
+        {
+            "fieldname": "company",
+            "label": "Company",
+            "fieldtype": "Link",
+            "options": "Company",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 2
+        },
+        {
+            "fieldname": "opening_balance",
+            "label": "Opening Balance",
+            "fieldtype": "Currency",
+            "reqd": 0,
+            "default": "0",
+            "idx": 3
+        },
+        {
+            "fieldname": "opening_balance_date",
+            "label": "Opening Balance Date",
+            "fieldtype": "Date",
+            "reqd": 0,
+            "idx": 4
+        },
+        {
+            "fieldname": "is_active",
+            "label": "Is Active",
+            "fieldtype": "Check",
+            "reqd": 0,
+            "default": "1",
+            "in_list_view": 1,
+            "idx": 5
+        }
+    ],
+    "permissions": [
+        { "role": "System Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 1, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Finance Controller", "read": 1, "write": 1, "perm_create": 0, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 }
+    ]
+}

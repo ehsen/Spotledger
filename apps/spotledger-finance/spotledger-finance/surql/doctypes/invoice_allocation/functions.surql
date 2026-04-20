@@ -1,0 +1,2 @@
+-- Invoice Allocation is a child table (istable = 1).
+-- Validation of allocation amounts is performed by the parent Payment's pipeline functions.

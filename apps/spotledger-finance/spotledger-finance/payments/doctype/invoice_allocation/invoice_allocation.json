@@ -1,0 +1,43 @@
+{
+    "doctype": "DocType",
+    "name": "Invoice Allocation",
+    "module": "Payments",
+    "autoname": "naming_series:IA-",
+    "is_submittable": 0,
+    "istable": 1,
+    "fields": [
+        {
+            "fieldname": "voucher_type",
+            "label": "Voucher Type",
+            "fieldtype": "Data",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 1
+        },
+        {
+            "fieldname": "voucher_no",
+            "label": "Voucher No",
+            "fieldtype": "Data",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 2
+        },
+        {
+            "fieldname": "outstanding_amount",
+            "label": "Outstanding Amount",
+            "fieldtype": "Currency",
+            "reqd": 0,
+            "in_list_view": 1,
+            "idx": 3
+        },
+        {
+            "fieldname": "allocated_amount",
+            "label": "Allocated Amount",
+            "fieldtype": "Currency",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 4
+        }
+    ],
+    "permissions": []
+}

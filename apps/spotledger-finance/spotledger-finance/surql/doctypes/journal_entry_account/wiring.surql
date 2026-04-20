@@ -1,0 +1,3 @@
+-- Journal Entry Account is a child table (istable = 1).
+-- Child tables do not have their own pipeline stages. No wiring needed.
+-- Parent Journal Entry manages all GL entry creation.

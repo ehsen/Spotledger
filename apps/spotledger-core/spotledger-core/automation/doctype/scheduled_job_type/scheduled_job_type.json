@@ -1,0 +1,94 @@
+{
+ "doctype": "DocType",
+ "name": "Scheduled Job Type",
+ "module": "Automation",
+ "autoname": "field:method",
+ "title_field": "method",
+ "field_order": [
+  "method",
+  "frequency",
+  "cron_format",
+  "last_execution",
+  "next_execution",
+  "stopped",
+  "create_log",
+  "server_script"
+ ],
+ "fields": [
+  {
+   "fieldname": "method",
+   "fieldtype": "Data",
+   "label": "Method",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "frequency",
+   "fieldtype": "Select",
+   "label": "Frequency",
+   "options": "All\nHourly\nHourly Long\n2 Hours\n3 Hours\n4 Hours\n6 Hours\n8 Hours\n12 Hours\nDaily\nDaily Long\nWeekly\nWeekly Long\nMonthly\nMonthly Long\nYearly\nCron",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "cron_format",
+   "fieldtype": "Data",
+   "label": "Cron Format",
+   "depends_on": "eval:doc.frequency === 'Cron'",
+   "idx": 3
+  },
+  {
+   "fieldname": "last_execution",
+   "fieldtype": "Datetime",
+   "label": "Last Execution",
+   "read_only": 1,
+   "in_list_view": 1,
+   "idx": 4
+  },
+  {
+   "fieldname": "next_execution",
+   "fieldtype": "Datetime",
+   "label": "Next Execution",
+   "read_only": 1,
+   "idx": 5
+  },
+  {
+   "fieldname": "stopped",
+   "fieldtype": "Check",
+   "label": "Stopped",
+   "default": "0",
+   "in_list_view": 1,
+   "idx": 6
+  },
+  {
+   "fieldname": "create_log",
+   "fieldtype": "Check",
+   "label": "Create Log",
+   "default": "1",
+   "idx": 7
+  },
+  {
+   "fieldname": "server_script",
+   "fieldtype": "Link",
+   "label": "Server Script",
+   "options": "Server Script",
+   "idx": 8
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1
+  }
+ ],
+ "sort_field": "method",
+ "sort_order": "ASC",
+ "track_changes": 0
+}

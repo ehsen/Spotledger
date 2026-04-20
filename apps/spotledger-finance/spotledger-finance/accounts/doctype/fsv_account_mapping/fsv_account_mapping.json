@@ -1,0 +1,40 @@
+{
+    "doctype": "DocType",
+    "name": "FSV Account Mapping",
+    "module": "Accounts",
+    "autoname": "naming_series:FSVM-",
+    "is_submittable": 0,
+    "istable": 0,
+    "fields": [
+        {
+            "fieldname": "fsv_node",
+            "label": "FSV Node",
+            "fieldtype": "Link",
+            "options": "FSV Node",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 1
+        },
+        {
+            "fieldname": "account",
+            "label": "Account",
+            "fieldtype": "Link",
+            "options": "Account",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 2
+        },
+        {
+            "fieldname": "chart_of_accounts",
+            "label": "Chart of Accounts",
+            "fieldtype": "Link",
+            "options": "Chart of Accounts",
+            "reqd": 1,
+            "idx": 3
+        }
+    ],
+    "permissions": [
+        { "role": "System Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 1, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 }
+    ]
+}

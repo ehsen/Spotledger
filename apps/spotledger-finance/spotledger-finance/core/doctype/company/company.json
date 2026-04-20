@@ -1,0 +1,124 @@
+{
+    "doctype": "DocType",
+    "name": "Company",
+    "module": "Core",
+    "autoname": "field:company_name",
+    "is_submittable": 0,
+    "istable": 0,
+    "fields": [
+        {
+            "fieldname": "company_name",
+            "label": "Company Name",
+            "fieldtype": "Data",
+            "reqd": 1,
+            "unique": 1,
+            "in_list_view": 1,
+            "idx": 1
+        },
+        {
+            "fieldname": "abbr",
+            "label": "Abbreviation",
+            "fieldtype": "Data",
+            "reqd": 1,
+            "unique": 1,
+            "in_list_view": 1,
+            "idx": 2
+        },
+        {
+            "fieldname": "default_currency",
+            "label": "Default Currency",
+            "fieldtype": "Link",
+            "options": "Currency",
+            "reqd": 1,
+            "idx": 3
+        },
+        {
+            "fieldname": "country",
+            "label": "Country",
+            "fieldtype": "Link",
+            "options": "Country",
+            "reqd": 1,
+            "idx": 4
+        },
+        {
+            "fieldname": "chart_of_accounts",
+            "label": "Chart of Accounts",
+            "fieldtype": "Link",
+            "options": "Chart of Accounts",
+            "reqd": 0,
+            "idx": 5
+        },
+        {
+            "fieldname": "tax_id",
+            "label": "Tax ID / NTN",
+            "fieldtype": "Data",
+            "reqd": 0,
+            "idx": 6
+        },
+        {
+            "fieldname": "phone",
+            "label": "Phone",
+            "fieldtype": "Data",
+            "reqd": 0,
+            "idx": 7
+        },
+        {
+            "fieldname": "email",
+            "label": "Email",
+            "fieldtype": "Data",
+            "reqd": 0,
+            "idx": 8
+        },
+        {
+            "fieldname": "website",
+            "label": "Website",
+            "fieldtype": "Data",
+            "reqd": 0,
+            "idx": 9
+        },
+        {
+            "fieldname": "address",
+            "label": "Address",
+            "fieldtype": "Small Text",
+            "reqd": 0,
+            "idx": 10
+        },
+        {
+            "fieldname": "retained_earnings_account",
+            "label": "Retained Earnings Account",
+            "fieldtype": "Link",
+            "options": "Account",
+            "reqd": 0,
+            "idx": 11
+        },
+        {
+            "fieldname": "default_receivable_account",
+            "label": "Default Receivable Account",
+            "fieldtype": "Link",
+            "options": "Account",
+            "reqd": 0,
+            "idx": 12
+        },
+        {
+            "fieldname": "default_payable_account",
+            "label": "Default Payable Account",
+            "fieldtype": "Link",
+            "options": "Account",
+            "reqd": 0,
+            "idx": 13
+        },
+        {
+            "fieldname": "default_bank_account",
+            "label": "Default Bank Account",
+            "fieldtype": "Link",
+            "options": "Account",
+            "reqd": 0,
+            "idx": 14
+        }
+    ],
+    "permissions": [
+        { "role": "System Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 1, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Finance Controller", "read": 1, "write": 0, "perm_create": 0, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 }
+    ]
+}

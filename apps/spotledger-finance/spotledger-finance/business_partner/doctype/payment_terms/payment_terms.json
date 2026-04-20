@@ -1,0 +1,56 @@
+{
+    "doctype": "DocType",
+    "name": "Payment Terms",
+    "module": "Business Partner",
+    "autoname": "field:payment_terms_name",
+    "is_submittable": 0,
+    "istable": 0,
+    "fields": [
+        {
+            "fieldname": "payment_terms_name",
+            "label": "Payment Terms Name",
+            "fieldtype": "Data",
+            "reqd": 1,
+            "unique": 1,
+            "in_list_view": 1,
+            "idx": 1
+        },
+        {
+            "fieldname": "due_days",
+            "label": "Due Days",
+            "fieldtype": "Int",
+            "reqd": 1,
+            "default": "30",
+            "in_list_view": 1,
+            "idx": 2
+        },
+        {
+            "fieldname": "discount_days",
+            "label": "Early Payment Discount Days",
+            "fieldtype": "Int",
+            "reqd": 0,
+            "default": "0",
+            "idx": 3
+        },
+        {
+            "fieldname": "discount_percent",
+            "label": "Early Payment Discount %",
+            "fieldtype": "Float",
+            "reqd": 0,
+            "default": "0",
+            "idx": 4
+        },
+        {
+            "fieldname": "description",
+            "label": "Description",
+            "fieldtype": "Small Text",
+            "reqd": 0,
+            "idx": 5
+        }
+    ],
+    "permissions": [
+        { "role": "System Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 1, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts User", "read": 1, "write": 0, "perm_create": 0, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 }
+    ]
+}

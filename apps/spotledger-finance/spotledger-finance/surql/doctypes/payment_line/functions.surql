@@ -1,0 +1,2 @@
+-- Payment Line is a child table (istable = 1).
+-- Validation of payment lines is performed by the parent Payment's pipeline functions.

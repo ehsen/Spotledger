@@ -1,0 +1,163 @@
+{
+ "doctype": "DocType",
+ "name": "Notification",
+ "module": "Desk",
+ "autoname": "field:name",
+ "title_field": "subject",
+ "field_order": [
+  "name",
+  "subject",
+  "email_or_slack",
+  "channel",
+  "enabled",
+  "document_type",
+  "event",
+  "is_standard",
+  "module",
+  "send_system_notification",
+  "send_to_all_assignees",
+  "recipients",
+  "cc",
+  "bcc",
+  "message_template",
+  "message",
+  "condition"
+ ],
+ "fields": [
+  {
+   "fieldname": "name",
+   "fieldtype": "Data",
+   "label": "Name",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "subject",
+   "fieldtype": "Data",
+   "label": "Subject",
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled",
+   "default": "1",
+   "in_list_view": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "email_or_slack",
+   "fieldtype": "Select",
+   "label": "Type",
+   "options": "Email\nSlack\nSystem Notification\nSMS",
+   "default": "Email",
+   "idx": 4
+  },
+  {
+   "fieldname": "channel",
+   "fieldtype": "Link",
+   "label": "Slack Channel",
+   "options": "Slack Webhook URL",
+   "depends_on": "eval:doc.email_or_slack == 'Slack'",
+   "idx": 5
+  },
+  {
+   "fieldname": "document_type",
+   "fieldtype": "Link",
+   "label": "Document Type",
+   "options": "DocType",
+   "reqd": 1,
+   "idx": 6
+  },
+  {
+   "fieldname": "event",
+   "fieldtype": "Select",
+   "label": "Send Alert On",
+   "options": "New\nSave\nSubmit\nCancel\nDays After\nDays Before\nValue Change\nMethod\nCustom",
+   "reqd": 1,
+   "idx": 7
+  },
+  {
+   "fieldname": "is_standard",
+   "fieldtype": "Check",
+   "label": "Is Standard",
+   "default": "0",
+   "idx": 8
+  },
+  {
+   "fieldname": "module",
+   "fieldtype": "Link",
+   "label": "Module",
+   "options": "Module Def",
+   "idx": 9
+  },
+  {
+   "fieldname": "send_system_notification",
+   "fieldtype": "Check",
+   "label": "Send System Notification",
+   "default": "0",
+   "idx": 10
+  },
+  {
+   "fieldname": "send_to_all_assignees",
+   "fieldtype": "Check",
+   "label": "Send to All Assignees",
+   "default": "0",
+   "idx": 11
+  },
+  {
+   "fieldname": "recipients",
+   "fieldtype": "JSON",
+   "label": "Recipients",
+   "idx": 12
+  },
+  {
+   "fieldname": "cc",
+   "fieldtype": "Small Text",
+   "label": "CC",
+   "idx": 13
+  },
+  {
+   "fieldname": "bcc",
+   "fieldtype": "Small Text",
+   "label": "BCC",
+   "idx": 14
+  },
+  {
+   "fieldname": "message_template",
+   "fieldtype": "Link",
+   "label": "Message Template",
+   "options": "Email Template",
+   "idx": 15
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Code",
+   "label": "Message",
+   "options": "Jinja",
+   "idx": 16
+  },
+  {
+   "fieldname": "condition",
+   "fieldtype": "Code",
+   "label": "Condition",
+   "options": "Python",
+   "idx": 17
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1
+  }
+ ],
+ "sort_field": "name",
+ "sort_order": "ASC",
+ "track_changes": 1
+}

@@ -1,0 +1,96 @@
+{
+    "doctype": "DocType",
+    "name": "Party",
+    "module": "Business Partner",
+    "autoname": "field:party_name",
+    "is_submittable": 0,
+    "istable": 0,
+    "fields": [
+        {
+            "fieldname": "party_name",
+            "label": "Party Name",
+            "fieldtype": "Data",
+            "reqd": 1,
+            "unique": 1,
+            "in_list_view": 1,
+            "idx": 1
+        },
+        {
+            "fieldname": "party_type",
+            "label": "Party Type",
+            "fieldtype": "Select",
+            "options": "Individual\nCompany\nGovernment",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 2
+        },
+        {
+            "fieldname": "tax_id",
+            "label": "Tax ID / NTN",
+            "fieldtype": "Data",
+            "reqd": 0,
+            "unique": 1,
+            "in_list_view": 1,
+            "idx": 3
+        },
+        {
+            "fieldname": "currency",
+            "label": "Currency",
+            "fieldtype": "Link",
+            "options": "Currency",
+            "reqd": 0,
+            "idx": 4
+        },
+        {
+            "fieldname": "payment_terms",
+            "label": "Default Payment Terms",
+            "fieldtype": "Link",
+            "options": "Payment Terms",
+            "reqd": 0,
+            "idx": 5
+        },
+        {
+            "fieldname": "phone",
+            "label": "Phone",
+            "fieldtype": "Data",
+            "reqd": 0,
+            "idx": 6
+        },
+        {
+            "fieldname": "email",
+            "label": "Email",
+            "fieldtype": "Data",
+            "reqd": 0,
+            "idx": 7
+        },
+        {
+            "fieldname": "address",
+            "label": "Address",
+            "fieldtype": "Small Text",
+            "reqd": 0,
+            "idx": 8
+        },
+        {
+            "fieldname": "is_active",
+            "label": "Is Active",
+            "fieldtype": "Check",
+            "reqd": 0,
+            "default": "1",
+            "in_list_view": 1,
+            "idx": 9
+        },
+        {
+            "fieldname": "roles",
+            "label": "Roles",
+            "fieldtype": "Table",
+            "options": "Party Role",
+            "reqd": 0,
+            "idx": 10
+        }
+    ],
+    "permissions": [
+        { "role": "System Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 1, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts User", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 }
+    ]
+}

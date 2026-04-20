@@ -1,0 +1,69 @@
+{
+ "doctype": "DocType",
+ "name": "Note",
+ "module": "Desk",
+ "autoname": "field:title",
+ "title_field": "title",
+ "search_fields": "title",
+ "field_order": [
+  "title",
+  "public",
+  "notify_on_every_login",
+  "content",
+  "seen_by"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "public",
+   "fieldtype": "Check",
+   "label": "Public",
+   "default": "0",
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "notify_on_every_login",
+   "fieldtype": "Check",
+   "label": "Notify on Every Login",
+   "default": "0",
+   "idx": 3
+  },
+  {
+   "fieldname": "content",
+   "fieldtype": "Text Editor",
+   "label": "Content",
+   "idx": 4
+  },
+  {
+   "fieldname": "seen_by",
+   "fieldtype": "JSON",
+   "label": "Seen By",
+   "idx": 5
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1
+  },
+  {
+   "role": "All",
+   "read": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

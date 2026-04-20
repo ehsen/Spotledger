@@ -1,0 +1,162 @@
+{
+ "doctype": "DocType",
+ "name": "Workspace",
+ "module": "Desk",
+ "autoname": "field:name",
+ "title_field": "title",
+ "search_fields": "title",
+ "field_order": [
+  "name",
+  "title",
+  "module",
+  "icon",
+  "indicator_color",
+  "is_standard",
+  "public",
+  "roles",
+  "shortcuts",
+  "links",
+  "onboarding",
+  "charts",
+  "cards",
+  "sequence_id",
+  "parent_page",
+  "extends_another_page",
+  "extends"
+ ],
+ "fields": [
+  {
+   "fieldname": "name",
+   "fieldtype": "Data",
+   "label": "Name",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "reqd": 1,
+   "in_list_view": 1,
+   "idx": 2
+  },
+  {
+   "fieldname": "module",
+   "fieldtype": "Link",
+   "label": "Module",
+   "options": "Module Def",
+   "in_list_view": 1,
+   "idx": 3
+  },
+  {
+   "fieldname": "icon",
+   "fieldtype": "Data",
+   "label": "Icon",
+   "idx": 4
+  },
+  {
+   "fieldname": "indicator_color",
+   "fieldtype": "Select",
+   "label": "Indicator Color",
+   "options": "\nGrey\nBlue\nRed\nGreen\nOrange\nYellow\nPurple\nPink\nDark Blue",
+   "idx": 5
+  },
+  {
+   "fieldname": "is_standard",
+   "fieldtype": "Check",
+   "label": "Is Standard",
+   "default": "0",
+   "idx": 6
+  },
+  {
+   "fieldname": "public",
+   "fieldtype": "Check",
+   "label": "Is Public",
+   "default": "1",
+   "idx": 7
+  },
+  {
+   "fieldname": "sequence_id",
+   "fieldtype": "Int",
+   "label": "Sequence ID",
+   "idx": 8
+  },
+  {
+   "fieldname": "parent_page",
+   "fieldtype": "Link",
+   "label": "Parent Page",
+   "options": "Workspace",
+   "idx": 9
+  },
+  {
+   "fieldname": "extends_another_page",
+   "fieldtype": "Check",
+   "label": "Extends Another Page",
+   "default": "0",
+   "idx": 10
+  },
+  {
+   "fieldname": "extends",
+   "fieldtype": "Link",
+   "label": "Extends",
+   "options": "Workspace",
+   "depends_on": "eval:doc.extends_another_page",
+   "idx": 11
+  },
+  {
+   "fieldname": "roles",
+   "fieldtype": "JSON",
+   "label": "Roles",
+   "idx": 12
+  },
+  {
+   "fieldname": "shortcuts",
+   "fieldtype": "JSON",
+   "label": "Shortcuts",
+   "idx": 13
+  },
+  {
+   "fieldname": "links",
+   "fieldtype": "JSON",
+   "label": "Links",
+   "idx": 14
+  },
+  {
+   "fieldname": "charts",
+   "fieldtype": "JSON",
+   "label": "Charts",
+   "idx": 15
+  },
+  {
+   "fieldname": "cards",
+   "fieldtype": "JSON",
+   "label": "Cards",
+   "idx": 16
+  },
+  {
+   "fieldname": "onboarding",
+   "fieldtype": "Data",
+   "label": "Onboarding",
+   "idx": 17
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "All",
+   "read": 1
+  }
+ ],
+ "sort_field": "sequence_id",
+ "sort_order": "ASC",
+ "track_changes": 0
+}

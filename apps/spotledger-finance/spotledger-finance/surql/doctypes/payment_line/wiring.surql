@@ -1,0 +1,1 @@
+-- Payment Line is a child table (istable = 1). No pipeline wiring needed.

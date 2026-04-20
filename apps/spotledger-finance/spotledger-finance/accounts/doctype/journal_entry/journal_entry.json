@@ -1,0 +1,90 @@
+{
+    "doctype": "DocType",
+    "name": "Journal Entry",
+    "module": "Accounts",
+    "autoname": "naming_series:JE-",
+    "is_submittable": 1,
+    "istable": 0,
+    "fields": [
+        {
+            "fieldname": "posting_date",
+            "label": "Posting Date",
+            "fieldtype": "Date",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 1
+        },
+        {
+            "fieldname": "company",
+            "label": "Company",
+            "fieldtype": "Link",
+            "options": "Company",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 2
+        },
+        {
+            "fieldname": "voucher_type",
+            "label": "Voucher Type",
+            "fieldtype": "Select",
+            "options": "Journal Entry\nContra Entry\nBank Entry\nCash Entry\nCredit Note\nDebit Note\nOpening Entry\nDepreciation Entry",
+            "reqd": 1,
+            "default": "Journal Entry",
+            "in_list_view": 1,
+            "idx": 3
+        },
+        {
+            "fieldname": "accounts",
+            "label": "Accounts",
+            "fieldtype": "Table",
+            "options": "Journal Entry Account",
+            "reqd": 1,
+            "idx": 4
+        },
+        {
+            "fieldname": "total_debit",
+            "label": "Total Debit",
+            "fieldtype": "Currency",
+            "reqd": 0,
+            "read_only": 1,
+            "in_list_view": 1,
+            "idx": 5
+        },
+        {
+            "fieldname": "total_credit",
+            "label": "Total Credit",
+            "fieldtype": "Currency",
+            "reqd": 0,
+            "read_only": 1,
+            "in_list_view": 1,
+            "idx": 6
+        },
+        {
+            "fieldname": "user_remark",
+            "label": "User Remark",
+            "fieldtype": "Small Text",
+            "reqd": 0,
+            "idx": 7
+        },
+        {
+            "fieldname": "cheque_no",
+            "label": "Reference / Cheque No",
+            "fieldtype": "Data",
+            "reqd": 0,
+            "idx": 8
+        },
+        {
+            "fieldname": "cheque_date",
+            "label": "Reference Date",
+            "fieldtype": "Date",
+            "reqd": 0,
+            "idx": 9
+        }
+    ],
+    "permissions": [
+        { "role": "System Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 1, "submit": 1, "perm_cancel": 1, "amend": 0, "if_owner": 0 },
+        { "role": "Finance Controller", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 1, "perm_cancel": 1, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts User", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 }
+    ]
+}

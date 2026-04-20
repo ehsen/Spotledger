@@ -1,0 +1,65 @@
+{
+    "doctype": "DocType",
+    "name": "Currency",
+    "module": "Core",
+    "autoname": "field:currency_name",
+    "is_submittable": 0,
+    "istable": 0,
+    "fields": [
+        {
+            "fieldname": "currency_name",
+            "label": "ISO Code",
+            "fieldtype": "Data",
+            "reqd": 1,
+            "unique": 1,
+            "in_list_view": 1,
+            "idx": 1
+        },
+        {
+            "fieldname": "currency_symbol",
+            "label": "Symbol",
+            "fieldtype": "Data",
+            "reqd": 0,
+            "in_list_view": 1,
+            "idx": 2
+        },
+        {
+            "fieldname": "fraction",
+            "label": "Fraction",
+            "fieldtype": "Data",
+            "reqd": 0,
+            "idx": 3
+        },
+        {
+            "fieldname": "fraction_units",
+            "label": "Fraction Units",
+            "fieldtype": "Int",
+            "reqd": 0,
+            "default": "100",
+            "idx": 4
+        },
+        {
+            "fieldname": "enabled",
+            "label": "Enabled",
+            "fieldtype": "Check",
+            "reqd": 0,
+            "default": "1",
+            "in_list_view": 1,
+            "idx": 5
+        },
+        {
+            "fieldname": "is_base",
+            "label": "Is Base Currency",
+            "fieldtype": "Check",
+            "reqd": 0,
+            "default": "0",
+            "in_list_view": 1,
+            "idx": 6
+        }
+    ],
+    "permissions": [
+        { "role": "System Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 1, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts User", "read": 1, "write": 0, "perm_create": 0, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 }
+    ]
+}

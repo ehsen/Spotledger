@@ -1,0 +1,268 @@
+{
+ "doctype": "DocType",
+ "name": "System Settings",
+ "module": "Setup",
+ "issingle": 1,
+ "field_order": [
+  "country",
+  "language",
+  "time_zone",
+  "date_format",
+  "time_format",
+  "float_precision",
+  "currency_precision",
+  "first_day_of_the_week",
+  "send_welcom_email",
+  "enable_scheduler",
+  "session_expiry",
+  "session_expiry_mobile",
+  "max_failed_login_attempts",
+  "allow_consecutive_login_attempts",
+  "allow_login_using_mobile_number",
+  "allow_login_using_user_name",
+  "login_with_email_link",
+  "logout_on_password_reset",
+  "simultaneous_sessions",
+  "apply_strict_user_permissions",
+  "allow_guests_to_upload_files",
+  "deny_multiple_sessions",
+  "force_user_to_reset_password",
+  "hide_footer_in_auto_email_reports",
+  "rounding_method",
+  "strip_exif_metadata_from_uploaded_files",
+  "enable_onboarding",
+  "enable_telemetry",
+  "backup_limit",
+  "setup_complete"
+ ],
+ "fields": [
+  {
+   "fieldname": "country",
+   "fieldtype": "Link",
+   "label": "Country",
+   "options": "Country",
+   "idx": 1
+  },
+  {
+   "fieldname": "language",
+   "fieldtype": "Link",
+   "label": "Language",
+   "options": "Language",
+   "default": "en",
+   "idx": 2
+  },
+  {
+   "fieldname": "time_zone",
+   "fieldtype": "Select",
+   "label": "Time Zone",
+   "options": "",
+   "idx": 3
+  },
+  {
+   "fieldname": "date_format",
+   "fieldtype": "Select",
+   "label": "Date Format",
+   "options": "dd-mm-yyyy\nmm-dd-yyyy\ndd/mm/yyyy\nmm/dd/yyyy\nyyyy-mm-dd\ndd.mm.yyyy",
+   "default": "dd-mm-yyyy",
+   "idx": 4
+  },
+  {
+   "fieldname": "time_format",
+   "fieldtype": "Select",
+   "label": "Time Format",
+   "options": "HH:mm:ss\nHH:mm",
+   "default": "HH:mm:ss",
+   "idx": 5
+  },
+  {
+   "fieldname": "float_precision",
+   "fieldtype": "Select",
+   "label": "Float Precision",
+   "options": "2\n3\n4\n5\n6\n7\n8\n9",
+   "default": "3",
+   "idx": 6
+  },
+  {
+   "fieldname": "currency_precision",
+   "fieldtype": "Select",
+   "label": "Currency Precision",
+   "options": "0\n1\n2\n3\n4\n5\n6\n7\n8\n9",
+   "default": "2",
+   "idx": 7
+  },
+  {
+   "fieldname": "first_day_of_the_week",
+   "fieldtype": "Select",
+   "label": "First Day of the Week",
+   "options": "Sunday\nMonday\nTuesday\nWednesday\nThursday\nFriday\nSaturday",
+   "default": "Sunday",
+   "idx": 8
+  },
+  {
+   "fieldname": "session_expiry",
+   "fieldtype": "Data",
+   "label": "Session Expiry (In Hours)",
+   "default": "06:00",
+   "idx": 9
+  },
+  {
+   "fieldname": "session_expiry_mobile",
+   "fieldtype": "Data",
+   "label": "Session Expiry Mobile (In Hours)",
+   "default": "720:00",
+   "idx": 10
+  },
+  {
+   "fieldname": "max_failed_login_attempts",
+   "fieldtype": "Int",
+   "label": "Max Failed Login Attempts",
+   "default": "5",
+   "idx": 11
+  },
+  {
+   "fieldname": "allow_consecutive_login_attempts",
+   "fieldtype": "Int",
+   "label": "Allow Consecutive Login Attempts",
+   "default": "3",
+   "idx": 12
+  },
+  {
+   "fieldname": "deny_multiple_sessions",
+   "fieldtype": "Check",
+   "label": "Deny Multiple Sessions",
+   "default": "0",
+   "idx": 13
+  },
+  {
+   "fieldname": "simultaneous_sessions",
+   "fieldtype": "Int",
+   "label": "Simultaneous Sessions",
+   "default": "1",
+   "idx": 14
+  },
+  {
+   "fieldname": "logout_on_password_reset",
+   "fieldtype": "Check",
+   "label": "Logout on Password Reset",
+   "default": "1",
+   "idx": 15
+  },
+  {
+   "fieldname": "force_user_to_reset_password",
+   "fieldtype": "Int",
+   "label": "Force User to Reset Password (days)",
+   "default": "0",
+   "idx": 16
+  },
+  {
+   "fieldname": "allow_login_using_mobile_number",
+   "fieldtype": "Check",
+   "label": "Allow Login using Mobile Number",
+   "default": "0",
+   "idx": 17
+  },
+  {
+   "fieldname": "allow_login_using_user_name",
+   "fieldtype": "Check",
+   "label": "Allow Login using User Name",
+   "default": "0",
+   "idx": 18
+  },
+  {
+   "fieldname": "login_with_email_link",
+   "fieldtype": "Check",
+   "label": "Login with Email Link",
+   "default": "0",
+   "idx": 19
+  },
+  {
+   "fieldname": "send_welcom_email",
+   "fieldtype": "Check",
+   "label": "Send Welcome Email",
+   "default": "1",
+   "idx": 20
+  },
+  {
+   "fieldname": "enable_scheduler",
+   "fieldtype": "Check",
+   "label": "Enable Scheduler",
+   "default": "0",
+   "idx": 21
+  },
+  {
+   "fieldname": "apply_strict_user_permissions",
+   "fieldtype": "Check",
+   "label": "Apply Strict User Permissions",
+   "default": "0",
+   "idx": 22
+  },
+  {
+   "fieldname": "allow_guests_to_upload_files",
+   "fieldtype": "Check",
+   "label": "Allow Guests to Upload Files",
+   "default": "0",
+   "idx": 23
+  },
+  {
+   "fieldname": "rounding_method",
+   "fieldtype": "Select",
+   "label": "Rounding Method",
+   "options": "Banker's Rounding (preferred)\nCommercial Rounding",
+   "default": "Banker's Rounding (preferred)",
+   "idx": 24
+  },
+  {
+   "fieldname": "hide_footer_in_auto_email_reports",
+   "fieldtype": "Check",
+   "label": "Hide Footer in Auto Email Reports",
+   "default": "0",
+   "idx": 25
+  },
+  {
+   "fieldname": "strip_exif_metadata_from_uploaded_files",
+   "fieldtype": "Check",
+   "label": "Strip EXIF Metadata from Uploaded Files",
+   "default": "0",
+   "idx": 26
+  },
+  {
+   "fieldname": "enable_onboarding",
+   "fieldtype": "Check",
+   "label": "Enable Onboarding",
+   "default": "1",
+   "idx": 27
+  },
+  {
+   "fieldname": "enable_telemetry",
+   "fieldtype": "Check",
+   "label": "Enable Telemetry",
+   "default": "0",
+   "idx": 28
+  },
+  {
+   "fieldname": "backup_limit",
+   "fieldtype": "Int",
+   "label": "No. of Backups",
+   "default": "3",
+   "idx": 29
+  },
+  {
+   "fieldname": "setup_complete",
+   "fieldtype": "Check",
+   "label": "Setup Complete",
+   "default": "0",
+   "idx": 30
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

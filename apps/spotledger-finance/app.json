@@ -1,0 +1,8 @@
+{
+    "app_name": "spotledger-finance",
+    "app_title": "SpotLedger Finance",
+    "app_publisher": "SpotLedger",
+    "app_description": "Finance ERP — Chart of Accounts, GL, Journal Entry, Payments",
+    "app_version": "0.1.0",
+    "depends_on": ["spotledger-core"]
+}

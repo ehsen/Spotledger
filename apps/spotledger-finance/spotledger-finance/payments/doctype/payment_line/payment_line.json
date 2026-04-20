@@ -1,0 +1,44 @@
+{
+    "doctype": "DocType",
+    "name": "Payment Line",
+    "module": "Payments",
+    "autoname": "naming_series:PL-",
+    "is_submittable": 0,
+    "istable": 1,
+    "fields": [
+        {
+            "fieldname": "account",
+            "label": "Account",
+            "fieldtype": "Link",
+            "options": "Account",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 1
+        },
+        {
+            "fieldname": "amount",
+            "label": "Amount",
+            "fieldtype": "Currency",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 2
+        },
+        {
+            "fieldname": "cost_center",
+            "label": "Cost Center",
+            "fieldtype": "Link",
+            "options": "Cost Center",
+            "reqd": 0,
+            "idx": 3
+        },
+        {
+            "fieldname": "description",
+            "label": "Description",
+            "fieldtype": "Data",
+            "reqd": 0,
+            "in_list_view": 1,
+            "idx": 4
+        }
+    ],
+    "permissions": []
+}

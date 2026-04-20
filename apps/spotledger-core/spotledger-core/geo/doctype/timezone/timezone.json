@@ -1,0 +1,46 @@
+{
+ "doctype": "DocType",
+ "name": "Timezone",
+ "module": "Geo",
+ "autoname": "field:name",
+ "title_field": "name",
+ "field_order": [
+  "name",
+  "utc_offset"
+ ],
+ "fields": [
+  {
+   "fieldname": "name",
+   "fieldtype": "Data",
+   "label": "Timezone",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "idx": 1
+  },
+  {
+   "fieldname": "utc_offset",
+   "fieldtype": "Data",
+   "label": "UTC Offset",
+   "in_list_view": 1,
+   "idx": 2
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1
+  },
+  {
+   "role": "All",
+   "read": 1
+  }
+ ],
+ "sort_field": "name",
+ "sort_order": "ASC",
+ "track_changes": 0
+}

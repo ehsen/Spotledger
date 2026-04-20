@@ -1,0 +1,87 @@
+{
+ "doctype": "DocType",
+ "name": "Naming Series",
+ "module": "Setup",
+ "issingle": 1,
+ "field_order": [
+  "transaction_type",
+  "select",
+  "prefix",
+  "current",
+  "update_series",
+  "check_series",
+  "prefix_details",
+  "try_prefix",
+  "series_list"
+ ],
+ "fields": [
+  {
+   "fieldname": "transaction_type",
+   "fieldtype": "Select",
+   "label": "Transaction Type",
+   "idx": 1
+  },
+  {
+   "fieldname": "select",
+   "fieldtype": "Select",
+   "label": "Select",
+   "options": "",
+   "idx": 2
+  },
+  {
+   "fieldname": "prefix",
+   "fieldtype": "Data",
+   "label": "Series List for this Transaction",
+   "idx": 3
+  },
+  {
+   "fieldname": "current",
+   "fieldtype": "Int",
+   "label": "Current Value",
+   "read_only": 1,
+   "idx": 4
+  },
+  {
+   "fieldname": "update_series",
+   "fieldtype": "Button",
+   "label": "Update Series",
+   "idx": 5
+  },
+  {
+   "fieldname": "check_series",
+   "fieldtype": "Button",
+   "label": "Preview Series",
+   "idx": 6
+  },
+  {
+   "fieldname": "prefix_details",
+   "fieldtype": "Section Break",
+   "label": "Prefix Details",
+   "idx": 7
+  },
+  {
+   "fieldname": "try_prefix",
+   "fieldtype": "Data",
+   "label": "Try a Prefix",
+   "idx": 8
+  },
+  {
+   "fieldname": "series_list",
+   "fieldtype": "Text",
+   "label": "Series List",
+   "read_only": 1,
+   "idx": 9
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "track_changes": 0
+}

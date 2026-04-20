@@ -1,0 +1,75 @@
+{
+    "doctype": "DocType",
+    "name": "Accounting Period",
+    "module": "Core",
+    "autoname": "field:period_name",
+    "is_submittable": 0,
+    "istable": 0,
+    "fields": [
+        {
+            "fieldname": "period_name",
+            "label": "Period Name",
+            "fieldtype": "Data",
+            "reqd": 1,
+            "unique": 1,
+            "in_list_view": 1,
+            "idx": 1
+        },
+        {
+            "fieldname": "company",
+            "label": "Company",
+            "fieldtype": "Link",
+            "options": "Company",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 2
+        },
+        {
+            "fieldname": "fiscal_year",
+            "label": "Fiscal Year",
+            "fieldtype": "Link",
+            "options": "Fiscal Year",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 3
+        },
+        {
+            "fieldname": "start_date",
+            "label": "Start Date",
+            "fieldtype": "Date",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 4
+        },
+        {
+            "fieldname": "end_date",
+            "label": "End Date",
+            "fieldtype": "Date",
+            "reqd": 1,
+            "in_list_view": 1,
+            "idx": 5
+        },
+        {
+            "fieldname": "period_number",
+            "label": "Period Number",
+            "fieldtype": "Int",
+            "reqd": 1,
+            "idx": 6
+        },
+        {
+            "fieldname": "is_closed",
+            "label": "Is Closed",
+            "fieldtype": "Check",
+            "reqd": 0,
+            "default": "0",
+            "in_list_view": 1,
+            "idx": 7
+        }
+    ],
+    "permissions": [
+        { "role": "System Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 1, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts Manager", "read": 1, "write": 1, "perm_create": 1, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Finance Controller", "read": 1, "write": 1, "perm_create": 0, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 },
+        { "role": "Accounts User", "read": 1, "write": 0, "perm_create": 0, "perm_delete": 0, "submit": 0, "perm_cancel": 0, "amend": 0, "if_owner": 0 }
+    ]
+}
