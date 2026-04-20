@@ -1,14 +1,16 @@
 # DB-Native App Platform — Architecture & Implementation Plan
 
 **Date**: April 18, 2026  
-**Status**: Planning  
+**Status**: Planning + Execution In Progress  
 **Scope**: Introduces a second app type (DB-native), migrates non-Tier-0 framework DocTypes out of Rust, establishes Spotledger-Core, and lays the foundation for the app store.
 
 ---
 
 ## 1. Vision in One Sentence
 
-Spotledger becomes a **general-purpose enterprise app development platform** where most apps are pure SurrealDB — no Rust compilation, no WASM, no deploys — and WASM is reserved for heavy lifting only.
+Spotledger becomes a **general-purpose enterprise app development platform** where apps are created, designed, and published entirely from within the platform — no Rust compilation, no WASM, no local tooling required — and WASM is reserved only for heavy compute use-cases.
+
+> **Authoring principle**: The platform is the IDE. You open the browser, create an app, add DocTypes, write SurrealQL logic in the Designer, and publish — all without a terminal. The CLI (`export-app`, `pack-app`) exists for CI/CD pipelines and advanced users who want git-based version control, but it is never a prerequisite.
 
 ---
 
@@ -23,7 +25,7 @@ Spotledger becomes a **general-purpose enterprise app development platform** whe
 | Schema seeding | `inventory::submit!` + `ensure_all_schemas` | `install_app` reads JSON, upserts to SurrealDB |
 | Versioning | Cargo semver + build | `app.json` manifest + `.slpkg` package |
 | Use case | CPU-heavy computation, external integrations | all ERP doctypes, workflows, automation, extensions |
-| Who authors | Rust dev | AI / SurrealQL dev / anyone |
+| Who authors | Rust dev | anyone — from within the platform UI |
 
 **WASM apps are not deprecated.** They remain the right choice for PDF rendering, heavy math, external API clients, anything CPU-bound. DB-native apps cover 95% of ERP use-cases.
 
@@ -215,29 +217,58 @@ At `install_app` time:
 
 ---
 
-## 8. New CLI Commands
+## 8. Platform App Management (Primary)
 
-### App scaffolding
+### 8.1 In-Platform App Lifecycle
+
+The **normal** app authoring workflow is entirely within the Spotledger UI:
+
 ```
-spotledger new-app <name>                           # scaffold app.json + directory
+Apps panel (new sidebar entry)
+  ├── Installed Apps list
+  │     name · version · module count · author
+  ├── [+ New App] button → "New App" form
+  │     name (kebab), title, version, description, author, license, depends_on
+  │     → creates row in `installed_app` with status = "development"
+  │     → creates Module Def rows for declared modules
+  ├── App detail view
+  │     Overview | Modules | DocTypes | Functions | Publish
+  │     [Add Module]  [Export .slpkg]  [Publish]
+  └── Publish workflow
+        bump version field → validate → generate .slpkg download or push to registry
+```
+
+The Designer's **App picker** (already implemented) lets the user assign any existing DocType (or new one) to an app. Creating a new app from the Apps panel immediately makes it available as an option in the Designer's app dropdown.
+
+### 8.2 Backend API Methods (In-Platform)
+
+| Method | Purpose |
+|---|---|
+| `spotledger.apps.list` | List all installed apps with metadata |
+| `spotledger.apps.create` | Create a new DB-native app (name, title, version, depends_on, modules) |
+| `spotledger.apps.get` | Fetch app manifest + stats (doctype count, fn count) |
+| `spotledger.apps.update` | Update manifest fields (title, version, description) |
+| `spotledger.apps.export` | Generate and return a `.slpkg` binary stream |
+| `spotledger.apps.publish` | Push to registry (future) |
+
+All of these write to / read from `installed_app` in SurrealDB. No filesystem involvement until `export`.
+
+### 8.3 CLI Commands (Secondary — for CI/CD and advanced users)
+
+The CLI is an optional complement, not the primary path:
+
+```
+spotledger new-app <name>                           # scaffold app.json + directory (offline bootstrap)
 spotledger new-module <module> --app <app>          # add module directory
 spotledger new-doctype <doctype> --app <app> --module <module>  # scaffold JSON
-```
-
-### Package & distribute
-```
 spotledger pack-app <app-dir>                       # → <name>-<version>.slpkg
-spotledger install-app <app-dir-or-slpkg> <site>    # existing command, extended
+spotledger install-app <app-dir-or-slpkg> <site>    # install from file/dir
 spotledger upgrade-app <app-name> <new-slpkg> <site>
 spotledger uninstall-app <app-name> <site>          # 3-stage safe uninstall
+spotledger export-app <app-name> <site>             # DB state → filesystem (for git)
 ```
 
-### Export from Designer
-```
-spotledger export-app <app-name> <site>             # dump DB state → app directory
-```
-
-`export-app` is the key command: it reads `tabDocType`, `tabDocField`, `fn_source`, `pipeline_node` from the DB and writes them back to the filesystem in the canonical app format. This closes the loop — design in DB, export to files, version control, share.
+`export-app` closes the loop: design everything in the platform → export to files → commit to git → CI runs `install-app` on production.
 
 ---
 
@@ -298,24 +329,35 @@ DEFINE FIELD applied_at  ON app_patch_log TYPE datetime;
 
 The DocDesigner already saves to `tabDocType` / `tabDocField` / `fn_source` / `pipeline_node`. No change to how it works internally.
 
-Two new designer capabilities are needed:
+Three designer capabilities are needed:
 
-### 10.1 App/Module context in Designer
+### 10.1 App/Module context in Designer (Done)
 
 When creating a DocType, the user picks:
 - **App** — which installed DB-native app owns this DocType (or `__custom__` for site-local types)
 - **Module** — which module within that app
 
-The `introduced_by` field on `tabDocField` records captures this. Already defined in architecture.
+The App dropdown is populated from `installed_app` via `frappe.desk.desktop.get_installed_apps`. Already implemented.
 
-### 10.2 Export from Designer
+### 10.2 Apps Panel (primary create/manage flow)
 
-A new button/command: **"Export App"** — calls `spotledger.designer.export_app`:
+A new top-level **Apps** panel in the sidebar (alongside Designer, Users, etc.) is the main place to:
+
+- See all installed apps with status badges (`bundled` / `development` / `installed`)
+- Create a new app (form: name, title, version, description, author, license, depends_on modules)
+- View an app's DocTypes and functions
+- Trigger export / publish
+
+Creating an app here writes a new `installed_app` row in SurrealDB and immediately makes the app available in the Designer's app picker dropdown — no CLI step needed.
+
+### 10.3 Export from Designer / Apps Panel
+
+A **"Export .slpkg"** button on the app detail view — calls `spotledger.apps.export`:
 - Reads all DocTypes where `app = <selected_app>` from `tabDocType`
 - Reads their fields, permissions, SurrealQL functions
-- Returns a zip stream or writes to a file path
+- Returns a `.slpkg` binary stream (download in browser)
 
-This is the "design in DB, ship as files" loop.
+This is the "design in platform, ship as file" loop. The CLI `export-app` does the same thing but writes to the filesystem instead of returning a download.
 
 ---
 
@@ -354,8 +396,7 @@ After Phase 1 is verified working end-to-end:
 ### Phase 3 — `new-site` auto-install spotledger-core
 
 10. In `new_site.rs`: after creating the site, call `install_app("spotledger-core", site)` if `auto_install` is true in its manifest
-11. Remove hard-coded `seed_framework_modules()` call from `server.rs` startup — those modules now come from the spotledger-core install
-    - **Exception**: keep seeding `Core` module (Tier-0, owned by Rust, not by spotledger-core)
+11. Remove hard-coded `seed_framework_modules()` call from `server.rs` startup — modules are now **install-only**, with no server-start fallback seeding
 
 ### Phase 4 — `new-app` CLI command
 
@@ -365,9 +406,9 @@ After Phase 1 is verified working end-to-end:
 
 ### Phase 5 — Designer "App" picker
 
-15. Add `app` field to `tabDocType` (already in `installed_app` table; link to it)
-16. Designer `save` endpoint: write `app` to `tabDocType` record
-17. Designer UI: dropdown showing installed DB-native apps + `__custom__`
+15. Add `app` field to `tabDocType` (already in `installed_app` table; link to it) — Done
+16. Designer `save` endpoint: write `app` to `tabDocType` record — Done (passed through `meta`/`extra_meta` in save path)
+17. Designer UI: dropdown showing installed DB-native apps + `__custom__` — Done
 
 ---
 
@@ -410,48 +451,58 @@ For now: distribute `.slpkg` files via GitHub Releases, direct download, or emai
 
 ## 14. Example: Building a "Payroll" App
 
-To make the vision concrete:
+To make the vision concrete — **everything starts in the platform**:
+
+### In the browser (primary workflow)
+
+```
+1. Sidebar → Apps → [+ New App]
+   Fill: name=payroll, title=Payroll, version=1.0.0
+   depends_on: [spotledger-core]
+   modules: [Payroll]
+   → Click Create
+   
+2. Designer → [New DocType]
+   Name: Employee, App: payroll, Module: Payroll
+   → Add fields in the Designer UI
+   → Write validate/save SurrealQL in the Pipeline tab
+   → Save
+   
+3. Repeat for Salary Slip, Salary Component, Leave Allocation…
+
+4. Apps panel → payroll → [Export .slpkg]
+   → Downloads payroll-1.0.0.slpkg
+   
+5. Install on production:
+   Admin → Apps → [Install from file] → upload payroll-1.0.0.slpkg
+```
+
+### Optional: git-based version control (advanced)
 
 ```bash
-# 1. Scaffold
-spotledger new-app payroll
-# Creates apps/payroll/app.json, apps/payroll/modules/
-
-# 2. Add module
-spotledger new-module "Payroll" --app payroll
-
-# 3. Add DocTypes (in Designer OR via JSON files)
-spotledger new-doctype "Employee" --app payroll --module Payroll
-spotledger new-doctype "Salary Slip" --app payroll --module Payroll
-spotledger new-doctype "Salary Component" --app payroll --module Payroll
-
-# 4. Install on dev site (reads from apps/payroll/)
-spotledger install-app payroll my-dev-site --bench .
-
-# 5. Open Designer → design fields, write SurrealQL logic
-# All goes to DB. Changes tracked in schema_change_log.
-
-# 6. Export changes back to files (for git commit)
-spotledger export-app payroll my-dev-site --bench .
+# Export DB state to filesystem for git
+spotledger export-app payroll my-dev-site
 git add apps/payroll/ && git commit -m "feat: add Employee leave_balance field"
 
-# 7. Package for release
+# Package from files (CI/CD)
 spotledger pack-app apps/payroll/
 # → payroll-1.0.0.slpkg
 
-# 8. Install on production
-spotledger install-app payroll-1.0.0.slpkg prod-site --bench .
+# Deploy to production
+spotledger install-app payroll-1.0.0.slpkg prod-site
 ```
 
-The app has a dependency:
+The CLI round-trip is purely optional. The `.slpkg` produced by the browser export and the CLI are identical.
+
+The app dependency:
 ```json
 {
   "name": "payroll",
-  "depends_on": ["spotledger-core", "spotledger-entities"]
+  "depends_on": ["spotledger-core"]
 }
 ```
 
-`spotledger-entities` is a future app providing Item, Customer, Supplier, Company as a shared base — the "Core Entity App" mentioned in the vision.
+`spotledger-core` provides Address, Contact, Country, Currency and other base types. A future `spotledger-entities` app will provide Item, Customer, Supplier, Company as a shared base.
 
 ---
 
@@ -470,7 +521,24 @@ The app has a dependency:
 
 **Verifiable milestone**: `spotledger new-site test --...` installs cleanly with Contacts, Geo, Automation DocTypes coming from DB, not Rust.
 
-### Phase 2 — `new-app` / `export-app` CLI (MEDIUM — enables developer workflow)
+### Phase 2 — In-Platform App Management (HIGH — core UX, enables self-service authoring)
+
+This is the primary authoring entry point. Users must be able to create and manage apps without any CLI.
+
+| Task | File(s) affected | Effort |
+|---|---|---|
+| `spotledger.apps.list` method — list installed apps from `installed_app` | new `methods/apps.rs` | small |
+| `spotledger.apps.create` method — create row in `installed_app`, seed Module Def rows | `methods/apps.rs` | small |
+| `spotledger.apps.get` method — manifest + doctype/fn counts | `methods/apps.rs` | small |
+| `spotledger.apps.update` method — update title/version/description | `methods/apps.rs` | tiny |
+| `spotledger.apps.export` method — generate `.slpkg` binary in-memory, return as download | `methods/apps.rs`, `export_app.rs` | medium |
+| Apps panel UI — list, create form, detail view | `Spotledger-ui/src/app/panels/Apps/` | medium |
+| Sidebar entry for Apps panel | `Sidebar.tsx` | tiny |
+| "Install from file" upload in Apps panel | `Apps/` panel | small |
+
+**Verifiable milestone**: Open browser → Apps panel → create app → open Designer → new DocType picks the app from dropdown → export .slpkg → reinstall via Apps panel upload.
+
+### Phase 3 — CLI Tools (MEDIUM — for CI/CD and power users, not required for basic authoring)
 
 | Task | File(s) affected |
 |---|---|
@@ -479,14 +547,14 @@ The app has a dependency:
 | `spotledger pack-app` (.slpkg format) | new `pack_app.rs` |
 | `install_app` accepts `.slpkg` files | `install_app.rs` |
 
-### Phase 3 — Designer "App" context (LOW — polish, not blocking)
+### Phase 4 — Designer "App" context (Done)
 
-| Task |
-|---|
-| `app` field on `tabDocType` |
-| Designer save writes `app` + `module` |
-| Designer UI: app/module picker dropdown |
-| "Export App" button in Designer |
+| Task | Status |
+|---|---|
+| `app` field on `tabDocType` | Done |
+| Designer save writes `app` via `extra_meta` | Done |
+| Designer UI: app picker dropdown | Done |
+| "Export App" button in Apps panel | Phase 2 |
 
 ---
 
@@ -503,6 +571,41 @@ The app has a dependency:
 5. **schema_change_log records all diffs**. Every install/upgrade writes change records. This is the audit trail and the rollback mechanism.
 
 6. **WASM apps are additive**. A WASM app can still carry DocType JSONs alongside its `.wasm`. That path is untouched.
+
+---
+
+## 17. Execution Snapshot (April 18, 2026)
+
+This section captures what is already implemented in code versus what remains to close Phase 1.
+
+### 17.1 Implemented
+
+- `apps/spotledger-core/app.json` exists and is loadable.
+- Spotledger-Core DocTypes are present in app files under `apps/spotledger-core/spotledger-core/*/doctype/*`.
+- `new-site` already auto-installs `spotledger-core` when the app directory exists.
+- `install_app` reads `app.json` and records installs into `installed_app`.
+- `install_app` enforces `depends_on` dependencies from `app.json` against `installed_app`.
+- `new-site` auto-install now honors `app.json.auto_install` (no manifest flag, no auto-install).
+- `install-app` now accepts `.slpkg` archives and installs directly from the packaged app contents.
+- CLI scaffolding commands exist: `new-app`, `new-module`, `new-doctype`, `export-app`, `pack-app`.
+- `export-app` now includes `permissions` from `tabDocPerm` and exports function/wiring metadata from `fn_source` + pipeline tables.
+- Fresh-site smoke test verified on `verify_install_only_rebuilt`: `installed_app = [spotledger-core]`, `Module Def` search returns 9 modules from install flow, and `Workspace` metadata loads successfully via `getdoctype`.
+- Non-Tier-0 framework crates are already removed from the workspace (migration largely completed at crate level).
+
+### 17.2 Remaining to Close Phase 1
+
+- None. Phase 1 verification is complete.
+
+### 17.3 Phase 1 Close-Out Checklist (Definition of Done)
+
+1. `spotledger new-site <site>` results in `spotledger-core` installed only when `app.json.auto_install = true`.
+2. `spotledger install-app <app>` fails with a clear message when any manifest dependency is missing.
+3. `Module Def` rows for non-Tier-0 modules are created by install flow, not server startup fallback.
+4. `spotledger pack-app` followed by `spotledger install-app <file.slpkg>` works end-to-end.
+5. Fresh site smoke test passes:
+  - login works
+  - `search_link` for `Module Def` returns expected modules
+  - Spotledger-Core doctypes are available from `tabDocType`/`getdoctype`
 
 ---
 
@@ -551,6 +654,8 @@ Fix the generic form renderer so a User form opened via `FormView` (e.g. from th
 
 ### 18.5 Backend: What Needs to Be Added
 
+Status update (April 18, 2026): the password interceptor is now implemented in the compiled Tier-0 save/controller path for `User`, with the runtime proxy path aligned to the same behavior.
+
 #### A. Password interceptor in save path
 
 When `POST /api/resource/User` or `PUT /api/resource/User/<name>` receives a payload containing `new_password` or `password`:
@@ -560,7 +665,7 @@ When `POST /api/resource/User` or `PUT /api/resource/User/<name>` receives a pay
 3. Call `set_user_password(db, user_name, password)` which hashes and writes to `__Auth`
 4. Never write a plaintext password to `tabUser`
 
-**Where**: `save_proxy.rs` — add a pre-write interceptor for doctype `"User"`. This is the only doctype-specific logic that Rust needs to own (because password storage is a security boundary that cannot move to SurrealDB events).
+**Where**: the compiled Tier-0 save path for `User` must intercept this before persistence. In practice this belongs in the shared Rust save/controller layer, not only in `save_proxy.rs`, because `User` is a compiled DocType and does not use the runtime proxy path.
 
 ```rust
 // In save_proxy.rs — before calling upsert_doc
@@ -581,7 +686,7 @@ if doctype == "User" {
 - SurrealDB `DEFINE FIELD full_name ON tabUser VALUE string::concat($value.first_name, " ", $value.last_name)` — preferred (runs automatically on every write)
 - OR Rust interceptor in the User save path (simpler short-term)
 
-Add the `DEFINE FIELD` to `SEED_RECORDS` / bootstrap DDL so it runs at startup.
+This is already present in bootstrap DDL.
 
 #### C. `generate_keys` button endpoint
 
@@ -589,9 +694,11 @@ Add the `DEFINE FIELD` to `SEED_RECORDS` / bootstrap DDL so it runs at startup.
 
 #### D. Seed `Guest` role
 
-`bootstrap.rs` seeds Administrator, System Manager, and All. Add `Guest` role (used by anonymous/unauthenticated requests in Frappe).
+`Guest` role seeding is already present in bootstrap.
 
 ### 18.6 Frontend: Password Field Type in FieldRenderer
+
+Status update (April 18, 2026): implemented. `ControlPassword.tsx` now handles `Password` fields, and `FormMain` routes edits through `new_password` so the generic `User` form is functional without exposing stored hashes.
 
 In `src/app/panels/FormView/controls/`, add a `ControlPassword.tsx`:
 
@@ -607,6 +714,8 @@ In `FieldRenderer.tsx`, add a case for `fieldtype === "Password"` → `<ControlP
 This makes the generic User form usable (password change works, field doesn't show a hash).
 
 ### 18.7 Frontend: Dedicated Users Panel
+
+Status update (April 18, 2026): implemented in `Spotledger-ui` as a dedicated `Users` panel with `UserList.tsx`, `UserForm.tsx`, and `RoleSelector.tsx`, opened from the sidebar Administration section.
 
 Location: `src/app/panels/Users/`
 
@@ -685,21 +794,156 @@ These can be done immediately, before the main Rust crate migration:
 
 | Task | File | Effort |
 |---|---|---|
-| Password interceptor in save path | `save_proxy.rs` | Small |
-| `full_name` computed DEFINE FIELD in bootstrap DDL | `bootstrap.rs` | Tiny |
-| `ControlPassword.tsx` component | `Spotledger-ui` | Small |
-| `UserList.tsx` + `UserForm.tsx` + `RoleSelector.tsx` | `Spotledger-ui` | Medium |
-| Verify `seed_framework_doctypes` covers all Tier-0 types | `bootstrap.rs` | Tiny |
-| Seed `Guest` role in `SEED_RECORDS` | `bootstrap.rs` | Tiny |
+| Password interceptor in compiled User save path | `controller.rs` / save layer | Done |
+| `full_name` computed DEFINE FIELD in bootstrap DDL | `bootstrap.rs` | Done |
+| `ControlPassword.tsx` component | `Spotledger-ui` | Done |
+| `UserList.tsx` + `UserForm.tsx` + `RoleSelector.tsx` | `Spotledger-ui` | Done |
+| Verify `seed_framework_doctypes` covers all Tier-0 types | `bootstrap.rs` | Done (inventory coverage tests added) |
+| Seed `Guest` role in `SEED_RECORDS` | `bootstrap.rs` | Done |
 
-**Verifiable milestone**: Admin can log in → navigate to Users panel → create a new user with roles → new user can log in.
+**Verifiable milestone**: Admin can log in → navigate to Users panel → create a new user with roles → new user can log in. This flow is now covered by an HTTP-level integration test that verifies password hashing into `__Auth`, no plaintext in `tabUser`, embedded roles persistence, and successful login with the new credentials.
 
 ---
 
-## 17. Questions Explicitly Deferred
+## 19. Questions Explicitly Deferred
 
 1. **Frontend modification without touching core** — separate document, separate discussion.
 2. **App store UI / registry / signing** — deferred until Phase 1-3 are done.
 3. **Multi-site app sharing** — the `.slpkg` + `install_app` mechanism handles this; the registry layer is deferred.
-4. **AI-driven app authoring** — will work naturally once `new-doctype` CLI and Designer export exist. The AI generates JSON + SurrealQL files; the human reviews and commits.
+4. **AI-driven app authoring** — will work naturally once the Apps panel and Designer are fully wired. The AI generates DocTypes + SurrealQL in-platform; the human reviews and exports.
 5. **ERPNext migration** — currently ERPNext is a WASM app with 489 DocType JSONs. Migrating it to DB-native is feasible but deferred (it has no WASM logic yet — it's just JSON + future SurrealQL).
+
+---
+
+## 20. In-Platform App Authoring — Detailed Design
+
+### 20.1 The Gap This Closes
+
+The current plan mentions `new-app` and `export-app` CLI commands as if they are the entry point. They are not. The entry point is the **Apps panel** inside the running platform. CLI tools are an export/CI path for users who want filesystem artifacts and git workflows. First-time users, non-developers, and AI agents never need a terminal.
+
+### 20.2 Apps Panel — Full Specification
+
+**Location**: `src/app/panels/Apps/` — new panel, opened from sidebar under Administration.
+
+**Sidebar entry**: Same Administration section as Users, alongside "DocType Designer".
+
+#### List view (`AppList.tsx`)
+
+| Column | Notes |
+|---|---|
+| App name (link) | kebab-case identifier |
+| Title | display name |
+| Version | semver badge |
+| Status | `bundled` (came with server), `installed` (from .slpkg), `development` (created in-platform) |
+| DocTypes | count |
+| [Export] button | downloads .slpkg |
+| [⋮] menu | Update manifest / Uninstall (non-bundled only) |
+
+"**+ New App**" button opens the create form.
+
+#### Create form (`AppForm.tsx`)
+
+```
+App ID *            [ my-payroll           ] (kebab-case, validated)
+Title  *            [ My Payroll App       ]
+Version             [ 1.0.0               ]
+Description         [ ...                  ]
+Author              [ ...                  ]
+License             [ MIT / AGPL-3.0 / ... ]
+Depends on          [ spotledger-core  ×  ] (multi-select from installed apps)
+Initial modules     [ Payroll          ×  ] (comma-separated or chip input)
+```
+
+On **Create**:
+1. POST `spotledger.apps.create` with the form data
+2. Backend: insert `installed_app:<app-id>` with `status = "development"` + `manifest` JSON
+3. Backend: create `Module Def` rows for each declared module (same as `install_app` does for JSON apps)
+4. Frontend: navigate to the App detail view
+5. The new app **immediately appears** in the Designer's App dropdown
+
+#### Detail view (`AppDetail.tsx`)
+
+Tabs:
+- **Overview** — manifest fields (editable inline), depends_on badges
+- **DocTypes** — list of `tabDocType WHERE app = <name>`, each linking to Designer
+- **Functions** — list of `fn_source` entries for this app's doctypes
+- **Export / Publish** — version bump + [Download .slpkg] + future publish-to-registry button
+
+### 20.3 Backend: `spotledger.apps.*` Method Handlers
+
+New file: `crates/spotledger-http/src/methods/apps.rs`
+
+```rust
+pub async fn handle_list_apps(site, params) -> Result<Value, SpotError>
+// SELECT * FROM installed_app ORDER BY name ASC
+
+pub async fn handle_create_app(site, params) -> Result<Value, SpotError>
+// Validates: name is kebab-case, not already in installed_app, depends_on all installed
+// Inserts installed_app:<name> SET manifest = {...}, status = "development", installed_at = time::now()
+// Creates Module Def rows via existing seed_module_defs helper
+// Returns: { ok: true, app: <name> }
+
+pub async fn handle_get_app(site, params) -> Result<Value, SpotError>
+// Returns manifest + SELECT count() FROM tabDocType WHERE app = $name GROUP ALL
+//                   + SELECT count() FROM fn_source WHERE doctype IN (SELECT name FROM tabDocType WHERE app = $name) GROUP ALL
+
+pub async fn handle_update_app(site, params) -> Result<Value, SpotError>
+// UPDATE installed_app:<name> SET manifest.title = ..., manifest.version = ..., etc.
+
+pub async fn handle_export_app(site, params) -> Result<Value, SpotError>
+// Builds .slpkg in memory (same logic as CLI export-app)
+// Returns base64-encoded bytes + filename, or streams directly
+```
+
+Routes wired in `routes.rs` under `spotledger.apps.*`.
+
+### 20.4 Authoring Loop (Complete, Zero CLI)
+
+```
+1. Sidebar → Apps → [+ New App]
+   → fills in name, title, module(s)
+   → app created in DB immediately
+
+2. Sidebar → Designer → [New DocType]
+   → picks App = "my-payroll" from dropdown  ← populated from installed_app
+   → picks Module = "Payroll"
+   → designs fields, sets autoname, permissions
+   → Saves → tabDocType row written with app = "my-payroll"
+
+3. Designer → Pipeline tab
+   → writes validate/before_save SurrealQL
+   → Saves → fn_source row written, wired to pipeline
+
+4. Sidebar → Apps → my-payroll → Export tab
+   → [Download .slpkg]  ← server assembles archive in memory, browser downloads
+
+5. On another site / for production:
+   → Sidebar → Apps → [Install from file]
+   → uploads payroll-1.0.0.slpkg
+   → backend runs install_app() with in-memory archive
+   → all DocTypes, functions, fixtures appear immediately
+```
+
+### 20.5 What Makes This Different from Frappe
+
+Frappe requires:
+- Python environment locally
+- `bench get-app` / `bench install-app` from terminal
+- `bench migrate` for schema changes
+- File system access to write `.json` files
+
+Spotledger requires:
+- A browser tab
+
+The filesystem is **optional** (for git/CI users who want it), never mandatory.
+
+### 20.6 Implementation Order for Phase 2
+
+Priority order within Phase 2:
+
+1. `methods/apps.rs` — `list`, `create`, `get` (read/create path first, no export yet)
+2. `AppList.tsx` + `AppForm.tsx` — create and list apps in-platform
+3. Sidebar entry for Apps panel
+4. `handle_export_app` — in-memory `.slpkg` assembly + download
+5. `AppDetail.tsx` with DocTypes/Functions tabs and Export tab
+6. "Install from file" upload handler in Apps panel (calls `install_app` with uploaded bytes)
