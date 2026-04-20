@@ -409,3 +409,121 @@ async fn test_login_no_host_header() {
         "single-site fallback: login must succeed without Host header"
     );
 }
+
+/// Create a User via the resource API, ensure the plaintext password is not
+/// stored in `tabUser`, ensure a hash is written to `__Auth`, then verify the
+/// new user can log in with that password.
+#[tokio::test]
+async fn test_create_user_hashes_password_and_allows_login() {
+    let app = build_test_app().await;
+
+    let admin_login_req = Request::builder()
+        .method("POST")
+        .uri("/api/method/login")
+        .header("host", TEST_SITE)
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(Body::from(format!("usr=Administrator&pwd={ADMIN_PASSWORD}")))
+        .unwrap();
+    let admin_login_resp = app.clone().oneshot(admin_login_req).await.unwrap();
+    assert_eq!(admin_login_resp.status(), StatusCode::OK, "admin login must succeed");
+    let admin_sid = extract_cookie(admin_login_resp.headers(), "sid")
+        .expect("sid cookie must be set after admin login");
+
+    let email = "users-panel-test@example.com";
+    let password = "UserPanelPass123!";
+    let payload = serde_json::json!({
+        "doctype": "User",
+        "email": email,
+        "first_name": "Users",
+        "last_name": "Panel",
+        "enabled": 1,
+        "user_type": "System User",
+        "roles": [{ "role": "System Manager" }],
+        "new_password": password,
+    });
+
+    let create_req = Request::builder()
+        .method("POST")
+        .uri("/api/resource/User")
+        .header("host", TEST_SITE)
+        .header("cookie", format!("sid={admin_sid}"))
+        .header("content-type", "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_status = create_resp.status();
+    let create_body = body_string(create_resp.into_body()).await;
+    assert_eq!(
+        create_status,
+        StatusCode::OK,
+        "user create must succeed: {create_body}"
+    );
+
+    let create_json: serde_json::Value = serde_json::from_str(&create_body).unwrap();
+    assert_eq!(create_json["data"]["name"], email);
+
+    let db = connect(&test_db_config()).await.expect("connect to test db");
+
+    let tab_user_rows = db
+        .run(
+            "SELECT password FROM tabUser WHERE name = $user LIMIT 1",
+            vec![("user".into(), email.into())],
+        )
+        .await
+        .expect("query tabUser password");
+    let stored_plaintext = tab_user_rows
+        .first()
+        .and_then(|row| row.get("password"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    assert!(
+        stored_plaintext.is_null(),
+        "tabUser.password must not persist plaintext, got: {stored_plaintext}"
+    );
+
+    let auth_rows = db
+        .run(
+            "SELECT password FROM __Auth WHERE doctype = 'User' AND name = $user AND fieldname = 'password' LIMIT 1",
+            vec![("user".into(), email.into())],
+        )
+        .await
+        .expect("query __Auth password hash");
+    let stored_hash = auth_rows
+        .first()
+        .and_then(|row| row.get("password"))
+        .and_then(serde_json::Value::as_str)
+        .expect("__Auth password hash must exist");
+    assert_ne!(stored_hash, password, "__Auth must store a hash, not plaintext");
+    assert!(
+        stored_hash.starts_with("$pbkdf2-sha256$") || stored_hash.starts_with("$argon2"),
+        "stored password must look like a supported hash format"
+    );
+
+    let role_rows = db
+        .run(
+            "SELECT roles FROM tabUser WHERE name = $user LIMIT 1",
+            vec![("user".into(), email.into())],
+        )
+        .await
+        .expect("query embedded roles");
+    let roles = role_rows
+        .first()
+        .and_then(|row| row.get("roles"))
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        roles.iter().any(|row| row.get("role").and_then(serde_json::Value::as_str) == Some("System Manager")),
+        "created user must preserve the requested roles array"
+    );
+
+    let user_login_req = Request::builder()
+        .method("POST")
+        .uri("/api/method/login")
+        .header("host", TEST_SITE)
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(Body::from(format!("usr={email}&pwd={password}")))
+        .unwrap();
+    let user_login_resp = app.oneshot(user_login_req).await.unwrap();
+    assert_eq!(user_login_resp.status(), StatusCode::OK, "new user login must succeed");
+}
