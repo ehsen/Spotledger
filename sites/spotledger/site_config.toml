@@ -14,4 +14,4 @@ max_documents = 10000
 ttl_seconds = 300
 
 [apps]
-installed = []
+installed = ["spotledger-core", "spotledger-finance"]
