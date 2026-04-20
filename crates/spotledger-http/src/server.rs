@@ -19,7 +19,8 @@ use crate::routes::{call_method, ping, resource_get, resource_get_value, resourc
 use crate::state::{AppState, SiteState};
 use spotledger_db::connection::connect;
 use spotledger_db::migrations::{current_batch, run_pending_migrations};
-use spotledger_db::schema::{ensure_all_schemas, seed_framework_modules, sync_user_doctype_schemas, apply_naming_functions, apply_permissions_functions};
+use spotledger_db::schema::{ensure_all_schemas, sync_user_doctype_schemas, apply_naming_functions, apply_permissions_functions, apply_pipeline_bootstrap};
+use spotledger_db::pipeline::apply_pipeline_functions_multi;
 
 use spotledger_core::config::SiteConfig;
 
@@ -143,7 +144,7 @@ pub async fn serve(args: ServeArgs) -> anyhow::Result<()> {
 /// Intended for use in integration tests.  The caller must populate
 /// `app_state` with at least one site before calling this function.
 pub fn build_app(app_state: AppState) -> axum::Router {
-    use axum::routing::{get, post, put};
+    use axum::routing::{get, post};
 
     let api_routes = axum::Router::new()
         .route("/api/resource/{doctype}", get(resource_list).post(resource_create))
@@ -229,11 +230,6 @@ async fn load_sites(state: &AppState, sites_dir: &Path) -> anyhow::Result<()> {
                             tracing::error!(site = %hostname, error = %e, "Schema sync failed at startup");
                         } else {
                             tracing::info!(site = %hostname, "Schema sync complete");
-                            // Seed built-in Module Def records so the sidebar and
-                            // designer module-picker work without install-app.
-                            if let Err(e) = seed_framework_modules(&db).await {
-                                tracing::warn!(site = %hostname, error = %e, "Module Def seeding failed");
-                            }
                         }
                         // Sync DDL for user-created doctypes (designer-saved types not
                         // in the compiled inventory).  Uses OVERWRITE so any fields that
@@ -251,6 +247,40 @@ async fn load_sites(state: &AppState, sites_dir: &Path) -> anyhow::Result<()> {
                         // permission checks are graph traversals inside SurrealDB.
                         if let Err(e) = apply_permissions_functions(&db).await {
                             tracing::warn!(site = %hostname, error = %e, "Permission function bootstrap failed");
+                        }
+                        // Bootstrap the pipeline infrastructure (schema DDL, shared fn::,
+                        // universal pipeline_node records, fn::registry::dispatch).
+                        // Idempotent — safe on every start.  Ensures fn::validate::mandatory_fields
+                        // and friends are available even if install-app has never been run.
+                        if let Err(e) = apply_pipeline_bootstrap(&db).await {
+                            tracing::warn!(site = %hostname, error = %e, "Pipeline bootstrap failed");
+                        }
+                        // Re-apply all domain pipeline functions (functions.surql + wiring.surql)
+                        // for every installed app on every server start.
+                        //
+                        // This mirrors what tests do via apply_pipeline_functions_multi and
+                        // ensures that SurrealQL changes (e.g. fn::validate::party_roles) take
+                        // effect immediately on restart — no need to re-run install-app.
+                        //
+                        // The bench root is two levels above the site directory:
+                        //   sites/<site>/site_config.toml  →  path.parent().parent() = bench root
+                        {
+                            let bench_root = path.parent().and_then(|p| p.parent());
+                            if let Some(bench) = bench_root {
+                                let app_roots: Vec<std::path::PathBuf> = cfg.apps.installed.iter()
+                                    .map(|app| bench.join("apps").join(app).join(app))
+                                    .filter(|p| p.exists())
+                                    .collect();
+                                if !app_roots.is_empty() {
+                                    let refs: Vec<&std::path::Path> = app_roots.iter().map(|p| p.as_path()).collect();
+                                    match apply_pipeline_functions_multi(&db, &refs).await {
+                                        Ok(n)  => tracing::info!(site = %hostname, fn_count = n, "Domain pipeline functions reloaded"),
+                                        Err(e) => tracing::warn!(site = %hostname, error = %e, "Domain pipeline functions reload failed"),
+                                    }
+                                } else {
+                                    tracing::debug!(site = %hostname, "No installed app roots found — skipping domain pipeline reload");
+                                }
+                            }
                         }
                         match run_pending_migrations(&db, current_batch()).await {
                             Ok(0)  => tracing::debug!(site = %hostname, "No pending migrations"),

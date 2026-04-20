@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use spotledger_core::error::SpotError;
 use spotledger_db::apply_surql::generate_registry_surql;
 use spotledger_db::document::doctype_to_table;
+use spotledger_db::schema::apply_pipeline_bootstrap;
 use spotledger_db::{
     parse_docfield_from_value, parse_docperm_from_value,
     save_doctype, DoctypeSaveError, DoctypeSaveInput,
@@ -465,25 +466,11 @@ pub async fn handle_save_function(
         )));
     }
 
-    // ── 0. Ensure pipeline schema tables and runner fn:: exist ───────────────
-    // These are normally created by apply_pipeline_functions() at install-app
-    // time.  For dev sites (and any site where the app hasn't been installed),
-    // we bootstrap them on first use so save_function works without a full
-    // install step.  All DDL uses IF NOT EXISTS / OVERWRITE — fully idempotent.
-    const PIPELINE_SCHEMA: &str =
-        include_str!("../../../../apps/erpnext/erpnext/surql/framework/01_schema.surql");
-    const PIPELINE_RUNNER: &str =
-        include_str!("../../../../apps/erpnext/erpnext/surql/framework/02_runner.surql");
-
-    // Also ensure fn_source table exists (not in schema surql).
-    let extra_ddl = "DEFINE TABLE IF NOT EXISTS fn_source SCHEMALESS;";
-
-    for ddl in [PIPELINE_SCHEMA, PIPELINE_RUNNER, extra_ddl] {
-        site.db
-            .execute(ddl, vec![])
-            .await
-            .map_err(|e| SpotError::Db(format!("Pipeline bootstrap failed: {e}")))?;
-    }
+    // ── 0. Ensure pipeline schema tables, shared fns, universal nodes, and
+    //       registry exist.  Delegates to the same bootstrap used at server
+    //       startup — fully idempotent (IF NOT EXISTS / OVERWRITE everywhere).
+    apply_pipeline_bootstrap(&site.db).await
+        .map_err(|e| SpotError::Db(format!("Pipeline bootstrap failed: {e}")))?;
 
     // Map lifecycle stage name → [(action, stage_name_in_pipeline)] pairs.
     // "validate" runs on both save and submit actions (mirrors Frappe behaviour).

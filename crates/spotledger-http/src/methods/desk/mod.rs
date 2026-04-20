@@ -1735,10 +1735,38 @@ async fn handle_get_desktop_page(
 // ── frappe.desk.desktop.get_installed_apps ───────────────────────────────────
 
 async fn handle_get_installed_apps(
-    _site: Arc<SiteState>,
+    site: Arc<SiteState>,
     _params: HashMap<String, Value>,
 ) -> Result<Value, SpotError> {
-    Ok(json!([{"app_name": "frappe", "app_title": "Frappe"}]))
+    let rows = site
+        .db
+        .run(
+            "SELECT name, manifest FROM installed_app ORDER BY name ASC",
+            vec![],
+        )
+        .await
+        .unwrap_or_default();
+
+    let mut out: Vec<Value> = rows
+        .into_iter()
+        .filter_map(|row| {
+            let app_name = row.get("name").and_then(Value::as_str)?.to_owned();
+            let app_title = row
+                .get("manifest")
+                .and_then(Value::as_object)
+                .and_then(|m| m.get("title"))
+                .and_then(Value::as_str)
+                .unwrap_or(&app_name)
+                .to_owned();
+            Some(json!({ "app_name": app_name, "app_title": app_title }))
+        })
+        .collect();
+
+    if out.is_empty() {
+        out.push(json!({ "app_name": "frappe", "app_title": "Frappe" }));
+    }
+
+    Ok(Value::Array(out))
 }
 
 // ── frappe.desk.desk_page.getpage ────────────────────────────────────────────

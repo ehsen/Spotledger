@@ -15,7 +15,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 // ── frappe.desk.search.search_link ───────────────────────────────────────────
-// Return: {"results": [{"value": name, "label": title, "description": ""}]}
+// Return: [{"value": name, "label": title, "description": ""}]
+// Mirrors frappe/desk/search.py::search_link.
+//
+// Search strategy (mirrors Frappe):
+//   1. Always search the `name` column.
+//   2. If the DocType declares a `title_field`, also search that column.
+//   3. If the DocType declares `search_fields` (comma-separated), also search each.
+//   4. All comparisons are case-insensitive substring (string::contains + lowercase).
+//   5. When `txt` is empty, return the first `page_length` records with no filter.
 pub async fn handle_search_link(
     site: Arc<SiteState>,
     params: HashMap<String, Value>,
@@ -33,61 +41,94 @@ pub async fn handle_search_link(
         .get("txt")
         .and_then(Value::as_str)
         .unwrap_or("")
+        .trim()
         .to_string();
     let page_length = params
         .get("page_length")
         .and_then(|v| v.as_u64())
         .unwrap_or(10) as usize;
 
-    // ── server-side cache (avoids repeated DB round-trips for same query) ──
-    // Cache key includes page_length so different limit calls don't collide.
-    let cache_key = (
-        doctype.clone(),
-        format!("{txt}:{page_length}"),
-    );
+    // ── server-side cache ────────────────────────────────────────────────────
+    let cache_key = (doctype.clone(), format!("{txt}:{page_length}"));
     if let Some(cached) = site.search_cache.get(&cache_key).await {
         return Ok(cached);
     }
 
-    // Determine the title field so we can return a useful label.
+    // ── resolve title_field / search_fields ──────────────────────────────────
     let (title_field, search_fields) = resolve_search_fields(&site, &doctype).await;
 
-    // Build a LIKE filter on name  (simple case — no custom query support yet)
-    let filter = if txt.is_empty() {
-        json!({})
-    } else {
-        json!({"name": ["like", format!("%{txt}%")]})
-    };
-
-    let mut fetch_fields = vec!["name"];
+    // ── build SELECT field list ───────────────────────────────────────────────
+    // Always include `name`.  Add title_field and each search_field if distinct.
+    let mut select_cols: Vec<String> = vec!["name".to_string()];
     if title_field != "name" {
-        fetch_fields.push(&title_field);
+        select_cols.push(format!("`{title_field}`"));
     }
     for sf in &search_fields {
-        if !fetch_fields.contains(&sf.as_str()) {
-            fetch_fields.push(sf.as_str());
+        if sf != "name" && sf != &title_field {
+            select_cols.push(format!("`{sf}`"));
         }
     }
+    let field_clause = select_cols.join(", ");
 
-    let rows = get_list(
-        &site.db,
-        &doctype,
-        Some(&fetch_fields),
-        Some(&filter),
-        page_length,
-        0,
-    )
-    .await
-    .unwrap_or_default();
+    let table = spotledger_db::document::doctype_to_table(&doctype);
 
+    // ── build WHERE clause ────────────────────────────────────────────────────
+    // When txt is non-empty, use case-insensitive substring matching across all
+    // searchable columns joined by OR.  This mirrors Frappe's behaviour and works
+    // correctly in SurrealDB v3 (LIKE with % is case-sensitive and unreliable).
+    let (sql, bindings) = if txt.is_empty() {
+        // No filter — return first N records so the dropdown is immediately populated.
+        let sql = format!("SELECT {field_clause} FROM `{table}` LIMIT {page_length}");
+        (sql, vec![])
+    } else {
+        // Build OR conditions: one per searchable field.
+        // string::contains(string::lowercase(field), $q) — case-insensitive substring.
+        let txt_lower = txt.to_lowercase();
+
+        let mut searchable: Vec<String> = vec!["name".to_string()];
+        if title_field != "name" {
+            searchable.push(title_field.clone());
+        }
+        for sf in search_fields.iter() {
+            if sf != "name" && sf != &title_field {
+                searchable.push(sf.clone());
+            }
+        }
+
+        // `field ?? ""` — null-coalescing: returns "" if field is NONE/absent.
+        // string::lowercase + string::contains = case-insensitive substring match.
+        let conditions: Vec<String> = searchable
+            .iter()
+            .map(|col| {
+                format!(
+                    "string::contains(string::lowercase(`{col}` ?? \"\"), $q)"
+                )
+            })
+            .collect();
+
+        let where_clause = conditions.join(" OR ");
+        let sql = format!(
+            "SELECT {field_clause} FROM `{table}` WHERE {where_clause} LIMIT {page_length}"
+        );
+        (sql, vec![("q".to_string(), Value::String(txt_lower))])
+    };
+
+    tracing::debug!(%sql, "search_link");
+
+    let rows = match site.db.run(&sql, bindings).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e, %sql, "search_link query failed");
+            vec![]
+        }
+    };
+
+    // ── map rows → result objects ─────────────────────────────────────────────
     let results: Vec<Value> = rows
         .into_iter()
-        .map(|r| {
-            let name = r
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
+        .filter_map(|r| {
+            let name = r.get("name").and_then(Value::as_str)?.to_string();
+            if name.is_empty() { return None; }
             let label = if title_field != "name" {
                 r.get(&title_field)
                     .and_then(Value::as_str)
@@ -97,7 +138,6 @@ pub async fn handle_search_link(
             } else {
                 name.clone()
             };
-            // Build description from extra search fields
             let description = search_fields
                 .iter()
                 .filter(|sf| *sf != "name" && *sf != &title_field)
@@ -105,17 +145,15 @@ pub async fn handle_search_link(
                 .filter(|s| !s.is_empty())
                 .collect::<Vec<_>>()
                 .join(", ");
-            json!({
+            Some(json!({
                 "value":       name,
                 "label":       label,
                 "description": description,
-            })
+            }))
         })
         .collect();
 
-    // Frappe returns the array directly as r.message (link.js calls results.reduce on it)
     let response = json!(results);
-    // Store in cache for subsequent identical queries
     site.search_cache.insert(cache_key, response.clone()).await;
     Ok(response)
 }

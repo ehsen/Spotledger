@@ -1,6 +1,7 @@
 //! Method registry for POST /api/method/{path}
 //! Routes dotted-path method calls to registered Rust handlers.
 
+mod apps;
 mod auth;
 mod client;
 mod desk;
@@ -50,7 +51,27 @@ pub fn build_registry() -> Arc<MethodRegistry> {
     register_client_methods(&registry);
     register_desk_methods(&registry);
     register_designer_methods(&registry);
+    register_apps_methods(&registry);
     registry
+}
+
+fn register_apps_methods(registry: &Arc<MethodRegistry>) {
+    macro_rules! reg {
+        ($path:expr, $fn:ident) => {
+            registry.register(
+                $path,
+                Arc::new(|site: Arc<SiteState>, params: HashMap<String, Value>| -> BoxFuture {
+                    Box::pin(async move { apps::$fn(site, params).await })
+                }),
+            );
+        };
+    }
+
+    reg!("spotledger.apps.list",         handle_list);
+    reg!("spotledger.apps.create",       handle_create);
+    reg!("spotledger.apps.get",          handle_get);
+    reg!("spotledger.apps.add_module",   handle_add_module);
+    reg!("spotledger.apps.list_modules", handle_list_modules);
 }
 
 fn register_designer_methods(registry: &Arc<MethodRegistry>) {
