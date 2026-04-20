@@ -777,7 +777,7 @@ pub async fn sync_user_doctype_schemas(adapter: &DbAdapter) -> Result<(), DbErro
 /// All `DEFINE FUNCTION OVERWRITE` statements are idempotent.
 pub async fn apply_naming_functions(adapter: &DbAdapter) -> Result<(), DbError> {
     const NAMING_SURQL: &str =
-        include_str!("../../../apps/erpnext/erpnext/surql/framework/05_naming.surql");
+        include_str!("../../../apps/spotledger-core/spotledger-core/surql/framework/05_naming.surql");
 
     adapter.execute(NAMING_SURQL, vec![]).await.map_err(|e| {
         DbError::Other(format!("apply_naming_functions failed: {e}"))
@@ -797,12 +797,119 @@ pub async fn apply_naming_functions(adapter: &DbAdapter) -> Result<(), DbError> 
 /// All `DEFINE FUNCTION OVERWRITE` statements are idempotent.
 pub async fn apply_permissions_functions(adapter: &DbAdapter) -> Result<(), DbError> {
     const PERMISSIONS_SURQL: &str =
-        include_str!("../../../apps/erpnext/erpnext/surql/framework/06_permissions.surql");
+        include_str!("../../../apps/spotledger-core/spotledger-core/surql/framework/06_permissions.surql");
 
     adapter.execute(PERMISSIONS_SURQL, vec![]).await.map_err(|e| {
         DbError::Other(format!("apply_permissions_functions failed: {e}"))
     })?;
     tracing::debug!("Permission functions applied");
+    Ok(())
+}
+
+// ── apply_pipeline_bootstrap ──────────────────────────────────────────────────
+
+/// Bootstrap the pipeline infrastructure at server startup.
+///
+/// Applies (in order):
+///   1. `01_schema.surql`            — DDL for `pipeline_stage`, `pipeline_node`, `has_node`
+///   2. Shared fn:: files            — `fn::validate::mandatory_fields`, `fn::validate::party_check`, etc.
+///   3. `02_runner.surql`            — `fn::pipeline::run`
+///   4. `03_universal_nodes.surql`   — idempotent upsert of shared `pipeline_node` records
+///   5. `04_wire_generic.surql`      — `fn::pipeline::wire_generic`
+///   6. Registry rebuild             — `fn::registry::dispatch` covering shared fns + any
+///                                     user-defined functions already in `pipeline_node`
+///
+/// All DDL uses `IF NOT EXISTS` / `OVERWRITE` — fully idempotent and safe to
+/// run on every server start regardless of whether `install-app` has been run.
+pub async fn apply_pipeline_bootstrap(adapter: &DbAdapter) -> Result<(), DbError> {
+    use crate::apply_surql::{apply_registry, collect_fn_names};
+
+    const SCHEMA_SURQL: &str =
+        include_str!("../../../apps/spotledger-core/spotledger-core/surql/framework/01_schema.surql");
+    const SHARED_MANDATORY: &str =
+        include_str!("../../../apps/spotledger-core/spotledger-core/surql/shared/fn_validate_mandatory.surql");
+    const SHARED_PARTY: &str =
+        include_str!("../../../apps/spotledger-core/spotledger-core/surql/shared/fn_validate_party.surql");
+    const SHARED_CANCEL: &str =
+        include_str!("../../../apps/spotledger-core/spotledger-core/surql/shared/fn_validate_cancel.surql");
+    const SHARED_ON_CANCEL: &str =
+        include_str!("../../../apps/spotledger-core/spotledger-core/surql/shared/fn_on_cancel_mark_cancelled.surql");
+    const RUNNER_SURQL: &str =
+        include_str!("../../../apps/spotledger-core/spotledger-core/surql/framework/02_runner.surql");
+    const UNIVERSAL_NODES_SURQL: &str =
+        include_str!("../../../apps/spotledger-core/spotledger-core/surql/framework/03_universal_nodes.surql");
+    const WIRE_GENERIC_SURQL: &str =
+        include_str!("../../../apps/spotledger-core/spotledger-core/surql/framework/04_wire_generic.surql");
+    const FN_SOURCE_DDL: &str = "DEFINE TABLE IF NOT EXISTS fn_source SCHEMALESS;";
+
+    // 1. Pipeline table DDL
+    adapter.execute(SCHEMA_SURQL, vec![]).await.map_err(|e| {
+        DbError::Other(format!("pipeline bootstrap: schema DDL failed: {e}"))
+    })?;
+
+    // 2. Shared fn:: definitions
+    for (name, sql) in [
+        ("fn_validate_mandatory", SHARED_MANDATORY),
+        ("fn_validate_party",     SHARED_PARTY),
+        ("fn_validate_cancel",    SHARED_CANCEL),
+        ("fn_on_cancel",          SHARED_ON_CANCEL),
+    ] {
+        adapter.execute(sql, vec![]).await.map_err(|e| {
+            DbError::Other(format!("pipeline bootstrap: shared fn {name} failed: {e}"))
+        })?;
+    }
+
+    // 3. Runner (needs registry — applied before universal nodes, then registry is rebuilt after)
+    adapter.execute(RUNNER_SURQL, vec![]).await.map_err(|e| {
+        DbError::Other(format!("pipeline bootstrap: runner failed: {e}"))
+    })?;
+
+    // 4. Universal pipeline_node records (IF NOT EXISTS guards — idempotent)
+    adapter.execute(UNIVERSAL_NODES_SURQL, vec![]).await.map_err(|e| {
+        DbError::Other(format!("pipeline bootstrap: universal nodes failed: {e}"))
+    })?;
+
+    // 5. wire_generic helper
+    adapter.execute(WIRE_GENERIC_SURQL, vec![]).await.map_err(|e| {
+        DbError::Other(format!("pipeline bootstrap: wire_generic failed: {e}"))
+    })?;
+
+    // 6. fn_source table
+    adapter.execute(FN_SOURCE_DDL, vec![]).await.map_err(|e| {
+        DbError::Other(format!("pipeline bootstrap: fn_source DDL failed: {e}"))
+    })?;
+
+    // 7. Build registry: start with shared fn names (embedded), then extend
+    //    with any user-defined functions already stored in pipeline_node.
+    let mut fn_set: std::collections::BTreeSet<String> = [
+        SHARED_MANDATORY,
+        SHARED_PARTY,
+        SHARED_CANCEL,
+        SHARED_ON_CANCEL,
+    ]
+    .iter()
+    .flat_map(|src| collect_fn_names(src))
+    .collect();
+
+    // Add any user-defined pipeline_node fn_names (from designer-saved functions).
+    let node_rows = adapter
+        .run("SELECT fn_name FROM pipeline_node ORDER BY fn_name ASC", vec![])
+        .await
+        .unwrap_or_default();
+    for row in &node_rows {
+        if let Some(fn_name) = row.get("fn_name").and_then(serde_json::Value::as_str) {
+            if !fn_name.starts_with("fn::pipeline::") && !fn_name.starts_with("fn::registry::") {
+                fn_set.insert(fn_name.to_owned());
+            }
+        }
+    }
+
+    let fn_names: Vec<String> = fn_set.into_iter().collect();
+    apply_registry(adapter, &fn_names).await.map_err(|e| {
+        DbError::Other(format!("pipeline bootstrap: registry rebuild failed: {e}"))
+    })?;
+
+    tracing::debug!(registry_size = fn_names.len(), "Pipeline bootstrap complete");
     Ok(())
 }
 

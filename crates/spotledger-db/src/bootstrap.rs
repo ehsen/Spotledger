@@ -131,12 +131,22 @@ DEFINE FIELD IF NOT EXISTS is_tree       ON tabDocType TYPE none | bool | int;
 DEFINE FIELD IF NOT EXISTS is_submittable ON tabDocType TYPE none | bool | int;
 DEFINE FIELD IF NOT EXISTS istable       ON tabDocType TYPE none | bool | int;
 DEFINE FIELD IF NOT EXISTS doctype       ON tabDocType TYPE none | string;
+DEFINE FIELD IF NOT EXISTS app           ON tabDocType TYPE none | string;
 DEFINE FIELD IF NOT EXISTS allow_auto_repeat ON tabDocType TYPE none | bool | int;
 DEFINE FIELD IF NOT EXISTS allow_copy    ON tabDocType TYPE none | bool | int;
 DEFINE FIELD IF NOT EXISTS show_in_menu  ON tabDocType TYPE none | bool | int;
 -- tabDocField Spotledger-specific fields
 DEFINE FIELD IF NOT EXISTS assert_expr   ON tabDocField TYPE none | string;
 DEFINE FIELD IF NOT EXISTS compute_expr  ON tabDocField TYPE none | string;
+
+-- ── tabUser computed fields ───────────────────────────────────────────────────
+-- full_name is automatically kept in sync whenever first_name or last_name changes.
+DEFINE FIELD IF NOT EXISTS full_name ON tabUser
+    VALUE string::trim(string::concat(
+        IF $this.first_name != NONE THEN <string>$this.first_name ELSE '' END,
+        ' ',
+        IF $this.last_name  != NONE THEN <string>$this.last_name  ELSE '' END
+    ));
 ";
 
 // ── Seed data ─────────────────────────────────────────────────────────────────
@@ -181,6 +191,18 @@ UPSERT tabRole:⟨System Manager⟩ SET
 UPSERT tabRole:All SET
     name        = 'All',
     role_name   = 'All',
+    desk_access = 0,
+    disabled    = 0,
+    docstatus   = 0,
+    idx         = 0,
+    owner       = 'Administrator',
+    creation    = time::now(),
+    modified    = time::now(),
+    modified_by = 'Administrator';
+
+UPSERT tabRole:Guest SET
+    name        = 'Guest',
+    role_name   = 'Guest',
     desk_access = 0,
     disabled    = 0,
     docstatus   = 0,
@@ -354,4 +376,37 @@ fn surql_record_id(name: &str) -> String {
 /// Escape single-quotes for embedding in SurrealQL string literals.
 fn escape_sq(s: &str) -> String {
     s.replace('\'', "\\'")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{escape_sq, surql_record_id};
+    use spotledger_core::registry::MetaEntry;
+    use std::collections::HashSet;
+
+    #[test]
+    fn tier0_user_management_doctypes_are_registered_in_inventory() {
+        let names: HashSet<String> = inventory::iter::<MetaEntry>()
+            .into_iter()
+            .map(|entry| entry.name.to_owned())
+            .collect();
+
+        for required in ["User", "Role", "HasRole", "UserPermission", "UserType"] {
+            assert!(
+                names.contains(required),
+                "required Tier-0 doctype `{required}` must be registered in inventory"
+            );
+        }
+    }
+
+    #[test]
+    fn surql_record_id_quotes_names_with_spaces() {
+        assert_eq!(surql_record_id("User"), "User");
+        assert_eq!(surql_record_id("System Manager"), "⟨System Manager⟩");
+    }
+
+    #[test]
+    fn escape_sq_escapes_single_quotes() {
+        assert_eq!(escape_sq("O'Brien"), "O\\'Brien");
+    }
 }

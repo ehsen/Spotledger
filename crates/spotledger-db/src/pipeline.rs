@@ -146,6 +146,79 @@ fn collect_fn_names_from_dirs(dirs: &[&std::path::Path]) -> Vec<String> {
     all.into_iter().collect()
 }
 
+/// Apply pipeline functions for multiple app roots, sharing a single combined
+/// fn::registry::dispatch.
+///
+/// Use this in tests or installs where two apps (e.g. spotledger-core +
+/// spotledger-finance) must coexist in the same database.  Calling
+/// `apply_pipeline_functions` for each app separately would cause the second
+/// call to overwrite the registry with only its own functions, making core
+/// functions (e.g. `fn::validate::mandatory_fields`) unreachable.
+///
+/// This function applies each app's surql files in the usual order, but
+/// defers registry generation until all apps have been processed and builds
+/// one combined registry covering every app's shared + domain directories.
+pub async fn apply_pipeline_functions_multi(
+    adapter:   &DbAdapter,
+    app_roots: &[&std::path::Path],
+) -> Result<usize, DbError> {
+    let mut all_fn_dirs: Vec<std::path::PathBuf> = Vec::new();
+
+    for app_root in app_roots {
+        let surql_dir    = app_root.join("surql");
+        let fw_dir       = surql_dir.join("framework");
+        let shared_dir   = surql_dir.join("shared");
+        let doctypes_dir = surql_dir.join("doctypes");
+
+        // 1. Schema DDL
+        let schema_file = fw_dir.join("01_schema.surql");
+        if schema_file.exists() {
+            apply_surql_file(adapter, &schema_file).await?;
+        }
+
+        // 2. Shared fn::
+        apply_surql_dir(adapter, &shared_dir).await?;
+
+        // 3. Domain fn::
+        apply_surql_dir_named(adapter, &doctypes_dir, Some("functions.surql")).await?;
+
+        // Collect dirs for combined registry (built after all apps)
+        if shared_dir.exists()   { all_fn_dirs.push(shared_dir); }
+        if doctypes_dir.exists() { all_fn_dirs.push(doctypes_dir); }
+    }
+
+    // 4. Combined registry covering all apps
+    let dir_refs: Vec<&std::path::Path> = all_fn_dirs.iter().map(|p| p.as_path()).collect();
+    let fn_names = collect_fn_names_from_dirs(&dir_refs);
+    apply_registry(adapter, &fn_names).await?;
+
+    // 5-10. Runner + universal nodes + wire_generic + wiring for each app
+    for app_root in app_roots {
+        let surql_dir    = app_root.join("surql");
+        let fw_dir       = surql_dir.join("framework");
+        let doctypes_dir = surql_dir.join("doctypes");
+
+        let runner_file = fw_dir.join("02_runner.surql");
+        if runner_file.exists() { apply_surql_file(adapter, &runner_file).await?; }
+
+        let universal_nodes_file = fw_dir.join("03_universal_nodes.surql");
+        if universal_nodes_file.exists() { apply_surql_file(adapter, &universal_nodes_file).await?; }
+
+        let wire_generic_file = fw_dir.join("04_wire_generic.surql");
+        if wire_generic_file.exists() { apply_surql_file(adapter, &wire_generic_file).await?; }
+
+        apply_surql_dir_named(adapter, &doctypes_dir, Some("wiring.surql")).await?;
+
+        let naming_file = fw_dir.join("05_naming.surql");
+        if naming_file.exists() { apply_surql_file(adapter, &naming_file).await?; }
+
+        let permissions_file = fw_dir.join("06_permissions.surql");
+        if permissions_file.exists() { apply_surql_file(adapter, &permissions_file).await?; }
+    }
+
+    Ok(fn_names.len())
+}
+
 // ── is_pipeline_registered ────────────────────────────────────────────────────
 
 /// Returns true if this doctype exists in tabDocType (i.e. it has been seeded).

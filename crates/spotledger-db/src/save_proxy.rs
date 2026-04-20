@@ -24,6 +24,7 @@
 use serde_json::{json, Value};
 
 use crate::adapter::DbAdapter;
+use crate::auth::set_user_password;
 use crate::document::{doctype_to_table, get_doc};
 use crate::error::DbError;
 use crate::meta_cache::MetaCache;
@@ -41,6 +42,9 @@ pub enum SaveProxyError {
         ptype:   PermissionType,
         doctype: String,
     },
+
+    #[error("Validation error: {0}")]
+    Validation(String),
 
     #[error("Pipeline error: {0}")]
     Pipeline(String),
@@ -128,7 +132,12 @@ pub async fn save_doc_proxy(
         }
     }
 
-    // ── 3b. Resolve name for new documents ───────────────────────────────────
+    // ── 3b. User password interceptor ────────────────────────────────────────
+    // Plaintext passwords are removed before the doc write and stored in __Auth
+    // only after the record has been persisted successfully.
+    let pending_password = take_user_password(&mut doc)?;
+
+    // ── 3c. Resolve name for new documents ───────────────────────────────────
     // Naming is handled exclusively in SurrealDB via fn::naming::resolve.
     // Rust has no fallback — if the function is unavailable the save fails with
     // a clear error rather than silently producing a wrong name.
@@ -232,6 +241,24 @@ pub async fn save_doc_proxy(
 
     let saved = result.into_iter().next().unwrap_or(Value::Null);
 
+    // ── 5b. Apply pending password after the doc write succeeds ───────────────
+    if let Some(pw_str) = pending_password {
+        let user_name = saved
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        if user_name.is_empty() {
+            return Err(SaveProxyError::Validation(
+                "User password update failed because the saved document has no name".into(),
+            ));
+        }
+
+        set_user_password(adapter, &user_name, &pw_str)
+            .await
+            .map_err(SaveProxyError::Db)?;
+    }
+
     // ── 6. Pipeline (graph-compute) ────────────────────────────────────────────
     // Wired doctypes run validation + compute + side-effects in SurrealDB.
     // Unwired doctypes return Skipped; we keep the already-saved result.
@@ -269,6 +296,36 @@ pub async fn save_doc_proxy(
             return Err(SaveProxyError::Pipeline(extract_thrown_message(&e.to_string())));
         }
     }
+}
+
+fn take_user_password(doc: &mut Value) -> Result<Option<String>, SaveProxyError> {
+    let Value::Object(map) = doc else {
+        return Ok(None);
+    };
+
+    let password_value = map.remove("new_password").or_else(|| map.remove("password"));
+
+    let password = match password_value {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::String(password)) => password,
+        Some(_) => {
+            return Err(SaveProxyError::Validation(
+                "User password must be a string".into(),
+            ));
+        }
+    };
+
+    if password.is_empty() {
+        return Ok(None);
+    }
+
+    if password.chars().count() < 8 {
+        return Err(SaveProxyError::Validation(
+            "User password must be at least 8 characters".into(),
+        ));
+    }
+
+    Ok(Some(password))
 }
 
 // ── submit_doc_proxy ──────────────────────────────────────────────────────────

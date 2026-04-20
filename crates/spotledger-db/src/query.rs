@@ -81,6 +81,21 @@ pub struct SetClause {
     bindings: Vec<(String, Value)>,
 }
 
+/// Returns true when `s` looks like an ISO-8601 date (`YYYY-MM-DD`) or
+/// datetime (`YYYY-MM-DDTHH:…`).  Used to decide whether to emit
+/// `<datetime>$param` instead of a plain `$param` in SET clauses so that
+/// SurrealDB SCHEMAFULL `TYPE datetime` fields receive a proper datetime
+/// value rather than a string.
+fn looks_like_datetime(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() < 10 { return false; }
+    b[4] == b'-' && b[7] == b'-'
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[5..7].iter().all(u8::is_ascii_digit)
+        && b[8..10].iter().all(u8::is_ascii_digit)
+        && (b.len() == 10 || b[10] == b'T')
+}
+
 impl SetClause {
     /// Build from the full document field map.
     pub fn from_fields(fields: &Value) -> Self {
@@ -102,7 +117,19 @@ impl SetClause {
                 continue;
             }
             let key = format!("f_{k}");
-            parts.push(format!("`{k}` = ${key}"));
+            // ISO-8601 date/datetime strings must be cast to `datetime` so that
+            // SCHEMAFULL `TYPE datetime` fields accept them.  Plain string binding
+            // would be rejected by SurrealDB v3 strict type coercion.
+            let sql_val = if let Value::String(s) = v {
+                if looks_like_datetime(s) {
+                    format!("<datetime>${key}")
+                } else {
+                    format!("${key}")
+                }
+            } else {
+                format!("${key}")
+            };
+            parts.push(format!("`{k}` = {sql_val}"));
             bindings.push((key, v.clone()));
         }
 

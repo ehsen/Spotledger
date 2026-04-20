@@ -26,13 +26,14 @@ use chrono::Utc;
 use serde_json::Value;
 use spotledger_core::document::Document;
 use spotledger_core::error::CoreError;
-use spotledger_core::meta::DocTypeMeta;
+use spotledger_core::meta::{DocTypeMeta, FieldType};
 use spotledger_core::validation::{
     get_missing_mandatory_fields, sanitize_content, validate_constants, validate_length,
     validate_selects, validate_update_after_submit,
 };
 
 use crate::adapter::DbAdapter;
+use crate::auth::set_user_password;
 use crate::document::{get_doc, insert_doc, upsert_doc, delete_doc as db_delete};
 use crate::error::DbError;
 use crate::hooks::{HookEvent, HookRegistry};
@@ -59,9 +60,17 @@ pub async fn save_doc(
         || doc.fields.get("__islocal").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
 
     // Strip internal UI-only meta fields — these must not reach the DB.
-    doc.fields.remove("__islocal");
-    doc.fields.remove("__unsaved");
-    doc.fields.remove("doctype"); // redundant: doc.doctype already holds this
+    doc.fields.shift_remove("__islocal");
+    doc.fields.shift_remove("__unsaved");
+    doc.fields.shift_remove("doctype"); // redundant: doc.doctype already holds this
+
+    // User passwords are handled via __Auth, never persisted in tabUser.
+    let pending_password = take_user_password(&mut doc)?;
+
+    // Compiled table fields are stored as arrays in SurrealDB. If the client
+    // omits them entirely, normalize them to [] so SCHEMAFULL writes do not
+    // fail with `Expected array but found NONE`.
+    normalize_missing_table_fields(&mut doc, meta);
 
     // ── 1. Coerce numeric field types ─────────────────────────────────────────
     doc.fix_numeric_types(meta);
@@ -171,6 +180,12 @@ pub async fn save_doc(
             .map_err(CoreError::from)?
     };
 
+    if let Some(password) = pending_password {
+        set_user_password(adapter, &saved.name, &password)
+            .await
+            .map_err(|e| CoreError::Db(e.to_string()))?;
+    }
+
     // ── 15. Hooks: AfterSave/AfterInsert ──────────────────────────────────────
     let saved = hooks.fire(&saved.doctype.clone(), &HookEvent::AfterSave, saved).await?;
     let saved = if is_new {
@@ -180,6 +195,55 @@ pub async fn save_doc(
     };
 
     Ok(saved)
+}
+
+fn take_user_password(doc: &mut Document) -> Result<Option<String>, CoreError> {
+    if doc.doctype != "User" {
+        return Ok(None);
+    }
+
+    let password_value = doc
+        .fields
+        .shift_remove("new_password")
+        .or_else(|| doc.fields.shift_remove("password"));
+
+    let password = match password_value {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::String(password)) => password,
+        Some(_) => {
+            return Err(CoreError::Validation(
+                "User password must be a string".into(),
+            ));
+        }
+    };
+
+    if password.is_empty() {
+        return Ok(None);
+    }
+
+    if password.chars().count() < 8 {
+        return Err(CoreError::Validation(
+            "User password must be at least 8 characters".into(),
+        ));
+    }
+
+    Ok(Some(password))
+}
+
+fn normalize_missing_table_fields(doc: &mut Document, meta: &DocTypeMeta) {
+    for field in &meta.fields {
+        if matches!(field.fieldtype, FieldType::Table | FieldType::TableMultiSelect) {
+            let needs_default = match doc.fields.get(&field.fieldname) {
+                None | Some(Value::Null) => true,
+                _ => false,
+            };
+
+            if needs_default {
+                doc.fields
+                    .insert(field.fieldname.clone(), Value::Array(vec![]));
+            }
+        }
+    }
 }
 
 // ── delete_doc_checked ────────────────────────────────────────────────────────
@@ -232,4 +296,57 @@ pub fn get_compiled_meta(doctype: &str) -> Option<DocTypeMeta> {
         .into_iter()
         .find(|e| e.name == doctype)
         .map(|e| (e.meta)())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{get_compiled_meta, normalize_missing_table_fields, take_user_password};
+    use serde_json::json;
+    use spotledger_core::document::Document;
+    use spotledger_core::error::CoreError;
+
+    #[test]
+    fn takes_new_password_for_user_docs() {
+        let mut doc = Document::new("User");
+        doc.fields.insert("new_password".into(), json!("secret123"));
+
+        let pending = take_user_password(&mut doc).unwrap();
+
+        assert_eq!(pending.as_deref(), Some("secret123"));
+        assert!(!doc.fields.contains_key("new_password"));
+    }
+
+    #[test]
+    fn rejects_short_user_passwords() {
+        let mut doc = Document::new("User");
+        doc.fields.insert("password".into(), json!("short"));
+
+        let err = take_user_password(&mut doc).unwrap_err();
+
+        assert!(matches!(err, CoreError::Validation(_)));
+        assert_eq!(err.to_string(), "Validation error: User password must be at least 8 characters");
+    }
+
+    #[test]
+    fn ignores_password_fields_for_other_doctypes() {
+        let mut doc = Document::new("Contact");
+        doc.fields.insert("password".into(), json!("secret123"));
+
+        let pending = take_user_password(&mut doc).unwrap();
+
+        assert!(pending.is_none());
+        assert!(doc.fields.contains_key("password"));
+    }
+
+    #[test]
+    fn defaults_missing_table_fields_to_empty_arrays() {
+        let mut doc = Document::new("User");
+        doc.fields.insert("email".into(), json!("user@example.com"));
+        let meta = get_compiled_meta("User").expect("compiled User meta");
+
+        normalize_missing_table_fields(&mut doc, &meta);
+
+        assert_eq!(doc.fields.get("roles"), Some(&json!([])));
+        assert_eq!(doc.fields.get("permissions"), Some(&json!([])));
+    }
 }

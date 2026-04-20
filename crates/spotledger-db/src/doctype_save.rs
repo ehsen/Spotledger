@@ -1069,4 +1069,72 @@ mod tests {
         assert!(obj["fields"].as_array().unwrap().is_empty());
         assert!(obj["permissions"].as_array().unwrap().is_empty());
     }
+
+    /// Designer save passes `app` via extra_meta.  Verify it survives
+    /// `build_doctype_content` so it will be written to `tabDocType`.
+    #[test]
+    fn test_build_doctype_content_preserves_app_via_extra_meta() {
+        let mut extra = HashMap::new();
+        extra.insert("app".into(), Value::String("spotledger".into()));
+
+        let input = DoctypeSaveInput {
+            doctype:        "TestAppField".into(),
+            module:         "Custom".into(),
+            autoname:       "".into(),
+            is_child:       false,
+            is_single:      false,
+            is_submittable: false,
+            is_tree:        false,
+            custom:         true,
+            fields:         vec![],
+            perms:          vec![],
+            user:           "Administrator".into(),
+            extra_meta:     extra,
+        };
+        let content = build_doctype_content(&input, "Administrator", true);
+        let obj = content.as_object().unwrap();
+
+        // The `app` key must appear in the output document.
+        assert_eq!(
+            obj.get("app").and_then(Value::as_str),
+            Some("spotledger"),
+            "`app` field from extra_meta must be present in built tabDocType content"
+        );
+
+        // Known scalar fields must not be overridden by extra_meta even if
+        // a caller accidentally passes them there — `module` is set explicitly
+        // so the explicit value wins.
+        assert_eq!(obj["module"].as_str().unwrap(), "Custom");
+    }
+
+    /// Confirm that passing unknown extra_meta keys (e.g. UI-added metadata)
+    /// all end up in the content object exactly once.
+    #[test]
+    fn test_build_doctype_content_merges_arbitrary_extra_meta() {
+        let mut extra = HashMap::new();
+        extra.insert("app".into(),         Value::String("erpnext".into()));
+        extra.insert("description".into(), Value::String("A test type".into()));
+
+        let input = DoctypeSaveInput {
+            doctype:        "AnotherDoc".into(),
+            module:         "Accounts".into(),
+            autoname:       "naming_series:".into(),
+            is_child:       false,
+            is_single:      false,
+            is_submittable: true,
+            is_tree:        false,
+            custom:         false,
+            fields:         vec![],
+            perms:          vec![],
+            user:           "Administrator".into(),
+            extra_meta:     extra,
+        };
+        let content = build_doctype_content(&input, "Administrator", true);
+        let obj = content.as_object().unwrap();
+
+        assert_eq!(obj["app"].as_str().unwrap(), "erpnext");
+        assert_eq!(obj["description"].as_str().unwrap(), "A test type");
+        // is_submittable still written from explicit flag
+        assert_eq!(obj["is_submittable"].as_u64().unwrap(), 1);
+    }
 }
