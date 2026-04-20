@@ -78,3 +78,11 @@ REMOVE NAMESPACE IF EXISTS hello_graph;
 REMOVE NAMESPACE IF EXISTS testing;
 REMOVE NAMESPACE IF EXISTS testing_timestamp;
 REMOVE NAMESPACE spotledger;
+SELECT * FROM pipeline_stage
+SELECT * FROM has_node WHERE in = pipeline_stage:tabFiscal_Year_save_validate
+SELECT fn_name FROM pipeline_node:fiscal_year_validate_dates
+RETURN fn::registry::dispatch('fn::validate::fiscal_year_dates', tabFiscal_Year:FY-BACKWARDS, {})
+UPSERT tabFiscal_Year:⟨FY-BACKWARDS⟩ CONTENT { name: 'FY-BACKWARDS', year_start_date: '2024-12-31T00:00:00Z', year_end_date: '2024-01-01T00:00:00Z' }; RETURN fn::validate::fiscal_year_dates(tabFiscal_Year:⟨FY-BACKWARDS⟩, {})
+SELECT * FROM tabFiscal_Year
+RETURN fn::pipeline::run(type::record('tabFiscal_Year', 'FY-BACKWARDS'), 'Fiscal Year', 'save')
+RETURN fn::registry::dispatch('fn::validate::mandatory_fields', tabFiscal_Year:⟨FY-BACKWARDS⟩, {})
