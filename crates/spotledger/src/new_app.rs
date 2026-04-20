@@ -7,9 +7,40 @@
 
 use anyhow::{bail, Context, Result};
 use serde_json::json;
-use std::path::{Path, PathBuf};
 
 use crate::cli::{ExportAppArgs, NewAppArgs, NewDoctypeArgs, NewModuleArgs};
+
+fn slug(s: &str) -> String {
+    s.to_lowercase().replace(' ', "_")
+}
+
+fn unreserve_docperm_fields(mut row: serde_json::Value) -> serde_json::Value {
+    if let serde_json::Value::Object(ref mut map) = row {
+        if let Some(v) = map.remove("perm_create") {
+            map.insert("create".to_owned(), v);
+        }
+        if let Some(v) = map.remove("perm_delete") {
+            map.insert("delete".to_owned(), v);
+        }
+        if let Some(v) = map.remove("perm_select") {
+            map.insert("select".to_owned(), v);
+        }
+        if let Some(v) = map.remove("perm_cancel") {
+            map.insert("cancel".to_owned(), v);
+        }
+    }
+    row
+}
+
+fn function_filename(stage: &str, doctype: &str, fn_name: &str) -> String {
+    let dt = slug(doctype);
+    let suffix = fn_name
+        .split("::")
+        .last()
+        .unwrap_or("fn")
+        .to_lowercase();
+    format!("{}_{}__{}.surql", stage, dt, suffix)
+}
 
 // ── new-app ───────────────────────────────────────────────────────────────────
 
@@ -266,8 +297,8 @@ pub async fn export_app(args: ExportAppArgs) -> Result<()> {
                 None => continue,
             };
 
-            let snake_name = name.to_lowercase().replace(' ', "_");
-            let module_slug = module.to_lowercase().replace(' ', "_");
+            let snake_name = slug(&name);
+            let module_slug = slug(module);
             let dt_dir = app_root
                 .join(&module_slug)
                 .join("doctype")
@@ -281,6 +312,66 @@ pub async fn export_app(args: ExportAppArgs) -> Result<()> {
             );
             let fields = db.run(&field_query, vec![]).await.unwrap_or_default();
 
+            // Fetch permissions for this DocType (convert perm_* back to Frappe keys)
+            let perm_query = format!(
+                "SELECT * FROM tabDocPerm WHERE parent = '{}' ORDER BY idx ASC",
+                name.replace('\'', "\\'")
+            );
+            let permissions = db
+                .run(&perm_query, vec![])
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(unreserve_docperm_fields)
+                .collect::<Vec<_>>();
+
+            // Export fn_source rows as .surql files and include pipeline metadata.
+            let fn_query = format!(
+                "SELECT * FROM fn_source WHERE doctype = '{}' ORDER BY stage, fn_name ASC",
+                name.replace('\'', "\\'")
+            );
+            let fn_sources = db.run(&fn_query, vec![]).await.unwrap_or_default();
+
+            let stage_query = format!(
+                "SELECT * FROM pipeline_stage WHERE doctype = '{}' ORDER BY ord ASC",
+                name.replace('\'', "\\'")
+            );
+            let stages = db.run(&stage_query, vec![]).await.unwrap_or_default();
+
+            let node_query = format!(
+                "SELECT out.fn_name AS fn_name, out.name AS node_name, in.name AS stage_name, in.action AS action_name, ord FROM has_node WHERE in.doctype = '{}' ORDER BY ord ASC",
+                name.replace('\'', "\\'")
+            );
+            let nodes = db.run(&node_query, vec![]).await.unwrap_or_default();
+
+            let module_surql_dir = app_root.join(&module_slug).join("surql");
+            tokio::fs::create_dir_all(&module_surql_dir).await?;
+
+            for row in &fn_sources {
+                let stage = row.get("stage").and_then(|v| v.as_str()).unwrap_or("custom");
+                let fn_name = row.get("fn_name").and_then(|v| v.as_str()).unwrap_or("fn::unknown::fn");
+                let code = row.get("code").and_then(|v| v.as_str()).unwrap_or("");
+                let file_name = function_filename(stage, &name, fn_name);
+                let surql_path = module_surql_dir.join(file_name);
+                tokio::fs::write(&surql_path, code)
+                    .await
+                    .with_context(|| format!("Writing {}", surql_path.display()))?;
+            }
+
+            // Write pipeline metadata snapshot for round-trip visibility.
+            if !fn_sources.is_empty() || !stages.is_empty() || !nodes.is_empty() {
+                let pipeline_meta = json!({
+                    "doctype": name,
+                    "stages": stages,
+                    "nodes": nodes,
+                    "fn_sources": fn_sources,
+                });
+                let pipeline_path = module_surql_dir.join(format!("pipeline_{}.json", snake_name));
+                tokio::fs::write(&pipeline_path, serde_json::to_string_pretty(&pipeline_meta)?)
+                    .await
+                    .with_context(|| format!("Writing {}", pipeline_path.display()))?;
+            }
+
             // Build field_order from fields
             let field_order: Vec<String> = fields
                 .iter()
@@ -293,7 +384,7 @@ pub async fn export_app(args: ExportAppArgs) -> Result<()> {
                 "module": module,
                 "field_order": field_order,
                 "fields": fields,
-                "permissions": [],
+                "permissions": permissions,
                 "sort_field": "creation",
                 "sort_order": "DESC"
             });

@@ -44,6 +44,10 @@ pub enum Commands {
     NewDoctype(NewDoctypeArgs),
     /// Export installed DocTypes for an app back to filesystem JSON
     ExportApp(ExportAppArgs),
+    /// Package a DB-native app directory into a distributable .slpkg archive
+    PackApp(PackAppArgs),
+    /// Seed Phase 8 finance fixtures (currencies, default CoA, baseline FSVs)
+    SeedFinanceFixtures(SeedFinanceFixturesArgs),
 }
 
 #[derive(Debug, clap::Args, Clone)]
@@ -252,4 +256,28 @@ pub struct ExportAppArgs {
     /// Path to the bench root (default: current directory)
     #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
     pub bench: PathBuf,
+}
+
+#[derive(Debug, clap::Args, Clone)]
+pub struct PackAppArgs {
+    /// Path to the app directory to package (e.g. apps/my-app)
+    pub app_dir: PathBuf,
+
+    /// Output path for the .slpkg archive (defaults to <name>-<version>.slpkg in cwd)
+    #[arg(long, short = 'o')]
+    pub output: Option<PathBuf>,
+}
+
+#[derive(Debug, clap::Args, Clone)]
+pub struct SeedFinanceFixturesArgs {
+    /// Hostname of the site to seed fixtures into
+    pub site: String,
+
+    /// Path to the bench root (default: current directory)
+    #[arg(long, env = "SPOTLEDGER_BENCH", default_value = ".")]
+    pub bench: PathBuf,
+
+    /// Default Chart of Accounts name to create/use
+    #[arg(long, default_value = "SpotLedger Standard PKR")]
+    pub coa_name: String,
 }

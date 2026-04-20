@@ -18,6 +18,7 @@
 //! No external `.surql` files are read. The binary is the sole source of truth.
 
 use anyhow::{bail, Context};
+use serde_json::Value;
 use spotledger_db::bootstrap::{run_framework_tables, seed_default_records, seed_framework_doctypes, seed_naming_rules};
 use spotledger_db::migrations::{current_batch, run_pending_migrations};
 use spotledger_db::auth::set_user_password;
@@ -27,6 +28,22 @@ use spotledger_core::config::{AppsConfig, CacheConfig, DatabaseConfig, SiteConfi
 
 use crate::cli::NewSiteArgs;
 use crate::install_app::install_app_into_db;
+
+async fn should_auto_install_app(bench: &std::path::Path, app_name: &str) -> bool {
+    let manifest_path = bench.join("apps").join(app_name).join("app.json");
+    let raw = match tokio::fs::read_to_string(&manifest_path).await {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let manifest: Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    manifest
+        .get("auto_install")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
 
 pub async fn new_site(args: NewSiteArgs) -> anyhow::Result<()> {
     let bench = args.bench.canonicalize()
@@ -130,12 +147,14 @@ pub async fn new_site(args: NewSiteArgs) -> anyhow::Result<()> {
 
     // ── Auto-install spotledger-core if present ───────────────────────────────
     let core_app_dir = bench.join("apps").join("spotledger-core");
-    if core_app_dir.exists() {
+    if core_app_dir.exists() && should_auto_install_app(&bench, "spotledger-core").await {
         println!("\nAuto-installing spotledger-core …");
         match install_app_into_db(&db, &bench, "spotledger-core", None).await {
             Ok(()) => println!("✓  spotledger-core installed."),
             Err(e) => eprintln!("WARN: spotledger-core auto-install failed (non-fatal): {:?}", e),
         }
+    } else if core_app_dir.exists() {
+        println!("\nSkipping auto-install for spotledger-core (app.json auto_install is false).");
     }
 
     // ── Done ─────────────────────────────────────────────────────────────────

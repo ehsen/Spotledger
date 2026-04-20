@@ -21,5 +21,9 @@ async fn main() -> anyhow::Result<()> {
         Commands::NewModule(args)    => spotledger::new_app::new_module(args).await,
         Commands::NewDoctype(args)   => spotledger::new_app::new_doctype(args).await,
         Commands::ExportApp(args)    => spotledger::new_app::export_app(args).await,
+        Commands::PackApp(args)      => spotledger::pack_app::pack_app(args).await,
+        Commands::SeedFinanceFixtures(args) => {
+            spotledger::seed_finance_fixtures::seed_finance_fixtures(args).await
+        }
     }
 }

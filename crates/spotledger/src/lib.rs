@@ -8,10 +8,12 @@ pub mod install_app;
 pub mod migrate;
 pub mod new_site;
 pub mod seed_doctypes;
+pub mod seed_finance_fixtures;
 pub mod start;
 pub mod use_site;
 pub mod wire_app;
 pub mod new_app;
+pub mod pack_app;
 
 // Re-export HTTP layer from spotledger-http
 pub use spotledger_http::{serve, server};

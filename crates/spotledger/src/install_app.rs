@@ -16,6 +16,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use flate2::read::GzDecoder;
 use serde_json::{json, Value};
 use spotledger_db::connection::connect;
 use spotledger_db::DbAdapter;
@@ -26,6 +27,7 @@ use spotledger_db::graph_ops::{
 };
 use spotledger_db::pipeline::apply_pipeline_functions;
 use spotledger_core::config::SiteConfig;
+use tar::Archive;
 
 use crate::cli::InstallAppArgs;
 use crate::seed_doctypes::{build_child_row, seed_doctypes_for_app};
@@ -120,6 +122,50 @@ async fn read_app_manifest(bench: &Path, app_name: &str) -> Option<Value> {
     serde_json::from_str(&raw).ok()
 }
 
+/// Check whether an app already exists in `installed_app`.
+async fn is_app_installed(db: &DbAdapter, app_name: &str) -> Result<bool> {
+    let query = "SELECT name FROM tabinstalled_app WHERE name = $name LIMIT 1";
+    let rows = db
+        .run(query, vec![("name".to_owned(), Value::String(app_name.to_owned()))])
+        .await
+        .with_context(|| format!("Checking installed_app for '{}'", app_name))?;
+    Ok(!rows.is_empty())
+}
+
+/// Ensure all manifest dependencies are already installed.
+async fn enforce_manifest_dependencies(
+    db: &DbAdapter,
+    app_name: &str,
+    manifest: Option<&Value>,
+) -> Result<()> {
+    let Some(manifest) = manifest else {
+        return Ok(());
+    };
+
+    let Some(depends_on) = manifest.get("depends_on") else {
+        return Ok(());
+    };
+
+    let Some(deps) = depends_on.as_array() else {
+        anyhow::bail!("Invalid app.json for '{}': depends_on must be an array", app_name);
+    };
+
+    for dep in deps.iter().filter_map(|v| v.as_str()) {
+        if dep.trim().is_empty() || dep == app_name {
+            continue;
+        }
+        if !is_app_installed(db, dep).await? {
+            anyhow::bail!(
+                "Dependency missing: '{}' must be installed before '{}'",
+                dep,
+                app_name
+            );
+        }
+    }
+
+    Ok(())
+}
+
 /// Record an installed app in the `installed_app` table.
 async fn record_installed_app(
     db: &DbAdapter,
@@ -152,13 +198,174 @@ pub async fn install_app(args: InstallAppArgs) -> Result<()> {
 
     let db = connect_to_site(&bench, &args.site).await?;
 
-    install_app_into_db(&db, &bench, &args.app, args.version.as_deref()).await?;
+    let requested = PathBuf::from(&args.app);
+    let installed_name = if requested
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.eq_ignore_ascii_case("slpkg"))
+        .unwrap_or(false)
+    {
+        install_slpkg_into_db(&db, &requested, args.version.as_deref()).await?
+    } else {
+        install_app_into_db(&db, &bench, &args.app, args.version.as_deref()).await?;
+        args.app.clone()
+    };
 
     println!(
         "\n✓  App '{}' installed into site '{}'.",
-        args.app, args.site
+        installed_name, args.site
     );
     Ok(())
+}
+
+fn read_manifest_from_outer_app_dir(app_outer_dir: &Path) -> Result<Value> {
+    let path = app_outer_dir.join("app.json");
+    let raw = std::fs::read_to_string(&path)
+        .with_context(|| format!("Reading {}", path.display()))?;
+    let manifest: Value = serde_json::from_str(&raw)
+        .with_context(|| format!("Parsing {}", path.display()))?;
+    Ok(manifest)
+}
+
+fn extract_app_name_from_manifest(manifest: &Value) -> Result<String> {
+    let app_name = manifest
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_owned();
+    if app_name.is_empty() {
+        anyhow::bail!("Invalid app.json: missing non-empty 'name'");
+    }
+    Ok(app_name)
+}
+
+fn app_version_from_manifest(manifest: &Value, cli_version: Option<&str>) -> String {
+    cli_version
+        .map(|s| s.to_owned())
+        .or_else(|| {
+            manifest
+                .get("version")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_owned())
+        })
+        .unwrap_or_else(|| "unknown".to_owned())
+}
+
+async fn install_app_from_resolved_source(
+    db: &DbAdapter,
+    app_name: &str,
+    app_root: &Path,
+    manifest: Option<Value>,
+    version: String,
+    app_path_for_tracking: Option<&str>,
+) -> Result<()> {
+    enforce_manifest_dependencies(db, app_name, manifest.as_ref()).await?;
+
+    if !app_root.exists() {
+        anyhow::bail!("App root not found: {}", app_root.display());
+    }
+
+    // ── 0. Upsert app graph node ──────────────────────────────────────────────
+    println!("\n[0/5] Registering app node for '{}' (v{}) …", app_name, version);
+    upsert_app_node(db, app_name, None, Some(&version), None)
+        .await
+        .context("Upserting app graph node")?;
+
+    // ── 1. DocType definitions ────────────────────────────────────────────────
+    println!("\n[1/5] Seeding DocType definitions for '{}' …", app_name);
+    let (dt_seeded, dt_errors) = seed_doctypes_for_app(db, app_root, app_name).await?;
+    println!("      {} DocTypes seeded, {} errors.", dt_seeded, dt_errors);
+    if dt_errors > 0 {
+        anyhow::bail!("{} DocType(s) failed — check output above", dt_errors);
+    }
+
+    // ── 2. Module Def records from modules.txt ────────────────────────────────
+    println!("\n[2/5] Seeding Module Def records …");
+    let mod_count = seed_module_defs(db, app_root, app_name).await?;
+    println!("      {} Module Defs seeded.", mod_count);
+
+    // ── 3. Importable fixture records (Workspace, Page, Report, …) ───────────
+    println!("\n[3/5] Seeding importable fixture records …");
+    let fixture_count = seed_fixture_records(db, app_root).await?;
+    println!("      {} fixture records seeded.", fixture_count);
+
+    // ── 3b. Generic module fixtures (countries, currencies, …) ───────────────
+    match seed_module_fixtures(db, app_root).await {
+        Ok(n) if n > 0 => println!("      {} module fixture records seeded.", n),
+        Ok(_) => {}
+        Err(e) => eprintln!("WARN: module fixture seeding failed (non-fatal): {:?}", e),
+    }
+
+    // ── 4. Patch Log — mark all patches as completed ──────────────────────────
+    println!("\n[4/5] Marking patches as completed …");
+    let patch_count = seed_patch_log(db, app_root).await?;
+    println!("      {} patches marked done.", patch_count);
+
+    // ── 5. Pipeline framework — fn:: files + Tier A wiring ──────────────────
+    println!("\n[5/5] Applying pipeline fn:: functions …");
+    match seed_pipeline_for_app(db, app_root).await {
+        Ok(fn_count) => println!("      {} fn:: registered.", fn_count),
+        Err(e) => eprintln!("WARN: pipeline seeding failed (non-fatal): {:?}", e),
+    }
+
+    // ── Record in installed_app ───────────────────────────────────────────────
+    record_installed_app(db, app_name, &version, app_path_for_tracking, manifest.as_ref()).await;
+
+    // ── Post-install: link check ──────────────────────────────────────────────
+    post_install_link_check(db).await;
+
+    Ok(())
+}
+
+fn find_packaged_app_outer_dir(unpack_root: &Path) -> Result<PathBuf> {
+    let entries = std::fs::read_dir(unpack_root)
+        .with_context(|| format!("Reading {}", unpack_root.display()))?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() && path.join("app.json").exists() {
+            return Ok(path);
+        }
+    }
+    anyhow::bail!("Invalid .slpkg: expected one top-level app directory with app.json");
+}
+
+async fn install_slpkg_into_db(
+    db: &DbAdapter,
+    slpkg_path: &Path,
+    cli_version: Option<&str>,
+) -> Result<String> {
+    let archive_path = slpkg_path
+        .canonicalize()
+        .with_context(|| format!("Archive not found: {}", slpkg_path.display()))?;
+
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let unpack_root = std::env::temp_dir().join(format!("spotledger-slpkg-{}", unique));
+    std::fs::create_dir_all(&unpack_root)
+        .with_context(|| format!("Creating {}", unpack_root.display()))?;
+
+    let file = std::fs::File::open(&archive_path)
+        .with_context(|| format!("Opening {}", archive_path.display()))?;
+    let gz = GzDecoder::new(file);
+    let mut tar = Archive::new(gz);
+    tar.unpack(&unpack_root)
+        .with_context(|| format!("Unpacking {}", archive_path.display()))?;
+
+    let app_outer = find_packaged_app_outer_dir(&unpack_root)?;
+    let manifest = read_manifest_from_outer_app_dir(&app_outer)?;
+    let app_name = extract_app_name_from_manifest(&manifest)?;
+    let app_root = app_outer.join(&app_name);
+    let version = app_version_from_manifest(&manifest, cli_version);
+
+    install_app_from_resolved_source(db, &app_name, &app_root, Some(manifest), version, None)
+        .await
+        .with_context(|| format!("Installing app from {}", archive_path.display()))?;
+
+    Ok(app_name)
 }
 
 /// Install an app into an already-connected database.
@@ -173,65 +380,22 @@ pub async fn install_app_into_db(
 ) -> Result<()> {
     // ── Read app.json manifest if present ─────────────────────────────────────
     let manifest = read_app_manifest(bench, app_name).await;
-    let version = cli_version
-        .map(|s| s.to_owned())
-        .or_else(|| {
-            manifest.as_ref()
-                .and_then(|m| m.get("version"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_owned())
-        })
-        .unwrap_or_else(|| "unknown".to_owned());
+    let version = manifest
+        .as_ref()
+        .map(|m| app_version_from_manifest(m, cli_version))
+        .unwrap_or_else(|| cli_version.unwrap_or("unknown").to_owned());
 
     let app_root = bench.join("apps").join(app_name).join(app_name);
-    if !app_root.exists() {
-        anyhow::bail!("App root not found: {}", app_root.display());
-    }
-
-    // ── 0. Upsert app graph node ──────────────────────────────────────────────
-    println!("\n[0/5] Registering app node for '{}' (v{}) …", app_name, version);
-    upsert_app_node(db, app_name, None, Some(&version), None)
-        .await
-        .context("Upserting app graph node")?;
-
-    // ── 1. DocType definitions ────────────────────────────────────────────────
-    println!("\n[1/5] Seeding DocType definitions for '{}' …", app_name);
-    let (dt_seeded, dt_errors) = seed_doctypes_for_app(db, &app_root, app_name).await?;
-    println!("      {} DocTypes seeded, {} errors.", dt_seeded, dt_errors);
-    if dt_errors > 0 {
-        anyhow::bail!("{} DocType(s) failed — check output above", dt_errors);
-    }
-
-    // ── 2. Module Def records from modules.txt ────────────────────────────────
-    println!("\n[2/5] Seeding Module Def records …");
-    let mod_count = seed_module_defs(db, &app_root, app_name).await?;
-    println!("      {} Module Defs seeded.", mod_count);
-
-    // ── 3. Importable fixture records (Workspace, Page, Report, …) ───────────
-    println!("\n[3/5] Seeding importable fixture records …");
-    let fixture_count = seed_fixture_records(db, &app_root).await?;
-    println!("      {} fixture records seeded.", fixture_count);
-
-    // ── 4. Patch Log — mark all patches as completed ──────────────────────────
-    println!("\n[4/5] Marking patches as completed …");
-    let patch_count = seed_patch_log(db, &app_root).await?;
-    println!("      {} patches marked done.", patch_count);
-
-    // ── 5. Pipeline framework — fn:: files + Tier A wiring ──────────────────
-    println!("\n[5/5] Applying pipeline fn:: functions …");
-    match seed_pipeline_for_app(db, &app_root).await {
-        Ok(fn_count) => println!("      {} fn:: registered.", fn_count),
-        Err(e) => eprintln!("WARN: pipeline seeding failed (non-fatal): {:?}", e),
-    }
-
-    // ── Record in installed_app ───────────────────────────────────────────────
-    let app_path_str = app_root.to_string_lossy();
-    record_installed_app(db, app_name, &version, Some(&app_path_str), manifest.as_ref()).await;
-
-    // ── Post-install: link check ──────────────────────────────────────────────
-    post_install_link_check(db).await;
-
-    Ok(())
+    let app_path_str = app_root.to_string_lossy().to_string();
+    install_app_from_resolved_source(
+        db,
+        app_name,
+        &app_root,
+        manifest,
+        version,
+        Some(&app_path_str),
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -701,4 +865,95 @@ async fn seed_pipeline_for_app(db: &DbAdapter, app_root: &Path) -> Result<usize>
     apply_pipeline_functions(db, app_root)
         .await
         .context("Applying pipeline surql files")
+}
+
+// ---------------------------------------------------------------------------
+// Module-level generic fixtures
+// ---------------------------------------------------------------------------
+
+/// Seed generic fixture records from `{app_root}/{module}/fixtures/{DocType}.json`.
+///
+/// Each file is a JSON array of records. The filename (without extension) is used
+/// as the DocType name (title-cased). Example:
+///
+///   `geo/fixtures/Country.json`  → array of Country records upserted to tabCountry
+///
+/// Records must each have a `"name"` field.
+async fn seed_module_fixtures(db: &DbAdapter, app_root: &Path) -> Result<usize> {
+    let mut total = 0usize;
+    let Ok(module_iter) = std::fs::read_dir(app_root) else {
+        return Ok(0);
+    };
+    for module_entry in module_iter.flatten() {
+        let module_dir = module_entry.path();
+        if !module_dir.is_dir() {
+            continue;
+        }
+        let fixtures_dir = module_dir.join("fixtures");
+        if !fixtures_dir.is_dir() {
+            continue;
+        }
+        let Ok(files_iter) = std::fs::read_dir(&fixtures_dir) else {
+            continue;
+        };
+        for file_entry in files_iter.flatten() {
+            let path = file_entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+            // DocType name is the filename stem (preserving case)
+            let doctype = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_owned();
+            if doctype.is_empty() {
+                continue;
+            }
+
+            let raw = match tokio::fs::read_to_string(&path).await {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("WARN: read {}: {}", path.display(), e);
+                    continue;
+                }
+            };
+            let records: Vec<Value> = match serde_json::from_str(&raw) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("WARN: parse {}: {}", path.display(), e);
+                    continue;
+                }
+            };
+
+            let mut count = 0usize;
+            for mut record in records {
+                let name = match record.get("name").and_then(Value::as_str) {
+                    Some(n) if !n.is_empty() => n.to_owned(),
+                    _ => {
+                        eprintln!("WARN: fixture record in {} missing 'name', skipping", path.display());
+                        continue;
+                    }
+                };
+                // Stamp system fields if absent
+                if let Value::Object(ref mut map) = record {
+                    map.entry("owner".to_owned())
+                        .or_insert_with(|| json!("Administrator"));
+                    map.entry("modified_by".to_owned())
+                        .or_insert_with(|| json!("Administrator"));
+                    map.entry("docstatus".to_owned())
+                        .or_insert_with(|| json!(0));
+                }
+                match upsert_doc(db, &doctype, &name, &record).await {
+                    Ok(_) => count += 1,
+                    Err(e) => eprintln!("WARN: {} '{}': {}", doctype, name, e),
+                }
+            }
+            if count > 0 {
+                println!("      {} {} fixture record(s) from {}", count, doctype, path.file_name().unwrap_or_default().to_string_lossy());
+            }
+            total += count;
+        }
+    }
+    Ok(total)
 }
