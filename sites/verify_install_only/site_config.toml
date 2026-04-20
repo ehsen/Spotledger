@@ -1,0 +1,17 @@
+[site]
+name = "verify_install_only"
+namespace = "verify_install_only"
+
+[database]
+url = "ws://127.0.0.1:8000"
+ns = "verify_install_only"
+db = "verify_install_only"
+user = "root"
+pass = "root"
+
+[cache]
+max_documents = 10000
+ttl_seconds = 300
+
+[apps]
+installed = []

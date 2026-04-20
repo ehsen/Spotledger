@@ -1,0 +1,3 @@
+vec![
+  "F:\\Sources\\spotledger\\target-agent\\debug\\build\\cranelift-assembler-x64-092adc1b287e9291\\out\\assembler.rs".into(),
+]

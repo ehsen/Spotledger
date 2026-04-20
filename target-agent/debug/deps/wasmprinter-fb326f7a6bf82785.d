@@ -1,0 +1,11 @@
+F:\Sources\spotledger\target-agent\debug\deps\wasmprinter-fb326f7a6bf82785.d: C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\lib.rs C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\component.rs C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\operand_stack.rs C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\operator.rs C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\print.rs
+
+F:\Sources\spotledger\target-agent\debug\deps\libwasmprinter-fb326f7a6bf82785.rlib: C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\lib.rs C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\component.rs C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\operand_stack.rs C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\operator.rs C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\print.rs
+
+F:\Sources\spotledger\target-agent\debug\deps\libwasmprinter-fb326f7a6bf82785.rmeta: C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\lib.rs C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\component.rs C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\operand_stack.rs C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\operator.rs C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\print.rs
+
+C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\lib.rs:
+C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\component.rs:
+C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\operand_stack.rs:
+C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\operator.rs:
+C:\Users\Ehsen\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\wasmprinter-0.243.0\src\print.rs:
