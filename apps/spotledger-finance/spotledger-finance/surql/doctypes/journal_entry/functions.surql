@@ -106,13 +106,33 @@ DEFINE FUNCTION OVERWRITE fn::compute::je_totals(
 ) {
     LET $doc = (SELECT accounts FROM $doc_id)[0];
 
-    IF $doc.accounts = NONE {
+    IF $doc.accounts = NONE OR array::len($doc.accounts) = 0 {
         UPDATE $doc_id SET total_debit = 0, total_credit = 0, difference = 0;
         RETURN { ok: true };
     };
 
-    LET $total_debit  = math::sum($doc.accounts[*].debit  ?? [0]);
-    LET $total_credit = math::sum($doc.accounts[*].credit ?? [0]);
+    -- array::map applies |$v| $v ?? 0 to every element so math::sum never
+    -- receives a NULL.  For single-currency JEs the user fills
+    -- debit_in_account_currency / credit_in_account_currency; the company-
+    -- currency fields (debit / credit) are absent (NONE) until GL posting.
+    -- We prefer the company-currency field when present and non-zero
+    -- (multi-currency case), otherwise fall back to account-currency amount.
+    LET $d_arr = array::map($doc.accounts, |$row| {
+        LET $d = IF $row.debit != NONE AND $row.debit != 0
+                 THEN $row.debit
+                 ELSE $row.debit_in_account_currency END;
+        RETURN $d ?? 0;
+    });
+
+    LET $c_arr = array::map($doc.accounts, |$row| {
+        LET $c = IF $row.credit != NONE AND $row.credit != 0
+                 THEN $row.credit
+                 ELSE $row.credit_in_account_currency END;
+        RETURN $c ?? 0;
+    });
+
+    LET $total_debit  = math::sum($d_arr);
+    LET $total_credit = math::sum($c_arr);
 
     UPDATE $doc_id SET
         total_debit  = $total_debit,
@@ -127,22 +147,29 @@ DEFINE FUNCTION OVERWRITE fn::on_submit::je_create_gl_entries(
     $config: object
 ) {
     LET $doc = (
-        SELECT accounts, posting_date, company, voucher_type, user_remark
+        SELECT accounts, posting_date, company, voucher_type, user_remark, owner, modified_by
         FROM $doc_id
     )[0];
 
     LET $doc_name = <string>record::id($doc_id);
+
+    -- Remove any GL entries from previous failed submit attempts (idempotency)
+    DELETE tabGL_Entry WHERE voucher_no = $doc_name
+        OR string::starts_with(name ?? "", $doc_name);
 
     IF $doc.accounts = NONE OR array::len($doc.accounts) = 0 {
         RETURN { error: "No account lines found on Journal Entry" };
     };
 
     FOR $row IN $doc.accounts {
-        LET $idx = $row.idx OR 0;
-        LET $gl_name = string::concat($doc_name, "-GL-", <string>$idx);
+        LET $row_key = <string>($row._pk ?? $row.idx ?? 0);
+        LET $gl_name = string::concat($doc_name, "-GL-", $row_key);
 
         INSERT INTO tabGL_Entry {
             name:                       $gl_name,
+            doctype:                    "GL Entry",
+            owner:                      $doc.owner,
+            modified_by:                $doc.modified_by,
             company:                    $doc.company,
             account:                    $row.account,
             posting_date:               $doc.posting_date,
@@ -159,7 +186,7 @@ DEFINE FUNCTION OVERWRITE fn::on_submit::je_create_gl_entries(
             voucher_no:                 $doc_name,
             remarks:                    $doc.user_remark,
             docstatus:                  1,
-            is_cancelled:               false
+            is_cancelled:               0
         };
     };
 
@@ -186,7 +213,7 @@ DEFINE FUNCTION OVERWRITE fn::on_cancel::je_cancel_gl_entries(
             credit                     = $gl.debit,
             debit_in_account_currency  = $gl.credit_in_account_currency,
             credit_in_account_currency = $gl.debit_in_account_currency,
-            is_cancelled               = true,
+            is_cancelled               = 1,
             docstatus                  = 2;
     };
 

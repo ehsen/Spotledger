@@ -181,7 +181,7 @@ DEFINE FUNCTION OVERWRITE fn::on_cancel::gl_entry_reverse(
         credit                     = $doc.debit,
         debit_in_account_currency  = $doc.credit_in_account_currency,
         credit_in_account_currency = $doc.debit_in_account_currency,
-        is_cancelled               = true,
+        is_cancelled               = 1,
         docstatus                  = 2;
 
     RETURN { ok: true };

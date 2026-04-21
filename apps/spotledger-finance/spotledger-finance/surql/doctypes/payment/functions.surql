@@ -251,7 +251,10 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_expense(
 
     FOR $line IN $doc.expense_income_lines {
         INSERT INTO tabGL_Entry {
-            name:         string::concat($doc_name, "-EXP-", <string>($line.idx OR 0)),
+            name:         string::concat($doc_name, "-EXP-", <string>($line._pk ?? $line.idx ?? 0)),
+            doctype:      "GL Entry",
+            owner:        $doc.owner,
+            modified_by:  $doc.modified_by,
             company:      $doc.company,
             account:      $line.account,
             posting_date: $doc.date,
@@ -262,12 +265,15 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_expense(
             voucher_no:   $doc_name,
             remarks:      $doc.narration,
             docstatus:    1,
-            is_cancelled: false
+            is_cancelled: 0
         };
     };
 
     INSERT INTO tabGL_Entry {
         name:         string::concat($doc_name, "-BANK"),
+        doctype:      "GL Entry",
+        owner:        $doc.owner,
+        modified_by:  $doc.modified_by,
         company:      $doc.company,
         account:      $doc.paid_from,
         posting_date: $doc.date,
@@ -277,7 +283,7 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_expense(
         voucher_no:   $doc_name,
         remarks:      $doc.narration,
         docstatus:    1,
-        is_cancelled: false
+        is_cancelled: 0
     };
 
     RETURN { ok: true };
@@ -293,6 +299,9 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_income(
 
     INSERT INTO tabGL_Entry {
         name:         string::concat($doc_name, "-BANK"),
+        doctype:      "GL Entry",
+        owner:        $doc.owner,
+        modified_by:  $doc.modified_by,
         company:      $doc.company,
         account:      $doc.paid_into,
         posting_date: $doc.date,
@@ -302,12 +311,15 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_income(
         voucher_no:   $doc_name,
         remarks:      $doc.narration,
         docstatus:    1,
-        is_cancelled: false
+        is_cancelled: 0
     };
 
     FOR $line IN $doc.expense_income_lines {
         INSERT INTO tabGL_Entry {
-            name:         string::concat($doc_name, "-INC-", <string>($line.idx OR 0)),
+            name:         string::concat($doc_name, "-INC-", <string>($line._pk ?? $line.idx ?? 0)),
+            doctype:      "GL Entry",
+            owner:        $doc.owner,
+            modified_by:  $doc.modified_by,
             company:      $doc.company,
             account:      $line.account,
             posting_date: $doc.date,
@@ -318,7 +330,7 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_income(
             voucher_no:   $doc_name,
             remarks:      $doc.narration,
             docstatus:    1,
-            is_cancelled: false
+            is_cancelled: 0
         };
     };
 
@@ -348,6 +360,9 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_party_payment(
 
     INSERT INTO tabGL_Entry {
         name:         string::concat($doc_name, "-PAY"),
+        doctype:      "GL Entry",
+        owner:        $doc.owner,
+        modified_by:  $doc.modified_by,
         company:      $doc.company,
         account:      $prc.payable_account,
         posting_date: $doc.date,
@@ -359,11 +374,14 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_party_payment(
         voucher_no:   $doc_name,
         remarks:      $doc.narration,
         docstatus:    1,
-        is_cancelled: false
+        is_cancelled: 0
     };
 
     INSERT INTO tabGL_Entry {
         name:         string::concat($doc_name, "-BANK"),
+        doctype:      "GL Entry",
+        owner:        $doc.owner,
+        modified_by:  $doc.modified_by,
         company:      $doc.company,
         account:      $doc.paid_from,
         posting_date: $doc.date,
@@ -373,7 +391,7 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_party_payment(
         voucher_no:   $doc_name,
         remarks:      $doc.narration,
         docstatus:    1,
-        is_cancelled: false
+        is_cancelled: 0
     };
 
     RETURN { ok: true };
@@ -401,6 +419,9 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_party_receipt(
 
     INSERT INTO tabGL_Entry {
         name:         string::concat($doc_name, "-BANK"),
+        doctype:      "GL Entry",
+        owner:        $doc.owner,
+        modified_by:  $doc.modified_by,
         company:      $doc.company,
         account:      $doc.paid_into,
         posting_date: $doc.date,
@@ -410,11 +431,14 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_party_receipt(
         voucher_no:   $doc_name,
         remarks:      $doc.narration,
         docstatus:    1,
-        is_cancelled: false
+        is_cancelled: 0
     };
 
     INSERT INTO tabGL_Entry {
         name:         string::concat($doc_name, "-REC"),
+        doctype:      "GL Entry",
+        owner:        $doc.owner,
+        modified_by:  $doc.modified_by,
         company:      $doc.company,
         account:      $prc.receivable_account,
         posting_date: $doc.date,
@@ -426,7 +450,7 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_party_receipt(
         voucher_no:   $doc_name,
         remarks:      $doc.narration,
         docstatus:    1,
-        is_cancelled: false
+        is_cancelled: 0
     };
 
     RETURN { ok: true };
@@ -442,6 +466,9 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_transfer(
 
     INSERT INTO tabGL_Entry {
         name:         string::concat($doc_name, "-TO"),
+        doctype:      "GL Entry",
+        owner:        $doc.owner,
+        modified_by:  $doc.modified_by,
         company:      $doc.company,
         account:      $doc.to_account,
         posting_date: $doc.date,
@@ -451,11 +478,14 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_transfer(
         voucher_no:   $doc_name,
         remarks:      $doc.narration,
         docstatus:    1,
-        is_cancelled: false
+        is_cancelled: 0
     };
 
     INSERT INTO tabGL_Entry {
         name:         string::concat($doc_name, "-FROM"),
+        doctype:      "GL Entry",
+        owner:        $doc.owner,
+        modified_by:  $doc.modified_by,
         company:      $doc.company,
         account:      $doc.from_account,
         posting_date: $doc.date,
@@ -465,7 +495,7 @@ DEFINE FUNCTION OVERWRITE fn::payment::post_transfer(
         voucher_no:   $doc_name,
         remarks:      $doc.narration,
         docstatus:    1,
-        is_cancelled: false
+        is_cancelled: 0
     };
 
     RETURN { ok: true };
@@ -520,7 +550,7 @@ DEFINE FUNCTION OVERWRITE fn::on_cancel::payment_reverse_gl(
             credit                     = $gl.debit,
             debit_in_account_currency  = $gl.credit_in_account_currency,
             credit_in_account_currency = $gl.debit_in_account_currency,
-            is_cancelled               = true,
+            is_cancelled = 1,
             docstatus                  = 2;
     };
 
