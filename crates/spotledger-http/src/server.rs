@@ -15,7 +15,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::middleware::site_middleware;
 use crate::methods::{get_logged_user_handler, getdoc_handler, getdoctype_handler, getpage_handler, login_handler, logout_handler};
-use crate::routes::{call_method, ping, resource_get, resource_get_value, resource_list, resource_create, resource_update};
+use crate::routes::{call_method, ping, resource_get, resource_get_value, resource_list, resource_create, resource_update, resource_submit, resource_cancel};
 use crate::state::{AppState, SiteState};
 use spotledger_db::connection::connect;
 use spotledger_db::migrations::{current_batch, run_pending_migrations};
@@ -78,6 +78,8 @@ pub async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         // REST resource API
         .route("/api/resource/{doctype}", get(resource_list).post(resource_create))
         .route("/api/resource/{doctype}/{name}", get(resource_get).put(resource_update))
+        .route("/api/resource/{doctype}/{name}/submit", post(resource_submit))
+        .route("/api/resource/{doctype}/{name}/cancel", post(resource_cancel))
         .route(
             "/api/resource/{doctype}/{name}/{fieldname}",
             get(resource_get_value),
@@ -149,6 +151,8 @@ pub fn build_app(app_state: AppState) -> axum::Router {
     let api_routes = axum::Router::new()
         .route("/api/resource/{doctype}", get(resource_list).post(resource_create))
         .route("/api/resource/{doctype}/{name}", get(resource_get).put(resource_update))
+        .route("/api/resource/{doctype}/{name}/submit", post(resource_submit))
+        .route("/api/resource/{doctype}/{name}/cancel", post(resource_cancel))
         .route(
             "/api/resource/{doctype}/{name}/{fieldname}",
             get(resource_get_value),

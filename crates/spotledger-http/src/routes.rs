@@ -19,7 +19,7 @@ use std::sync::Arc;
 use spotledger_db::document::{get_doc, get_list, get_value};
 use spotledger_db::permissions::{has_permission, PermissionType};
 use spotledger_db::controller::get_compiled_meta;
-use spotledger_db::save_proxy::{save_doc_proxy, SaveProxyError};
+use spotledger_db::save_proxy::{save_doc_proxy, submit_doc_proxy, cancel_doc_proxy, SaveProxyError};
 use spotledger_db::controller::save_doc;
 use spotledger_core::document::Document;
 use spotledger_core::response::{DocResponse, ErrorResponse, ListResponse, MethodResponse};
@@ -336,6 +336,62 @@ pub async fn resource_update(
         Err(e) => {
             let status = StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             (status, Json(ErrorResponse::new(error_type(&e), spot_error_message(&e)))).into_response()
+        }
+    }
+}
+
+// ── resource_submit (POST /api/resource/{doctype}/{name}/submit) ──────────────
+
+pub async fn resource_submit(
+    Extension(site): Extension<Arc<SiteState>>,
+    Extension(current_user): Extension<CurrentUser>,
+    Path((doctype, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let user = current_user.name().to_owned();
+    let result = submit_doc_proxy(&site.db, &user, &doctype, &name).await;
+
+    match result {
+        Ok(doc) => {
+            site.doc_cache.remove(&(doctype.clone(), name.clone())).await;
+            (StatusCode::OK, Json(DocResponse { data: doc })).into_response()
+        }
+        Err(e) => {
+            let http_status = match &e {
+                SaveProxyError::PermissionDenied { .. } => StatusCode::FORBIDDEN,
+                SaveProxyError::Validation(_) => StatusCode::UNPROCESSABLE_ENTITY,
+                SaveProxyError::Pipeline(_) => StatusCode::CONFLICT,
+                SaveProxyError::Db(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            let msg = proxy_error_message(e);
+            (http_status, Json(ErrorResponse::new("SubmitError", msg))).into_response()
+        }
+    }
+}
+
+// ── resource_cancel (POST /api/resource/{doctype}/{name}/cancel) ──────────────
+
+pub async fn resource_cancel(
+    Extension(site): Extension<Arc<SiteState>>,
+    Extension(current_user): Extension<CurrentUser>,
+    Path((doctype, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let user = current_user.name().to_owned();
+    let result = cancel_doc_proxy(&site.db, &user, &doctype, &name).await;
+
+    match result {
+        Ok(doc) => {
+            site.doc_cache.remove(&(doctype.clone(), name.clone())).await;
+            (StatusCode::OK, Json(DocResponse { data: doc })).into_response()
+        }
+        Err(e) => {
+            let http_status = match &e {
+                SaveProxyError::PermissionDenied { .. } => StatusCode::FORBIDDEN,
+                SaveProxyError::Validation(_) => StatusCode::UNPROCESSABLE_ENTITY,
+                SaveProxyError::Pipeline(_) => StatusCode::CONFLICT,
+                SaveProxyError::Db(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            let msg = proxy_error_message(e);
+            (http_status, Json(ErrorResponse::new("CancelError", msg))).into_response()
         }
     }
 }
