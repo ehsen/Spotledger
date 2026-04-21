@@ -260,8 +260,14 @@ fn validate_fields(
         let fn_ = f.fieldname.as_str();
         fieldnames.push(f.fieldname.clone());
 
-        // F2 — fieldname valid identifier
-        if !is_valid_fieldname(fn_) {
+        // Layout-type fields (Section Break / Column Break / Tab Break) are not
+        // stored as DB columns.  Their fieldnames are synthetic and auto-generated
+        // by the designer, so we skip identifier-format and reserved-word checks.
+        let ft_lower = f.fieldtype.to_lowercase().replace('-', " ");
+        let is_layout = matches!(ft_lower.as_str(), "section break" | "column break" | "tab break");
+
+        // F2 — fieldname valid identifier (data fields only)
+        if !is_layout && !is_valid_fieldname(fn_) {
             errors.push(ValidationError::field(
                 fn_,
                 "F2",
@@ -272,8 +278,8 @@ fn validate_fields(
             ));
         }
 
-        // F3 — fieldname not a reserved word
-        if RESERVED_FIELDNAMES
+        // F3 — fieldname not a reserved word (data fields only)
+        if !is_layout && RESERVED_FIELDNAMES
             .iter()
             .any(|r| r.eq_ignore_ascii_case(fn_))
         {

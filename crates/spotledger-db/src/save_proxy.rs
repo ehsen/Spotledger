@@ -198,104 +198,102 @@ pub async fn save_doc_proxy(
         if is_new {
             map.entry("docstatus").or_insert_with(|| json!(0));
         }
+
+        // status: default "Draft" for draft documents (docstatus=0).
+        // This ensures the status field is always set on submittable doctypes.
+        if map.get("docstatus").and_then(Value::as_i64) == Some(0) {
+            map.entry("status").or_insert_with(|| json!("Draft"));
+        }
     }
 
-    // ── 5. DB write ────────────────────────────────────────────────────────────
-    // Use the same type::record(table, name) pattern as document.rs so that
-    // both the compiled (Tier-0) and proxy (Tier-3+) paths share one SQL dialect
-    // compatible with SurrealDB v3.
-    let table = doctype_to_table(doctype);
-    let result = if is_new {
-        // For new docs the name was already resolved by save_doc_proxy caller
-        // or is present in the doc itself.  Ensure it is in the doc.
-        let doc_name = doc
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_owned();
-        let sql = "CREATE type::record($table, $name) CONTENT $doc RETURN AFTER;";
-        adapter
-            .run(
-                sql,
-                vec![
-                    ("table".into(), json!(table)),
-                    ("name".into(),  json!(doc_name)),
-                    ("doc".into(),   doc),
-                ],
-            )
-            .await?
+    // ── 5. Resolve doc_name before the transactional write ────────────────────
+    let table    = doctype_to_table(doctype);
+    let doc_name = if is_new {
+        doc.get("name")
+           .and_then(Value::as_str)
+           .unwrap_or("")
+           .to_owned()
     } else {
-        // UPSERT by record id
-        let sql = "UPSERT type::record($table, $name) CONTENT $doc RETURN AFTER;";
-        adapter
-            .run(
-                sql,
-                vec![
-                    ("table".into(), json!(table)),
-                    ("name".into(),  json!(name)),
-                    ("doc".into(),   doc),
-                ],
-            )
-            .await?
+        name.clone()
     };
 
-    let saved = result.into_iter().next().unwrap_or(Value::Null);
+    // ── 6. Atomic write + pipeline in one BEGIN TRANSACTION block ─────────────
+    //
+    // Both the document write and fn::pipeline::run are enclosed in a single
+    // SurrealDB transaction.  When the pipeline THROW-s (validation failure,
+    // duplicate-key insert, etc.) SurrealDB aborts the whole transaction,
+    // rolling back the document write too.  No manual DELETE cleanup needed.
+    //
+    // Statement indices in the multi-statement block:
+    //   0 → BEGIN TRANSACTION        (no rows)
+    //   1 → CREATE / UPSERT          (RETURN NONE → no rows)
+    //   2 → RETURN fn::pipeline::run (pipeline result rows)
+    //   3 → COMMIT TRANSACTION       (no rows)
+    //
+    // If fn::pipeline::run returns {status:"skipped"} the pipeline is not wired
+    // for this doctype; we still commit the write and re-read the document.
+    let write_sql = if is_new {
+        "CREATE type::record($table, $name) CONTENT $doc RETURN NONE;"
+    } else {
+        "UPSERT type::record($table, $name) CONTENT $doc RETURN NONE;"
+    };
+    let full_sql = format!(
+        "BEGIN TRANSACTION; \
+         {write_sql} \
+         RETURN fn::pipeline::run(type::record($table, $name), $doctype, $action); \
+         COMMIT TRANSACTION;"
+    );
 
-    // ── 5b. Apply pending password after the doc write succeeds ───────────────
+    let pipeline_rows = adapter
+        .run_multi(
+            &full_sql,
+            vec![
+                ("table".into(),   json!(table)),
+                ("name".into(),    json!(doc_name)),
+                ("doc".into(),     doc),
+                ("doctype".into(), json!(doctype)),
+                ("action".into(),  json!("save")),
+            ],
+            2, // index of RETURN fn::pipeline::run
+        )
+        .await
+        .map_err(|e| SaveProxyError::Pipeline(extract_thrown_message(&e.to_string())))?;
+
+    // ── 6b. Apply pending password after the transactional write succeeds ─────
     if let Some(pw_str) = pending_password {
-        let user_name = saved
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_owned();
-        if user_name.is_empty() {
+        if doc_name.is_empty() {
             return Err(SaveProxyError::Validation(
                 "User password update failed because the saved document has no name".into(),
             ));
         }
-
-        set_user_password(adapter, &user_name, &pw_str)
+        set_user_password(adapter, &doc_name, &pw_str)
             .await
             .map_err(SaveProxyError::Db)?;
     }
 
-    // ── 6. Pipeline (graph-compute) ────────────────────────────────────────────
-    // Wired doctypes run validation + compute + side-effects in SurrealDB.
-    // Unwired doctypes return Skipped; we keep the already-saved result.
-    let doc_name = saved
-        .get("name")
+    // ── 7. Re-read the document with any pipeline-computed field changes ───────
+    // Both the "ok" and "skipped" outcomes mean the write committed.
+    // Re-read so the caller always sees the latest DB state (e.g. computed totals).
+    let pipeline_status = pipeline_rows
+        .into_iter()
+        .next()
+        .unwrap_or(Value::Null);
+    let status = pipeline_status
+        .get("status")
         .and_then(Value::as_str)
-        .unwrap_or(if is_new { "" } else { &name })
-        .to_owned();
+        .unwrap_or("ok");
 
-    match run_pipeline(adapter, &table, &doc_name, doctype, "save").await {
-        Ok(PipelineResult::Skipped) => {
-            // No pipeline registered — keep the saved document as-is.
-            return Ok(saved);
-        }
-        Ok(PipelineResult::Ok) => {
-            // Pipeline may have mutated computed fields — re-read the record.
-            match get_doc(adapter, doctype, &doc_name).await {
-                Ok(doc) => return Ok(serde_json::to_value(doc).unwrap_or(Value::Null)),
-                Err(_)  => return Ok(saved), // fallback: return what was already saved
-            }
-        }
-        Err(e) => {
-            // Pipeline validation/logic failure — roll back new inserts.
-            if is_new && !doc_name.is_empty() {
-                let _ = adapter
-                    .execute(
-                        "DELETE type::record($t, $n);",
-                        vec![
-                            ("t".into(), json!(table)),
-                            ("n".into(), json!(doc_name)),
-                        ],
-                    )
-                    .await;
-            }
-            return Err(SaveProxyError::Pipeline(extract_thrown_message(&e.to_string())));
+    if status == "skipped" || status == "ok" {
+        match get_doc(adapter, doctype, &doc_name).await {
+            Ok(doc) => return Ok(serde_json::to_value(doc).unwrap_or(Value::Null)),
+            Err(e)  => return Err(SaveProxyError::Db(e)),
         }
     }
+
+    // Unexpected status value — surface as a pipeline error.
+    Err(SaveProxyError::Pipeline(format!(
+        "Unexpected pipeline status: {status}"
+    )))
 }
 
 fn take_user_password(doc: &mut Value) -> Result<Option<String>, SaveProxyError> {
@@ -363,7 +361,7 @@ pub async fn submit_doc_proxy(
         }
         Ok(PipelineResult::Skipped) => {
             // No pipeline → plain docstatus flip.
-            let sql = "UPDATE type::record($table, $name) SET docstatus = 1 RETURN AFTER;";
+            let sql = "UPDATE type::record($table, $name) SET docstatus = 1, status = 'Submitted' RETURN AFTER;";
             let rows = adapter
                 .run(
                     sql,
