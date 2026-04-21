@@ -97,6 +97,45 @@ impl DbAdapter {
         }
     }
 
+    /// Execute a multi-statement SQL string and return the rows produced by the
+    /// statement at `result_index` (0-based, counting every statement including
+    /// `BEGIN TRANSACTION` and `COMMIT TRANSACTION`).
+    ///
+    /// The primary use case is wrapping a document write and a pipeline call in
+    /// a single `BEGIN TRANSACTION … COMMIT TRANSACTION` block:
+    ///
+    /// ```text
+    /// BEGIN TRANSACTION;          -- index 0, no rows
+    /// UPSERT … RETURN NONE;       -- index 1, no rows
+    /// RETURN fn::pipeline::run(…);-- index 2, pipeline result
+    /// COMMIT TRANSACTION;         -- index 3, no rows
+    /// ```
+    ///
+    /// If `fn::pipeline::run` THROWs, SurrealDB aborts the whole transaction
+    /// (rolling back the UPSERT) and the SDK returns `Err`.  `run_multi`
+    /// propagates that as `DbError::Surreal`, so the caller just handles `Err`
+    /// without any manual cleanup.
+    pub async fn run_multi(
+        &self,
+        sql: &str,
+        bindings: Vec<(String, Value)>,
+        result_index: usize,
+    ) -> Result<Vec<Value>, DbError> {
+        let mut q = self.db.query(sql);
+        for (k, v) in bindings {
+            q = q.bind((k, v));
+        }
+        match q.await {
+            Err(e) if is_table_not_found(&e) => Ok(vec![]),
+            Err(e) => Err(DbError::Surreal(e)),
+            Ok(mut resp) => match resp.take::<Vec<Value>>(result_index) {
+                Err(e) if is_table_not_found(&e) => Ok(vec![]),
+                Err(e) => Err(DbError::Surreal(e)),
+                Ok(rows) => Ok(rows),
+            },
+        }
+    }
+
     /// Execute SQL, expect exactly one row.
     ///
     /// Returns `DbError::NotFound` when the result set is empty.
