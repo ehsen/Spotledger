@@ -86,3 +86,12 @@ UPSERT tabFiscal_Year:⟨FY-BACKWARDS⟩ CONTENT { name: 'FY-BACKWARDS', year_st
 SELECT * FROM tabFiscal_Year
 RETURN fn::pipeline::run(type::record('tabFiscal_Year', 'FY-BACKWARDS'), 'Fiscal Year', 'save')
 RETURN fn::registry::dispatch('fn::validate::mandatory_fields', tabFiscal_Year:⟨FY-BACKWARDS⟩, {})
+DELETE tabGL_Entry WHERE string::starts_with(name ?? '', 'new-9e81a571-769e-4674-828e-6cd1d3ef6167');
+DELETE tabGL_Entry:0il1obgx365hilreuwgo;
+SELECT id, name FROM tabGL_Entry WHERE string::starts_with(name ?? '', 'new-9e81a571-769e-4674-828e-6cd1d3ef6167');
+SELECT id, name, voucher_no FROM tabGL_Entry WHERE voucher_no = 'new-9e81a571-769e-4674-828e-6cd1d3ef6167' OR string::starts_with(name ?? '', 'new-9e81a571-769e-4674-828e-6cd1d3ef6167');
+SELECT id, name FROM tabGL_Entry WHERE name = 'new-9e81a571-769e-4674-828e-6cd1d3ef6167-GL-0';
+REBUILD INDEX idx_gl_entry_name ON TABLE tabGL_Entry;
+SELECT id, name FROM tabGL_Entry;
+INFO FOR DB;
+SELECT accounts FROM tabJournal_Entry WHERE name = 'new-9e81a571-769e-4674-828e-6cd1d3ef6167';
