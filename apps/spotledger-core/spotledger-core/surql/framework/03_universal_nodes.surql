@@ -31,3 +31,10 @@ IF NOT (SELECT id FROM pipeline_node:on_cancel_mark_cancelled LIMIT 1) THEN
         fn_name: "fn::on_cancel::mark_cancelled"
     };
 END;
+
+IF NOT (SELECT id FROM pipeline_node:on_submit_mark_submitted LIMIT 1) THEN
+    UPSERT pipeline_node:on_submit_mark_submitted CONTENT {
+        name:    "on_submit_mark_submitted",
+        fn_name: "fn::on_submit::mark_submitted"
+    };
+END;

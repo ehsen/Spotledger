@@ -13,9 +13,13 @@
 --   { status: "ok" }                              → pipeline ran successfully
 --   THROW "..."                                   → validation/logic failure; caller should clean up
 --
--- NOTE: Pipeline mutations (compute field updates, GL entry inserts, etc.) execute
--- inside SurrealDB's function transaction boundary.  A THROW rolls back ALL of
--- them atomically.  This provides implicit transaction safety with no extra syntax.
+-- TRANSACTION SAFETY: validation and domain functions that detect an error MUST
+-- call THROW (not RETURN { error }).  Because fn::pipeline::run is invoked as a
+-- single SurrealDB statement, a THROW causes SurrealDB to roll back every
+-- mutation made by that entire statement (compute UPDATEs, GL INSERTs, etc.).
+-- A soft RETURN { error } would leave those mutations committed and produce
+-- orphaned state.  The runner converts soft errors below into THROW so that
+-- callers written to return { error: "..." } are automatically safe.
 DEFINE FUNCTION OVERWRITE fn::pipeline::run(
     $doc_id:  record,
     $doctype: string,
@@ -57,9 +61,11 @@ DEFINE FUNCTION OVERWRITE fn::pipeline::run(
             LET $node   = (SELECT fn_name FROM $edge.out)[0];
             LET $result = fn::registry::dispatch($node.fn_name, $doc_id, $edge.config OR {});
 
-            -- Fail-fast: first error halts all remaining nodes
+            -- Fail-fast: first error halts all remaining nodes.
+            -- THROW (not RETURN) so SurrealDB rolls back all mutations in this
+            -- statement: compute UPDATEs, GL INSERTs, mark_submitted, everything.
             IF type::is_object($result) AND $result.error != NONE {
-                RETURN { status: "error", message: string::concat("[", $node.fn_name, "] ", $result.error) };
+                THROW string::concat("[", $node.fn_name, "] ", <string>$result.error);
             };
         };
     };

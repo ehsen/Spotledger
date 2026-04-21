@@ -144,6 +144,18 @@ DEFINE FUNCTION OVERWRITE fn::pipeline::wire_generic(
             RELATE $cano_rec -> has_node -> pipeline_node:on_cancel_mark_cancelled
                 CONTENT { ord: 99, config: {} };
         };
+
+        -- Wire mark_submitted into submit/on_submit (last node, ord=99).
+        -- This is the canonical way docstatus becomes 1 — inside the pipeline
+        -- call so it is atomically rolled back if any earlier on_submit stage
+        -- throws (e.g. GL entry duplicate key).
+        IF (SELECT id FROM has_node
+                WHERE in  = $subo_rec
+                  AND out = pipeline_node:on_submit_mark_submitted
+                LIMIT 1) = [] {
+            RELATE $subo_rec -> has_node -> pipeline_node:on_submit_mark_submitted
+                CONTENT { ord: 99, config: {} };
+        };
     };
 
     RETURN { ok: true };
