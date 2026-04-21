@@ -14,13 +14,23 @@
 //! | # | Test | Verifies |
 //! |---|------|---------|
 //! | 1 | `test_journal_entry_insert`               | Basic draft insert + fetch round-trip |
-//! | 2 | `test_je_requires_at_least_two_accounts`  | 0 or 1 accounts → save pipeline error |
+//! | 2 | `test_je_requires_at_least_two_accounts`  | 0 or 1 accounts → save pipeline error (THROW) |
 //! | 3 | `test_je_totals_computed_on_save`         | save/compute derives total_debit, total_credit |
-//! | 4 | `test_je_unbalanced_rejected_on_submit`   | total_debit ≠ total_credit → submit error |
-//! | 5 | `test_je_submit_creates_gl_entries`       | balanced submit → GL Entry rows in tabGL_Entry |
+//! | 4 | `test_je_unbalanced_rejected_on_submit`   | total_debit ≠ total_credit → submit error + docstatus stays 0 |
+//! | 5 | `test_je_submit_creates_gl_entries`       | balanced submit → GL entries in tabGL_Entry + docstatus=1 |
 //! | 6 | `test_je_cancel_marks_gl_cancelled`       | cancel after submit → GL Entries set is_cancelled |
 //! | 7 | `test_je_submit_gl_entries_full_fields`   | **Checkpoint**: ALL GL Entry fields verified end-to-end |
-//! | 8 | `test_je_submit_gl_failure_rolls_back`    | **Atomicity**: GL creation failure → error + no partial state |
+//! | 8 | `test_je_submit_gl_failure_rolls_back`    | **Atomicity**: GL creation THROW → no partial state, docstatus=0 |
+//!
+//! ## Key invariants proven by these tests
+//! - Pipeline runner uses THROW (not soft RETURN {error}) so all mutations
+//!   within fn::pipeline::run are atomically rolled back on failure.
+//! - fn::on_submit::mark_submitted (ord=99) is the canonical way docstatus
+//!   becomes 1 — it is inside the pipeline call and therefore rolled back if
+//!   any earlier on_submit stage (e.g. je_create_gl_entries) throws.
+//! - The common/mod.rs test DB has an empty tabDocField so mandatory_fields
+//!   always passes.  In the live server, real tabDocField rows enforce required
+//!   fields — tests must be aware this check is effectively disabled here.
 //!
 //! ## ERPNext parity
 //! Mirrors scenarios from `erpnext/accounts/doctype/journal_entry/test_journal_entry.py`:
@@ -281,6 +291,7 @@ async fn test_je_unbalanced_rejected_on_submit() {
     .await
     .expect("insert unbalanced JE");
 
+    // The runner now THROWs on validation failure, so run_pipeline returns Err.
     let result =
         run_pipeline(&db, "tabJournal_Entry", "JE-UNBAL", "Journal Entry", "submit").await;
     assert!(
@@ -292,6 +303,14 @@ async fn test_je_unbalanced_rejected_on_submit() {
         msg.to_lowercase().contains("balanced") || msg.to_lowercase().contains("balance"),
         "error must mention balance; got: {msg}"
     );
+
+    // JE must still be at docstatus=0 — the pipeline threw, rolling back the
+    // mark_submitted stage (had it reached ord=99, which it didn't).
+    let je = get_doc(&db, "Journal Entry", "JE-UNBAL")
+        .await
+        .expect("JE must still exist after failed submit");
+    let docstatus = je.fields.get("docstatus").and_then(|v| v.as_i64()).unwrap_or(1);
+    assert_eq!(docstatus, 0, "docstatus must remain 0 after a failed submit");
 
     delete_doc(&db, "Journal Entry", "JE-UNBAL").await.ok();
 }
@@ -359,6 +378,13 @@ async fn test_je_submit_creates_gl_entries() {
         (credit - 100.0).abs() < 0.001,
         "GL Entry 1 credit must be 100.0; got {credit}"
     );
+
+    // fn::on_submit::mark_submitted (ord=99) must have set docstatus=1.
+    let je = get_doc(&db, "Journal Entry", "JE-SUBMIT")
+        .await
+        .expect("JE must exist after submit");
+    let docstatus = je.fields.get("docstatus").and_then(|v| v.as_i64()).unwrap_or(0);
+    assert_eq!(docstatus, 1, "JE docstatus must be 1 after successful submit");
 
     delete_doc(&db, "Journal Entry", "JE-SUBMIT").await.ok();
     delete_doc(&db, "GL Entry", "JE-SUBMIT-GL-0").await.ok();
@@ -589,6 +615,20 @@ async fn test_je_submit_gl_entries_full_fields() {
         "GL-1 voucher_no must be the JE name"
     );
 
+    // ── Assert JE docstatus = 1 (mark_submitted ran at ord=99) ───────────────
+    let je_after = get_doc(&db, "Journal Entry", je_name)
+        .await
+        .expect("JE must exist after submit");
+    let je_docstatus = je_after
+        .fields
+        .get("docstatus")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    assert_eq!(
+        je_docstatus, 1,
+        "JE docstatus must be 1 after successful submit (fn::on_submit::mark_submitted)"
+    );
+
     // Cleanup
     delete_doc(&db, "Journal Entry", je_name).await.ok();
     delete_doc(&db, "GL Entry", &format!("{je_name}-GL-0")).await.ok();
@@ -605,13 +645,15 @@ async fn test_je_submit_gl_entries_full_fields() {
 ///
 /// Mechanism: we pre-insert the SECOND GL entry ("JE-ROLLBACK-GL-1") before
 /// calling submit.  The `je_create_gl_entries` loop successfully creates
-/// GL-0, then hits a duplicate-key conflict on GL-1.  Because SurrealDB
-/// executes the pipeline function as a single query-level transaction,
-/// the engine-level INSERT error throws, rolling back GL-0 as well.
+/// GL-0, then hits a duplicate-key conflict on GL-1.  The duplicate-key INSERT
+/// causes SurrealDB to THROW, which aborts the entire fn::pipeline::run(…)
+/// statement, rolling back GL-0.  fn::on_submit::mark_submitted (ord=99) never
+/// ran, so docstatus stays at 0.
 ///
-/// This test therefore validates two invariants simultaneously:
-///   1. Errors during on_submit propagate to the caller as `Err`.
-///   2. No partial GL state persists when creation fails.
+/// This test therefore validates three invariants simultaneously:
+///   1. Hard DB errors (duplicate key) propagate to the caller as `Err`.
+///   2. No partial GL state persists when creation fails (statement rollback).
+///   3. docstatus stays 0 — mark_submitted was never reached.
 #[tokio::test]
 #[cfg_attr(not(feature = "integration"), ignore = "requires live SurrealDB")]
 async fn test_je_submit_gl_failure_rolls_back() {
@@ -699,10 +741,11 @@ async fn test_je_submit_gl_failure_rolls_back() {
     );
 
     // ── Assert 4: the JE itself is still at docstatus=0 (not submitted) ──────
-    // The Rust layer writes the document first, then runs the pipeline.
-    // On pipeline failure, run_pipeline returns Err — the JE docstatus
-    // field is written by the pipeline's on_submit mark-submitted stage,
-    // which is inside the same transaction and therefore rolled back.
+    // fn::on_submit::mark_submitted runs at ord=99 in the submit/on_submit stage.
+    // je_create_gl_entries runs at ord=5 — it threw (duplicate key on GL-1)
+    // before mark_submitted could run.  The THROW caused SurrealDB to roll back
+    // the entire fn::pipeline::run(…) statement, so mark_submitted never fired
+    // and docstatus was never set to 1.
     let je_state = get_doc(&db, "Journal Entry", je_name)
         .await
         .expect("JE must still exist after failed submit");
@@ -713,7 +756,7 @@ async fn test_je_submit_gl_failure_rolls_back() {
         .unwrap_or(1); // default 1 would fail the assert
     assert_eq!(
         je_docstatus, 0,
-        "JE docstatus must remain 0 after a failed submit (pipeline rollback)"
+        "JE docstatus must remain 0 after a failed submit (THROW rolled back mark_submitted)"
     );
 
     // Cleanup
