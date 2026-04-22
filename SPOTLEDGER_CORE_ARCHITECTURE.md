@@ -8,7 +8,15 @@
 
 ## 1. What Spotledger Is
 
-Spotledger is a **Frappe-compatible ERP backend** rewritten in Rust, using SurrealDB as the database. It is not a wrapper around Frappe — it is a ground-up re-implementation that speaks the same HTTP API so that the existing Frappe/ERPNext React UI (`Spotledger-ui`) continues to work unchanged.
+Spotledger is a **Frappe like framwork ** rewritten in Rust, using SurrealDB as the database. It is not a wrapper around Frappe — it is a ground-up re-implementation that speaks the same HTTP API to a certain degree.
+
+**Importtant Note**
+We are not a replica of frappe or something its major architectureal 
+shift, the only thing that we pick from frappe is meta data based rendering
+and frappe metadata (even though that will be greatly enhanced)
+
+-- Its an APP platform (which on surface is low code, AI Native, but you 
+can technically write anything in it using Rust too)
 
 The guiding principle is a strict **engine / knowledge-base** split:
 
