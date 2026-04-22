@@ -37,21 +37,35 @@ pub async fn handle_search_link(
         return Ok(json!([]));
     }
 
+    // Accept both `txt` (Frappe) and `query` as a defensive fallback.
+    // Values may be parsed as non-strings by parse_form_params (e.g. "1200" -> Number).
     let txt = params
         .get("txt")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim()
-        .to_string();
+        .or_else(|| params.get("query"))
+        .map(value_to_search_text)
+        .unwrap_or_default();
     let page_length = params
         .get("page_length")
-        .and_then(|v| v.as_u64())
+        .and_then(value_to_u64)
         .unwrap_or(10) as usize;
+
+    tracing::debug!(
+        doctype = %doctype,
+        txt = %txt,
+        txt_raw = ?params.get("txt"),
+        query_raw = ?params.get("query"),
+        page_length,
+        "search_link params"
+    );
 
     // ── server-side cache ────────────────────────────────────────────────────
     let cache_key = (doctype.clone(), format!("{txt}:{page_length}"));
-    if let Some(cached) = site.search_cache.get(&cache_key).await {
-        return Ok(cached);
+    // Cache only the empty-query bootstrap list. Typed autocomplete should stay
+    // fresh and must not be affected by stale intermediate values.
+    if txt.is_empty() {
+        if let Some(cached) = site.search_cache.get(&cache_key).await {
+            return Ok(cached);
+        }
     }
 
     // ── resolve title_field / search_fields ──────────────────────────────────
@@ -82,8 +96,10 @@ pub async fn handle_search_link(
         (sql, vec![])
     } else {
         // Build OR conditions: one per searchable field.
-        // string::contains(string::lowercase(field), $q) — case-insensitive substring.
+        // Use an inlined, safely escaped literal for q because parameter binding
+        // has been unreliable in some SurrealDB v3 runtime paths.
         let txt_lower = txt.to_lowercase();
+        let q_lit = surql_string_literal(&txt_lower);
 
         let mut searchable: Vec<String> = vec!["name".to_string()];
         if title_field != "name" {
@@ -96,12 +112,13 @@ pub async fn handle_search_link(
         }
 
         // `field ?? ""` — null-coalescing: returns "" if field is NONE/absent.
+        // `<string>(...)` makes matching stable even if the source column is not a string.
         // string::lowercase + string::contains = case-insensitive substring match.
         let conditions: Vec<String> = searchable
             .iter()
             .map(|col| {
                 format!(
-                    "string::contains(string::lowercase(`{col}` ?? \"\"), $q)"
+                    "string::contains(string::lowercase(<string>(`{col}` ?? \"\")), {q_lit})"
                 )
             })
             .collect();
@@ -110,10 +127,10 @@ pub async fn handle_search_link(
         let sql = format!(
             "SELECT {field_clause} FROM `{table}` WHERE {where_clause} LIMIT {page_length}"
         );
-        (sql, vec![("q".to_string(), Value::String(txt_lower))])
+        (sql, vec![])
     };
 
-    tracing::debug!(%sql, "search_link");
+    tracing::debug!(%sql, ?bindings, "search_link sql");
 
     let rows = match site.db.run(&sql, bindings).await {
         Ok(r) => r,
@@ -154,7 +171,9 @@ pub async fn handle_search_link(
         .collect();
 
     let response = json!(results);
-    site.search_cache.insert(cache_key, response.clone()).await;
+    if txt.is_empty() {
+        site.search_cache.insert(cache_key, response.clone()).await;
+    }
     Ok(response)
 }
 
@@ -318,4 +337,27 @@ async fn resolve_search_fields(
 
 fn urlencoded(s: &str) -> String {
     s.replace(' ', "%20")
+}
+
+fn value_to_search_text(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.trim().to_string(),
+        Value::Number(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Null => String::new(),
+        other => other.to_string().trim_matches('"').to_string(),
+    }
+}
+
+fn value_to_u64(v: &Value) -> Option<u64> {
+    match v {
+        Value::Number(n) => n.as_u64(),
+        Value::String(s) => s.parse::<u64>().ok(),
+        _ => None,
+    }
+}
+
+fn surql_string_literal(s: &str) -> String {
+    let escaped = s.replace('\\', "\\\\").replace('\'', "\\'");
+    format!("'{escaped}'")
 }
